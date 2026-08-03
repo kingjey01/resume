@@ -1,0 +1,84 @@
+plugins {
+    id "com.android.application"
+    id "kotlin-android"
+    // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
+    id "dev.flutter.flutter-gradle-plugin"
+    id "com.google.gms.google-services"
+}
+
+// Charger les propriétés du keystore depuis android/key.properties (non versionné)
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+if (keystorePropertiesFile.exists()) {
+    keystoreProperties.load(new FileInputStream(keystorePropertiesFile))
+}
+
+android {
+    namespace = "com.resumeplus.jeycode"
+    compileSdk = 36
+    ndkVersion = "25.1.8937393"
+
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_11
+        targetCompatibility = JavaVersion.VERSION_11
+        // Enable core library desugaring for older Android versions
+        coreLibraryDesugaringEnabled true
+    }
+
+    kotlinOptions {
+        jvmTarget = "11"
+    }
+
+    defaultConfig {
+        applicationId = "com.resumeplus.jeycode"
+        minSdk = 21
+        targetSdk = 35
+        versionCode = 8
+        versionName = "1.0.2"
+        multiDexEnabled true
+    }
+
+    signingConfigs {
+        release {
+            if (keystorePropertiesFile.exists()) {
+                keyAlias keystoreProperties['keyAlias']
+                keyPassword keystoreProperties['keyPassword']
+                storeFile file(keystoreProperties['storeFile'])
+                storePassword keystoreProperties['storePassword']
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            // Signature release via android/key.properties (fallback debug si absent)
+            signingConfig = keystorePropertiesFile.exists() ? signingConfigs.release : signingConfigs.debug
+            minifyEnabled false
+            shrinkResources false
+        }
+    }
+
+    // ABI splits - generate a universal APK and per-ABI splits
+    // This ensures both 32-bit (armeabi-v7a) and 64-bit (arm64-v8a) native libs are available
+    // when installing debug APKs, preventing libflutter.so missing errors.
+    splits {
+        abi {
+            enable true
+            reset()
+            include 'armeabi-v7a', 'arm64-v8a'
+            // Also build a universal APK that bundles all ABIs for easy sideloading
+            universalApk true
+        }
+    }
+}
+
+dependencies {
+    // Core library desugaring for older Android versions (fixes record plugin Bluetooth issue)
+    coreLibraryDesugaring 'com.android.tools:desugar_jdk_libs:2.0.4'
+    // Badge sur icône d'application (ShortcutBadger)
+    implementation 'me.leolin:ShortcutBadger:1.1.22@aar'
+}
+
+flutter {
+    source = "../.."
+}

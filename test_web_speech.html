@@ -1,0 +1,702 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎤 Test Enregistrement Audio - Diagnostic Web</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            max-width: 900px;
+            margin: 0 auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a24 100%);
+            min-height: 100vh;
+            color: #333;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .header h1 {
+            color: #ee5a24;
+            margin: 0;
+            font-size: 2.5em;
+        }
+        
+        .status {
+            padding: 15px;
+            border-radius: 10px;
+            margin: 20px 0;
+            font-weight: bold;
+        }
+        
+        .status.success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border-left: 4px solid #4caf50;
+        }
+        
+        .status.error {
+            background: #ffebee;
+            color: #c62828;
+            border-left: 4px solid #f44336;
+        }
+        
+        .status.info {
+            background: #e3f2fd;
+            color: #1565c0;
+            border-left: 4px solid #2196F3;
+        }
+        
+        .status.warning {
+            background: #fff3e0;
+            color: #ef6c00;
+            border-left: 4px solid #ff9800;
+        }
+        
+        .card {
+            background: #f8f9fa;
+            border-radius: 15px;
+            padding: 20px;
+            margin: 15px 0;
+            border: 2px solid #e0e0e0;
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 5px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        
+        .btn-primary {
+            background: #2196F3;
+            color: white;
+        }
+        
+        .btn-success {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .btn-danger {
+            background: #f44336;
+            color: white;
+        }
+        
+        .btn-warning {
+            background: #ff9800;
+            color: white;
+        }
+        
+        .btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .progress-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin: 10px 0;
+        }
+        
+        .progress-fill {
+            height: 100%;
+            background: #ee5a24;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .log-container {
+            background: #1a1a1a;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            height: 200px;
+            overflow-y: auto;
+            margin: 15px 0;
+        }
+        
+        .controls {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            justify-content: center;
+            margin: 20px 0;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 20px 0;
+        }
+        
+        .info-item {
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #ee5a24;
+        }
+        
+        .info-item h4 {
+            margin: 0 0 8px 0;
+            color: #ee5a24;
+        }
+        
+        .info-item p {
+            margin: 0;
+            color: #666;
+        }
+        
+        .recording-indicator {
+            display: none;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            padding: 15px;
+            background: #ffebee;
+            border-radius: 10px;
+            border: 2px solid #f44336;
+            margin: 15px 0;
+        }
+        
+        .recording-indicator.active {
+            display: flex;
+        }
+        
+        .pulse {
+            width: 12px;
+            height: 12px;
+            background: #f44336;
+            border-radius: 50%;
+            animation: pulse 1s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.2); opacity: 0.7; }
+            100% { transform: scale(1); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎤 Test Enregistrement Audio</h1>
+            <p>Diagnostic complet des capacités d'enregistrement web</p>
+        </div>
+
+        <div id="status"></div>
+
+        <div class="card">
+            <h3>🔍 Diagnostic du Système</h3>
+            <div class="controls">
+                <button class="btn btn-primary" onclick="runDiagnostic()">
+                    🔍 Lancer Diagnostic
+                </button>
+                <button class="btn btn-warning" onclick="testPermissions()">
+                    🔐 Test Permissions
+                </button>
+            </div>
+            <div id="diagnosticResults"></div>
+        </div>
+
+        <div class="card">
+            <h3>🎤 Test d'Enregistrement</h3>
+            <div class="controls">
+                <button class="btn btn-success" id="startBtn" onclick="startRecording()">
+                    ▶️ Démarrer
+                </button>
+                <button class="btn btn-warning" id="pauseBtn" onclick="pauseRecording()" disabled>
+                    ⏸️ Pause
+                </button>
+                <button class="btn btn-primary" id="resumeBtn" onclick="resumeRecording()" disabled>
+                    ▶️ Reprendre
+                </button>
+                <button class="btn btn-danger" id="stopBtn" onclick="stopRecording()" disabled>
+                    ⏹️ Arrêter
+                </button>
+            </div>
+            
+            <div class="recording-indicator" id="recordingIndicator">
+                <div class="pulse"></div>
+                <span>🎤 Enregistrement en cours... <span id="recordingTime">00:00</span></span>
+            </div>
+            
+            <div class="progress-bar">
+                <div class="progress-fill" id="progressFill"></div>
+            </div>
+            
+            <div id="audioPlayback"></div>
+        </div>
+
+        <div class="card">
+            <h3>📊 Informations Système</h3>
+            <div class="info-grid" id="systemInfo"></div>
+        </div>
+
+        <div class="card">
+            <h3>📝 Journal de Debug</h3>
+            <button class="btn btn-primary" onclick="clearLog()">🗑️ Effacer</button>
+            <div class="log-container" id="logContainer"></div>
+        </div>
+    </div>
+
+    <script>
+        let mediaRecorder = null;
+        let audioChunks = [];
+        let stream = null;
+        let recordingStartTime = null;
+        let recordingTimer = null;
+        let isPaused = false;
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logContainer = document.getElementById('logContainer');
+            const logEntry = document.createElement('div');
+            
+            const prefix = {
+                'info': '📋',
+                'success': '✅',
+                'error': '❌',
+                'warning': '⚠️'
+            }[type] || '📋';
+            
+            logEntry.textContent = `${timestamp} ${prefix} ${message}`;
+            logContainer.insertBefore(logEntry, logContainer.firstChild);
+            
+            // Limiter à 50 entrées
+            while (logContainer.children.length > 50) {
+                logContainer.removeChild(logContainer.lastChild);
+            }
+        }
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = `status ${type}`;
+            statusDiv.innerHTML = message;
+        }
+
+        function clearLog() {
+            document.getElementById('logContainer').innerHTML = '';
+        }
+
+        async function runDiagnostic() {
+            log('🔍 Début du diagnostic système...', 'info');
+            showStatus('🔄 Diagnostic en cours...', 'info');
+            
+            const results = {};
+            
+            try {
+                // 1. Vérifier le support MediaRecorder
+                results.mediaRecorderSupported = typeof MediaRecorder !== 'undefined';
+                log(`MediaRecorder supporté: ${results.mediaRecorderSupported}`, results.mediaRecorderSupported ? 'success' : 'error');
+                
+                // 2. Vérifier getUserMedia
+                results.getUserMediaSupported = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+                log(`getUserMedia supporté: ${results.getUserMediaSupported}`, results.getUserMediaSupported ? 'success' : 'error');
+                
+                // 3. Vérifier les codecs supportés
+                if (results.mediaRecorderSupported) {
+                    const codecs = ['audio/webm', 'audio/mp4', 'audio/wav', 'audio/ogg'];
+                    results.supportedCodecs = [];
+                    
+                    for (const codec of codecs) {
+                        if (MediaRecorder.isTypeSupported(codec)) {
+                            results.supportedCodecs.push(codec);
+                        }
+                    }
+                    log(`Codecs supportés: ${results.supportedCodecs.join(', ')}`, 'success');
+                }
+                
+                // 4. Informations navigateur
+                results.userAgent = navigator.userAgent;
+                results.platform = navigator.platform;
+                results.language = navigator.language;
+                
+                // 5. Vérifier HTTPS
+                results.isHTTPS = location.protocol === 'https:';
+                log(`Connexion sécurisée (HTTPS): ${results.isHTTPS}`, results.isHTTPS ? 'success' : 'warning');
+                
+                if (!results.isHTTPS && location.hostname !== 'localhost') {
+                    log('⚠️ L\'enregistrement audio nécessite HTTPS en production', 'warning');
+                }
+                
+                displayDiagnosticResults(results);
+                displaySystemInfo(results);
+                
+                const canRecord = results.mediaRecorderSupported && results.getUserMediaSupported && results.supportedCodecs.length > 0;
+                
+                if (canRecord) {
+                    showStatus('✅ Système compatible avec l\'enregistrement audio!', 'success');
+                    log('✅ Diagnostic réussi - Enregistrement possible', 'success');
+                } else {
+                    showStatus('❌ Système incompatible avec l\'enregistrement audio', 'error');
+                    log('❌ Diagnostic échoué - Enregistrement impossible', 'error');
+                }
+                
+            } catch (error) {
+                log(`❌ Erreur lors du diagnostic: ${error.message}`, 'error');
+                showStatus(`❌ Erreur de diagnostic: ${error.message}`, 'error');
+            }
+        }
+
+        function displayDiagnosticResults(results) {
+            const container = document.getElementById('diagnosticResults');
+            
+            let html = '<div class="info-grid">';
+            
+            const items = [
+                { label: 'MediaRecorder', value: results.mediaRecorderSupported ? '✅ Supporté' : '❌ Non supporté' },
+                { label: 'getUserMedia', value: results.getUserMediaSupported ? '✅ Supporté' : '❌ Non supporté' },
+                { label: 'Codecs', value: results.supportedCodecs ? results.supportedCodecs.length + ' supportés' : '❌ Aucun' },
+                { label: 'HTTPS', value: results.isHTTPS ? '✅ Sécurisé' : '⚠️ Non sécurisé' }
+            ];
+            
+            items.forEach(item => {
+                html += `
+                    <div class="info-item">
+                        <h4>${item.label}</h4>
+                        <p>${item.value}</p>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            container.innerHTML = html;
+        }
+
+        function displaySystemInfo(results) {
+            const container = document.getElementById('systemInfo');
+            
+            let html = '';
+            
+            const info = [
+                { label: 'Navigateur', value: navigator.userAgent.split(' ').pop() },
+                { label: 'Plateforme', value: results.platform },
+                { label: 'Langue', value: results.language },
+                { label: 'Codecs Audio', value: results.supportedCodecs ? results.supportedCodecs.join(', ') : 'Aucun' }
+            ];
+            
+            info.forEach(item => {
+                html += `
+                    <div class="info-item">
+                        <h4>${item.label}</h4>
+                        <p>${item.value}</p>
+                    </div>
+                `;
+            });
+            
+            container.innerHTML = html;
+        }
+
+        async function testPermissions() {
+            log('🔐 Test des permissions microphone...', 'info');
+            showStatus('🔄 Test des permissions en cours...', 'info');
+            
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                log('✅ Permissions microphone accordées', 'success');
+                showStatus('✅ Permissions microphone OK!', 'success');
+                
+                // Arrêter le stream de test
+                stream.getTracks().forEach(track => track.stop());
+                
+            } catch (error) {
+                log(`❌ Erreur de permissions: ${error.message}`, 'error');
+                showStatus(`❌ Permissions refusées: ${error.message}`, 'error');
+                
+                if (error.name === 'NotAllowedError') {
+                    showStatus('❌ Permissions microphone refusées par l\'utilisateur', 'error');
+                } else if (error.name === 'NotFoundError') {
+                    showStatus('❌ Aucun microphone détecté', 'error');
+                } else if (error.name === 'NotSupportedError') {
+                    showStatus('❌ Enregistrement audio non supporté', 'error');
+                }
+            }
+        }
+
+        async function startRecording() {
+            log('🎤 Tentative de démarrage de l\'enregistrement...', 'info');
+            
+            try {
+                // Demander l'accès au microphone
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        sampleRate: 44100
+                    }
+                });
+                
+                log('✅ Accès microphone obtenu', 'success');
+                
+                // Choisir le meilleur codec disponible
+                let mimeType = 'audio/webm';
+                if (MediaRecorder.isTypeSupported('audio/webm;codecs=opus')) {
+                    mimeType = 'audio/webm;codecs=opus';
+                } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                    mimeType = 'audio/mp4';
+                } else if (MediaRecorder.isTypeSupported('audio/wav')) {
+                    mimeType = 'audio/wav';
+                }
+                
+                log(`📊 Codec utilisé: ${mimeType}`, 'info');
+                
+                // Créer le MediaRecorder
+                mediaRecorder = new MediaRecorder(stream, { mimeType });
+                audioChunks = [];
+                
+                // Événements MediaRecorder
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        audioChunks.push(event.data);
+                        log(`📦 Chunk reçu: ${event.data.size} bytes`, 'info');
+                    }
+                };
+                
+                mediaRecorder.onstart = () => {
+                    log('✅ Enregistrement démarré', 'success');
+                    recordingStartTime = Date.now();
+                    startRecordingTimer();
+                    updateUI('recording');
+                };
+                
+                mediaRecorder.onstop = () => {
+                    log('⏹️ Enregistrement arrêté', 'info');
+                    stopRecordingTimer();
+                    processRecording();
+                    updateUI('stopped');
+                };
+                
+                mediaRecorder.onpause = () => {
+                    log('⏸️ Enregistrement en pause', 'info');
+                    isPaused = true;
+                    updateUI('paused');
+                };
+                
+                mediaRecorder.onresume = () => {
+                    log('▶️ Enregistrement repris', 'info');
+                    isPaused = false;
+                    updateUI('recording');
+                };
+                
+                mediaRecorder.onerror = (event) => {
+                    log(`❌ Erreur MediaRecorder: ${event.error}`, 'error');
+                    showStatus(`❌ Erreur d'enregistrement: ${event.error}`, 'error');
+                };
+                
+                // Démarrer l'enregistrement
+                mediaRecorder.start(1000); // Chunk toutes les secondes
+                
+            } catch (error) {
+                log(`❌ Erreur de démarrage: ${error.message}`, 'error');
+                showStatus(`❌ Impossible de démarrer: ${error.message}`, 'error');
+            }
+        }
+
+        function pauseRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                mediaRecorder.pause();
+            }
+        }
+
+        function resumeRecording() {
+            if (mediaRecorder && mediaRecorder.state === 'paused') {
+                mediaRecorder.resume();
+            }
+        }
+
+        function stopRecording() {
+            if (mediaRecorder && (mediaRecorder.state === 'recording' || mediaRecorder.state === 'paused')) {
+                mediaRecorder.stop();
+                
+                // Arrêter le stream
+                if (stream) {
+                    stream.getTracks().forEach(track => track.stop());
+                    stream = null;
+                }
+            }
+        }
+
+        function processRecording() {
+            if (audioChunks.length === 0) {
+                log('❌ Aucune donnée audio enregistrée', 'error');
+                showStatus('❌ Enregistrement vide - aucune donnée audio', 'error');
+                return;
+            }
+            
+            const totalSize = audioChunks.reduce((total, chunk) => total + chunk.size, 0);
+            log(`📊 Traitement de ${audioChunks.length} chunks, taille totale: ${totalSize} bytes`, 'info');
+            
+            if (totalSize < 1000) {
+                log('⚠️ Fichier audio très petit, possible problème d\'enregistrement', 'warning');
+                showStatus('⚠️ Enregistrement très court ou vide', 'warning');
+            }
+            
+            // Créer le blob audio
+            const audioBlob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+            const audioUrl = URL.createObjectURL(audioBlob);
+            
+            log(`✅ Audio créé: ${audioBlob.size} bytes, type: ${audioBlob.type}`, 'success');
+            showStatus(`✅ Enregistrement terminé! Taille: ${(audioBlob.size / 1024).toFixed(1)} KB`, 'success');
+            
+            // Créer le lecteur audio
+            const playbackContainer = document.getElementById('audioPlayback');
+            playbackContainer.innerHTML = `
+                <div style="margin-top: 15px; padding: 15px; background: white; border-radius: 8px; border: 2px solid #4caf50;">
+                    <h4 style="margin: 0 0 10px 0; color: #4caf50;">🎵 Enregistrement Terminé</h4>
+                    <p><strong>Taille:</strong> ${(audioBlob.size / 1024).toFixed(1)} KB</p>
+                    <p><strong>Type:</strong> ${audioBlob.type}</p>
+                    <audio controls style="width: 100%; margin: 10px 0;">
+                        <source src="${audioUrl}" type="${audioBlob.type}">
+                        Votre navigateur ne supporte pas la lecture audio.
+                    </audio>
+                    <div style="margin-top: 10px;">
+                        <button class="btn btn-primary" onclick="downloadAudio('${audioUrl}', '${audioBlob.type}')">
+                            💾 Télécharger
+                        </button>
+                        <button class="btn btn-success" onclick="testUpload('${audioUrl}')">
+                            📤 Test Upload
+                        </button>
+                    </div>
+                </div>
+            `;
+        }
+
+        function downloadAudio(url, type) {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `test_recording_${Date.now()}.${type.includes('webm') ? 'webm' : 'wav'}`;
+            a.click();
+            log('💾 Téléchargement initié', 'success');
+        }
+
+        async function testUpload(audioUrl) {
+            log('📤 Test d\'upload vers le serveur...', 'info');
+            showStatus('🔄 Test d\'upload en cours...', 'info');
+            
+            try {
+                // Convertir l'URL en blob
+                const response = await fetch(audioUrl);
+                const audioBlob = await response.blob();
+                
+                // Créer FormData
+                const formData = new FormData();
+                formData.append('audio_file', audioBlob, 'test_recording.wav');
+                formData.append('course_id', '1');
+                formData.append('title', 'Test depuis navigateur');
+                
+                // Upload vers le serveur
+                const uploadResponse = await fetch('https://resumecours.gestionhospitaliare.site/api/courses/sessions/upload-audio/', {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': 'Token 9743c81fdd50b11c38a55fb9de24c56d8d4857dd'
+                    },
+                    body: formData
+                });
+                
+                if (uploadResponse.ok) {
+                    const result = await uploadResponse.json();
+                    log('✅ Upload réussi!', 'success');
+                    showStatus('✅ Upload vers le serveur réussi!', 'success');
+                } else {
+                    throw new Error(`Erreur ${uploadResponse.status}: ${uploadResponse.statusText}`);
+                }
+                
+            } catch (error) {
+                log(`❌ Erreur d'upload: ${error.message}`, 'error');
+                showStatus(`❌ Échec upload: ${error.message}`, 'error');
+            }
+        }
+
+        function updateUI(state) {
+            const startBtn = document.getElementById('startBtn');
+            const pauseBtn = document.getElementById('pauseBtn');
+            const resumeBtn = document.getElementById('resumeBtn');
+            const stopBtn = document.getElementById('stopBtn');
+            const indicator = document.getElementById('recordingIndicator');
+            
+            // Reset all
+            [startBtn, pauseBtn, resumeBtn, stopBtn].forEach(btn => btn.disabled = false);
+            indicator.classList.remove('active');
+            
+            switch (state) {
+                case 'recording':
+                    startBtn.disabled = true;
+                    resumeBtn.disabled = true;
+                    indicator.classList.add('active');
+                    break;
+                case 'paused':
+                    startBtn.disabled = true;
+                    pauseBtn.disabled = true;
+                    break;
+                case 'stopped':
+                    pauseBtn.disabled = true;
+                    resumeBtn.disabled = true;
+                    stopBtn.disabled = true;
+                    break;
+            }
+        }
+
+        function startRecordingTimer() {
+            recordingTimer = setInterval(() => {
+                if (recordingStartTime && !isPaused) {
+                    const elapsed = Math.floor((Date.now() - recordingStartTime) / 1000);
+                    const minutes = Math.floor(elapsed / 60).toString().padStart(2, '0');
+                    const seconds = (elapsed % 60).toString().padStart(2, '0');
+                    document.getElementById('recordingTime').textContent = `${minutes}:${seconds}`;
+                    
+                    // Mise à jour de la barre de progression (max 60 secondes)
+                    const progress = Math.min((elapsed / 60) * 100, 100);
+                    document.getElementById('progressFill').style.width = `${progress}%`;
+                }
+            }, 1000);
+        }
+
+        function stopRecordingTimer() {
+            if (recordingTimer) {
+                clearInterval(recordingTimer);
+                recordingTimer = null;
+            }
+            document.getElementById('recordingTime').textContent = '00:00';
+            document.getElementById('progressFill').style.width = '0%';
+        }
+
+        // Initialisation
+        window.addEventListener('load', () => {
+            log('🚀 Page de test chargée', 'info');
+            showStatus('📋 Prêt pour les tests. Commencez par le diagnostic.', 'info');
+            updateUI('stopped');
+        });
+    </script>
+</body>
+</html>

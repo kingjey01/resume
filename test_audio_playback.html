@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Test Lecture Audio - Résumé+</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #2196F3;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .audio-test {
+            margin: 20px 0;
+            padding: 20px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            background-color: #fafafa;
+        }
+        .audio-test h3 {
+            color: #333;
+            margin-top: 0;
+        }
+        audio {
+            width: 100%;
+            margin: 10px 0;
+        }
+        .info {
+            background-color: #e3f2fd;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            border-left: 4px solid #2196F3;
+        }
+        .success {
+            background-color: #e8f5e8;
+            border-left-color: #4caf50;
+        }
+        .error {
+            background-color: #ffebee;
+            border-left-color: #f44336;
+        }
+        .test-button {
+            background-color: #2196F3;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        .test-button:hover {
+            background-color: #1976D2;
+        }
+        .status {
+            margin: 10px 0;
+            padding: 10px;
+            border-radius: 5px;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎵 Test de Lecture Audio - Résumé+</h1>
+        
+        <div class="info">
+            <strong>📋 Instructions :</strong><br>
+            Cette page teste la lecture des fichiers audio uploadés sur votre serveur.
+            Cliquez sur "Tester les Fichiers Audio" pour charger et tester la lecture.
+        </div>
+
+        <div style="text-align: center; margin: 20px 0;">
+            <button class="test-button" onclick="loadAudioSessions()">🔄 Tester les Fichiers Audio</button>
+            <button class="test-button" onclick="testDirectUrls()">🎯 Test URLs Directes</button>
+        </div>
+
+        <div id="status" class="status" style="display: none;"></div>
+        <div id="audioContainer"></div>
+    </div>
+
+    <script>
+        const BASE_URL = 'https://resumecours.gestionhospitaliare.site';
+        const TOKEN = '9743c81fdd50b11c38a55fb9de24c56d8d4857dd';
+
+        function showStatus(message, type = 'info') {
+            const statusDiv = document.getElementById('status');
+            statusDiv.style.display = 'block';
+            statusDiv.className = `status ${type}`;
+            statusDiv.innerHTML = message;
+        }
+
+        function createAudioPlayer(session) {
+            const audioFile = session.audio_file;
+            const audioUrl = audioFile.startsWith('http') ? audioFile : `${BASE_URL}${audioFile}`;
+            
+            const div = document.createElement('div');
+            div.className = 'audio-test';
+            
+            div.innerHTML = `
+                <h3>🎵 ${session.title || 'Sans titre'} (ID: ${session.id})</h3>
+                <p><strong>Cours:</strong> ${session.course_name || 'Inconnu'}</p>
+                <p><strong>Professeur:</strong> ${session.professor || 'Inconnu'}</p>
+                <p><strong>Date:</strong> ${new Date(session.created_at).toLocaleString('fr-FR')}</p>
+                <p><strong>URL:</strong> <a href="${audioUrl}" target="_blank">${audioUrl}</a></p>
+                
+                <audio controls preload="metadata">
+                    <source src="${audioUrl}" type="audio/wav">
+                    <source src="${audioUrl}" type="audio/mpeg">
+                    Votre navigateur ne supporte pas l'élément audio.
+                </audio>
+                
+                <div style="margin-top: 10px;">
+                    <button class="test-button" onclick="testAudioUrl('${audioUrl}')">🔍 Tester URL</button>
+                    <button class="test-button" onclick="playAudio('${audioUrl}')">▶️ Lecture JS</button>
+                </div>
+                
+                <div id="test-${session.id}" style="margin-top: 10px;"></div>
+            `;
+            
+            return div;
+        }
+
+        async function loadAudioSessions() {
+            showStatus('🔄 Chargement des sessions audio...', 'info');
+            
+            try {
+                const response = await fetch(`${BASE_URL}/api/courses/sessions/`, {
+                    headers: {
+                        'Authorization': `Token ${TOKEN}`,
+                        'Content-Type': 'application/json'
+                    }
+                });
+
+                if (!response.ok) {
+                    throw new Error(`Erreur ${response.status}: ${response.statusText}`);
+                }
+
+                const data = await response.json();
+                const sessions = Array.isArray(data) ? data : (data.results || []);
+                const audioSessions = sessions.filter(s => s.audio_file);
+
+                showStatus(`✅ ${audioSessions.length} sessions audio trouvées`, 'success');
+
+                const container = document.getElementById('audioContainer');
+                container.innerHTML = '';
+
+                if (audioSessions.length === 0) {
+                    container.innerHTML = '<div class="info error">❌ Aucune session avec fichier audio trouvée</div>';
+                    return;
+                }
+
+                audioSessions.forEach(session => {
+                    container.appendChild(createAudioPlayer(session));
+                });
+
+            } catch (error) {
+                showStatus(`❌ Erreur: ${error.message}`, 'error');
+                console.error('Erreur:', error);
+            }
+        }
+
+        async function testAudioUrl(url) {
+            console.log('🔍 Test de l\'URL:', url);
+            
+            try {
+                const response = await fetch(url, { method: 'HEAD' });
+                const message = response.ok 
+                    ? `✅ URL accessible (${response.status})`
+                    : `❌ URL inaccessible (${response.status})`;
+                
+                console.log(message);
+                return response.ok;
+            } catch (error) {
+                console.error('❌ Erreur de test URL:', error);
+                return false;
+            }
+        }
+
+        function playAudio(url) {
+            console.log('▶️ Lecture audio:', url);
+            
+            const audio = new Audio(url);
+            
+            audio.addEventListener('loadstart', () => {
+                console.log('🔄 Début du chargement');
+            });
+            
+            audio.addEventListener('canplay', () => {
+                console.log('✅ Prêt à jouer');
+            });
+            
+            audio.addEventListener('play', () => {
+                console.log('▶️ Lecture démarrée');
+            });
+            
+            audio.addEventListener('error', (e) => {
+                console.error('❌ Erreur de lecture:', e);
+            });
+            
+            audio.play().catch(error => {
+                console.error('❌ Erreur play():', error);
+            });
+        }
+
+        async function testDirectUrls() {
+            showStatus('🎯 Test des URLs directes...', 'info');
+            
+            const testUrls = [
+                `${BASE_URL}/media/audio_sessions/test_recording.wav`,
+                `${BASE_URL}/media/audio_sessions/recording_1764107027509.wav`,
+                `${BASE_URL}/media/audio_sessions/recording_1764106852597.wav`
+            ];
+
+            const container = document.getElementById('audioContainer');
+            container.innerHTML = '<h3>🎯 Test URLs Directes</h3>';
+
+            for (const url of testUrls) {
+                const div = document.createElement('div');
+                div.className = 'audio-test';
+                
+                const filename = url.split('/').pop();
+                
+                div.innerHTML = `
+                    <h4>📁 ${filename}</h4>
+                    <p><strong>URL:</strong> <a href="${url}" target="_blank">${url}</a></p>
+                    <audio controls preload="metadata">
+                        <source src="${url}" type="audio/wav">
+                        Votre navigateur ne supporte pas l'élément audio.
+                    </audio>
+                    <div style="margin-top: 10px;">
+                        <button class="test-button" onclick="testAudioUrl('${url}')">🔍 Tester</button>
+                        <button class="test-button" onclick="playAudio('${url}')">▶️ Jouer</button>
+                    </div>
+                `;
+                
+                container.appendChild(div);
+            }
+
+            showStatus('✅ URLs directes chargées', 'success');
+        }
+
+        // Test automatique au chargement
+        window.addEventListener('load', () => {
+            console.log('🚀 Page de test audio chargée');
+            showStatus('📋 Prêt pour les tests. Cliquez sur "Tester les Fichiers Audio"', 'info');
+        });
+    </script>
+</body>
+</html>

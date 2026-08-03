@@ -1,0 +1,25 @@
+TOKENS D'AUTHENTIFICATION - RESUME+
+==================================================
+Générés le: 25/11/2025 à 13:38:21
+Serveur: https://resumecours.gestionhospitaliare.site
+
+ADMIN - admin@test.com
+Token: BpwHsEvK2pHR6gLvBrT0jES9cbUeeghNMKmhNEk5
+User ID: 1
+--------------------------------------------------
+
+CP - cp@test.com
+Token: 65VjgtKRTHIiH39fnp5WOL7GLGohjT8L3yD5SqXb
+User ID: 2
+--------------------------------------------------
+
+ETUDIANT - etudiant@test.com
+Token: pX7RHPWf4l3XvRLeeMrXHaHLpFmecutaOFYhrK8n
+User ID: 3
+--------------------------------------------------
+
+UTILISATION DANS FLUTTER:
+headers: {
+  'Authorization': 'Token YOUR_TOKEN_HERE',
+  'Content-Type': 'application/json',
+}

@@ -1,0 +1,48 @@
+# ========================================
+# FICHIER .env POUR PRODUCTION - Resume+
+# ========================================
+# Copiez ce fichier en .env et modifiez les valeurs
+
+# ========================================
+# SÉCURITÉ (OBLIGATOIRE - À CHANGER!)
+# ========================================
+# Générez une nouvelle clé avec: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"
+SECRET_KEY=votre-cle-secrete-generee-ici-minimum-50-caracteres
+
+# Mode debug - TOUJOURS False en production!
+DEBUG=False
+
+# ========================================
+# HOSTS AUTORISÉS
+# ========================================
+ALLOWED_HOSTS=localhost,127.0.0.1,resumecours.gestionhospitaliare.site,www.resumecours.gestionhospitaliare.site
+
+# ========================================
+# BASE DE DONNÉES MySQL
+# ========================================
+DB_NAME=jey_resume
+DB_USER=jey_resume
+DB_PASSWORD=votre_mot_de_passe_securise
+DB_HOST=localhost
+DB_PORT=3306
+
+# ========================================
+# API EXTERNES
+# ========================================
+DEEPGRAM_API_KEY=votre_cle_deepgram_api
+
+# ========================================
+# CORS (optionnel)
+# ========================================
+CORS_ALLOW_ALL=False
+
+# ========================================
+# MODE DE TEST GOOGLE PLAY (OTP fixe sans SMS)
+# ========================================
+# Active le mode test : les numéros listés ne reçoivent PAS de SMS
+# et peuvent se connecter avec le code OTP fixe "1234".
+# Le flux API/frontend reste identique à un utilisateur normal.
+# Désactiver : OTP_TEST_MODE=False (ou liste vide) → aucun impact.
+OTP_TEST_MODE=False
+# Liste JSON des numéros de test (formats : 09XXXXXXXX, +243XXXXXXXXX, 243XXXXXXXXX, XXXXXXXXX)
+OTP_TEST_PHONE_NUMBERS=[]

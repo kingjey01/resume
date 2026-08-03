@@ -1,0 +1,33 @@
+Changing password for user resume.
+passwd: all authentication tokens updated successfully.
+Changing shell for resume.
+Shell changed.
+--> Default template exist. Copying template files to /home/resume/public_html/
+Account Details
+========================================
+IP Address: 180.149.197.29
+Web Panel Login: 
+Domain: resumeplus.org
+Username: resume
+Password: 2iQSsMPKVgwL
+Admin Email: jeyyeta01@gmail.com
+
+Panel URL: 
+http://vps114384.serveur-vps.net:2082
+https://vps114384.serveur-vps.net:2083
+
+NameServers:
+ns1.centos-webpanel.com
+ns2.centos-webpanel.com
+Check Account Create Details
+--> Checking if "/home/resume/public_html" folder if exist: [YES]
+
+AutoSSL Issue Failed![Wed Jul 29 07:33:49 WAT 2026] Using CA: https://acme-v02.api.letsencrypt.org/directory
+[Wed Jul 29 07:33:50 WAT 2026] Creating domain key
+[Wed Jul 29 07:33:50 WAT 2026] The domain key is here: /root/.acme.sh/cwp_certs/resumeplus.org_ecc/resumeplus.org.key
+[Wed Jul 29 07:33:50 WAT 2026] Single domain='resumeplus.org'
+[Wed Jul 29 07:33:51 WAT 2026] Getting webroot for domain='resumeplus.org'
+[Wed Jul 29 07:33:52 WAT 2026] Verifying: resumeplus.org
+[Wed Jul 29 07:33:52 WAT 2026] Pending. The CA is processing your order, please wait. (1/30)
+[Wed Jul 29 07:33:55 WAT 2026] resumeplus.org: Invalid status. Verification error details: 180.149.197.29: Invalid response from http://resumeplus.org/.well-known/acme-challenge/8LTX17yFqOqY-_NxPmfqSKV9JN4gtAl7stkGz02EwCg: 404
+[Wed Jul 29 07:33:55 WAT 2026] Please check log file for more details: /root/.a

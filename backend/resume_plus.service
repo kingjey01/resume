@@ -1,0 +1,22 @@
+[Unit]
+Description=Resume Plus Gunicorn daemon
+Requires=resume_plus.socket
+After=network.target
+
+[Service]
+Type=notify
+User=www-data
+Group=www-data
+RuntimeDirectory=gunicorn
+WorkingDirectory=/var/www/resume_plus/backend
+ExecStart=/var/www/resume_plus/venv/bin/gunicorn \
+          --config /var/www/resume_plus/backend/gunicorn.conf.py \
+          --env DJANGO_SETTINGS_MODULE=resume_backend.production_settings \
+          resume_backend.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+KillMode=mixed
+TimeoutStopSec=5
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

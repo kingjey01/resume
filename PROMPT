@@ -1,0 +1,340 @@
+
+🧩 2 — UI boutons  et le card(problème d’affichage)
+
+Vérifier tous les boutons (ex : "Mes achats") et les  cards (ex : "Résumé acheté, résumé récent ...."):
+
+Corriger :
+textes coupés
+débordements
+problèmes de lisibilité
+
+Les textes doivent être :
+
+visibles entièrement
+bien alignés
+adaptés à tous les écrans
+🧩 3 — Cohérence des résumés par cours
+Empêcher :
+- résumés hors contexte ou qui n'appartiennent pas au cours de la filière
+- incohérences de données
+🧩 4 — Champ professeur (saisie manuelle)
+Supprimer la saisie libre
+Le professeur doit être sélectionné depuis une liste existante
+🧩 5 — Affichage professeur (audio)
+Le professeur est sélectionné mais son nom ne s’affiche pas
+Corriger l’affichage pour montrer correctement le nom sélectionné
+🧩 6 — Historique des exercices
+
+Dans "Mes tentatives" :
+
+Permettre de cliquer sur une tentative
+Afficher :
+questions
+réponses
+résultats détaillés
+🧩 7 — Restrictions utilisateur
+
+Empêcher les utilisateurs standards de modifier :
+
+université
+promotion
+filière
+
+Réserver ces modifications uniquement à l’administrateur.
+
+🧩 8 — Affichage du montant (abonnement)
+
+Dans "Mes abonnements" :
+
+Afficher clairement le montant payé
+Cette information doit être visible après paiement
+🧩 9 — Bouton "S’abonner"
+Si abonnement actif → bouton non cliquable
+Empêcher les souscriptions multiples
+Gérer le cas de renouvellement proche expiration
+🧩 10 — Politique de confidentialité (UI),condition d'utilisation
+
+Corriger :
+
+chevauchement entre titre et bouton retour
+problèmes liés au scroll
+🧩 11 — Achat de résumé (statut incorrect)
+
+Dans "résumé acheté" :
+
+Un achat échoué ne doit pas apparaître comme réussi
+Le statut affiché doit être exact
+🧩 12 — Paiement résumé (push non envoyé)
+Lors d’un achat de résumé :
+le push de paiement ne s’envoie pas le paiment échoue
+Analyser et aligner avec :
+la logique de paiement des abonnements car la bas le paiement fonctionne correctement
+
+🧩 13 — Recherche dans l’onglet achat
+Corriger la fonctionnalité de recherche
+Permettre un filtrage correct des données
+🧩 14 — Récupération du nom de filière dans le card pour affichage resumé 
+Ne plus utiliser le champ texte "filière"
+Récupérer le nom via la clé étrangère filière dans la table cours
+🧩 15 — Rafraîchissement des données (UX)
+
+Ajouter un mécanisme de rafraîchissement avec icône dans :
+
+Mes abonnements
+Mes achats
+Résumés
+Accueil (rafraîchissement global de l’application)
+
+Permettre :
+de recharger les données mises à jour
+d’assurer la synchronisation avec le backend
+
+- le badge résumé et validation ne s'affiche pas jours ,
+- les notifications ne sont non plus envoyer lorsque: 
+* un résumé est crée( sessions status="summarized") 
+NB: lorsque le résumé est validé par le CP la notification est envoyer et  le badge s'incremente et ça fonction
+refere toi à cette partie du code pour comprendre comment lui le traite
+F:\resume_plus_clean>flutter logs
+
+Showing S24 Ultra logs:
+I/flutter (11525): 📍 [Nav] Onglet sélectionné: 2 (role: CP)
+I/flutter (11525): 🟠 [Nav] Reset badge Validation (CP)
+I/flutter (11525): 🟢 [Badge Validation] RESET → lastViewed = 2026-05-29T08:18:58.171537
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /summaries/35/validate/
+I/flutter (11525): 📩 [FCM FG] Message reçu: 📚 Nouveau résumé disponible
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (11525): 🔔 [Nav] Nouvelle notification → rafraîchir les badges
+I/flutter (11525): 🔵 [Badge Résumés] lastViewed: 2026-05-29 08:16:12.439138
+I/flutter (11525): 🟠 [Badge Validation] lastViewed: 2026-05-29 08:18:58.171537
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /purchases/
+I/flutter (11525): 🔵 [Badge Résumés] Total: 0
+I/flutter (11525): 🟠 [Badge Validation] Total: 0
+I/flutter (11525): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (11525): 🔑 [API] Token ajouté pour /notifications/unread-count/
+
+
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/78/validate/
+I/flutter (32286): 📩 [FCM FG] Message reçu: 📚 Nouveau résumé disponible
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🔔 [Nav] Nouvelle notification → rafraîchir les badges
+I/flutter (32286): 🔵 [Badge Résumés] lastViewed: 2026-05-28 07:50:21.098203
+I/flutter (32286): 🟠 [Badge Validation] lastViewed: 2026-05-30 07:50:11.685565
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /purchases/
+I/flutter (32286): 🟠 [Badge Validation] Total: 0
+I/flutter (32286): 🔵 [Badge Résumés] +1 → python (updated: 2026-05-29 08:15:52.902518)
+I/flutter (32286): 🔵 [Badge Résumés] Total: 1
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 0 (role: CP)
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 2 (role: CP)
+I/flutter (32286): 🟠 [Nav] Reset badge Validation (CP)
+I/flutter (32286): 🟢 [Badge Validation] RESET → lastViewed = 2026-05-30T07:50:46.497665
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/29/validate/
+I/flutter (32286): 📩 [FCM FG] Message reçu: 📚 Nouveau résumé disponible
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🔔 [Nav] Nouvelle notification → rafraîchir les badges
+I/flutter (32286): 🔵 [Badge Résumés] lastViewed: 2026-05-28 07:51:01.950350
+I/flutter (32286): 🟠 [Badge Validation] lastViewed: 2026-05-30 07:50:46.497665
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /purchases/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🟠 [Badge Validation] Total: 0
+I/flutter (32286): 🔵 [Badge Résumés] +1 → python (updated: 2026-05-29 08:15:52.902518)
+I/flutter (32286): 🔵 [Badge Résumés] Total: 1
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 0 (role: CP)
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+
+
+l'itialisationt à 1 pour le badge resumé se fais , mais l'incrementation ne se fais pas car 
+car le total reste toujours egal à 1 meme  apres ajout
+howing S24 Ultra logs:
+I/flutter (32286): 🔍 [Flutter] Chargement des professeurs... (tentative 1/3)
+I/flutter (32286): 🔑 [API] Token récupéré depuis storage: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /professeurs/
+I/flutter (32286): ✅ [Flutter] 2 professeurs chargés
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 2 (role: CP)
+I/flutter (32286): 🟠 [Nav] Reset badge Validation (CP)
+I/flutter (32286): 🟢 [Badge Validation] RESET → lastViewed = 2026-05-30T07:50:11.685565
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/78/validate/
+I/flutter (32286): 📩 [FCM FG] Message reçu: 📚 Nouveau résumé disponible
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🔔 [Nav] Nouvelle notification → rafraîchir les badges
+I/flutter (32286): 🔵 [Badge Résumés] lastViewed: 2026-05-28 07:50:21.098203
+I/flutter (32286): 🟠 [Badge Validation] lastViewed: 2026-05-30 07:50:11.685565
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /purchases/
+I/flutter (32286): 🟠 [Badge Validation] Total: 0
+I/flutter (32286): 🔵 [Badge Résumés] +1 → python (updated: 2026-05-29 08:15:52.902518)
+I/flutter (32286): 🔵 [Badge Résumés] Total: 1
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 0 (role: CP)
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 2 (role: CP)
+I/flutter (32286): 🟠 [Nav] Reset badge Validation (CP)
+I/flutter (32286): 🟢 [Badge Validation] RESET → lastViewed = 2026-05-30T07:50:46.497665
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/29/validate/
+I/flutter (32286): 📩 [FCM FG] Message reçu: 📚 Nouveau résumé disponible
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🔔 [Nav] Nouvelle notification → rafraîchir les badges
+I/flutter (32286): 🔵 [Badge Résumés] lastViewed: 2026-05-28 07:51:01.950350
+I/flutter (32286): 🟠 [Badge Validation] lastViewed: 2026-05-30 07:50:46.497665
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /summaries/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /purchases/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🟠 [Badge Validation] Total: 0
+I/flutter (32286): 🔵 [Badge Résumés] +1 → python (updated: 2026-05-29 08:15:52.902518)
+I/flutter (32286): 🔵 [Badge Résumés] Total: 1
+I/flutter (32286): 📍 [Nav] Onglet sélectionné: 0 (role: CP)
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+
+=====le résumé c'est  correct maintennant 
+I/flutter (12617): 🔵 [Badge Résumés] ID=43 "permission python" validated=true updated=2026-04-16 16:17:13.863229
+I/flutter (12617): 🔵 [Badge Résumés] ID=35 "trading" validated=true updated=2026-02-07 13:43:23.413513
+I/flutter (12617): 🔵 [Badge Résumés] ID=30 "Résumé 2 - Algorithmes" validated=true updated=2026-02-03 11:40:42.176727
+I/flutter (12617): 🔵 [Badge Résumés] ID=29 "Résumé 1 - Algorithmes" validated=true updated=2026-02-03 11:40:42.172069
+I/flutter (12617): 🔵 [Badge Résumés] ID=28 "Résumé 2 - Base de données" validated=true updated=2026-02-03 11:40:42.168058
+I/flutter (12617): 🔵 [Badge Résumés] Total: 3
+I/flutter (12617): 🟠 [Badge Validation] Total: 0
+
+
+=====maintenant la validation regle aussi ce probleme : 
+- pas de badge , pas d'incrementation de badge (référe toi comment tu as résolu celui du résumé)
+pas des notification envoyer au CP apres création résumé.
+
+I/flutter (32286): 🔑 [API] Token ajouté pour /courses/sessions/88/
+I/flutter (32286): ✅ Traitement terminé!
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter (32286): 🔑 [API] Token récupéré depuis storage: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/
+I/flutter (32286): 🔑 [API] Token depuis mémoire: ✅
+I/flutter (32286): 🔑 [API] Token ajouté pour /notifications/unread-count/
+
+
+
+flutter build apk --release --target-platform android-arm,android-arm64 --split-per-abi
+
+
+aucun badge sur validation et notification pour le résumé créer :
+
+I/flutter ( 8531):    - Statut durée: ✅ Valide
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /courses/sessions/upload-audio/
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /courses/sessions/94/
+I/flutter ( 8531): 📝 Transcription OK, génération du résumé...
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /courses/sessions/94/
+I/flutter ( 8531): 📝 Transcription OK, génération du résumé...
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /courses/sessions/94/
+I/flutter ( 8531): ✅ Traitement terminé!
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /notifications/unread-count/
+I/flutter ( 8531): 🔑 [API] Token depuis mémoire: ✅
+I/flutter ( 8531): 🔑 [API] Token ajouté pour /notifications/unread-count/
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

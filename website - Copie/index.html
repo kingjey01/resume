@@ -1,0 +1,567 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Résumé+ — Apprenez mieux, résumez intelligemment</title>
+    <meta name="description" content="Résumé+ transforme vos cours en résumés clairs et concis grâce à l'IA. Achetez des résumés, générez des QCM, et maîtrisez vos matières.">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📚</text></svg>">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <div class="nav-container">
+            <a href="#" class="nav-logo">
+                <span class="logo-icon">R+</span>
+                <span class="logo-text">Résumé<span class="logo-highlight">+</span></span>
+            </a>
+            <button class="nav-toggle" id="navToggle" aria-label="Menu">
+                <span></span><span></span><span></span>
+            </button>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#accueil" class="active">Accueil</a></li>
+                <li><a href="#apropos">À propos</a></li>
+                <li><a href="#guide">Guide</a></li>
+                <li><a href="#privacy">Confidentialité</a></li>
+                <li><a href="#terms">Conditions</a></li>
+                <li><a href="#contact">Contact</a></li>
+            </ul>
+        </div>
+    </nav>
+
+    <!-- Hero / Accueil -->
+    <section id="accueil" class="hero">
+        <div class="hero-bg"></div>
+        <div class="hero-content">
+            <div class="hero-text">
+                <span class="hero-badge">Application Mobile</span>
+                <h1>Vos cours,<br><span class="text-gradient">simplifiés</span></h1>
+                <p>Transformez vos enregistrements de cours en résumés clairs et concis grâce à l'intelligence artificielle. Apprenez plus efficacement avec Résumé+.</p>
+                <div class="hero-buttons">
+                    <a href="#privacy" class="btn btn-primary">
+                        <i class="fas fa-shield-alt"></i> Politique de confidentialité
+                    </a>
+                    <a href="#terms" class="btn btn-outline">
+                        <i class="fas fa-file-contract"></i> Conditions d'utilisation
+                    </a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="phone-mockup">
+                    <div class="phone-screen">
+                        <div class="phone-status-bar"></div>
+                        <div class="phone-content">
+                            <div class="phone-header-grad"></div>
+                            <div class="phone-card"><div class="card-line w-70"></div><div class="card-line w-50"></div></div>
+                            <div class="phone-card card-accent"><div class="card-line w-80"></div><div class="card-line w-60"></div></div>
+                            <div class="phone-card"><div class="card-line w-65"></div><div class="card-line w-45"></div></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section À propos -->
+    <section id="apropos" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">À propos</span>
+                <h2>Qu'est-ce que Résumé+ ?</h2>
+                <p class="section-sub">Une plateforme intelligente dédiée aux étudiants</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-microphone"></i></div>
+                    <h3>Audio → Texte</h3>
+                    <p>Importez vos enregistrements de cours. Notre IA les transforme en résumés textuels clairs et concis.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-shopping-cart"></i></div>
+                    <h3>Achetez des Résumés</h3>
+                    <p>Explorez notre marketplace pour trouver et acheter des résumés de haute qualité.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-question-circle"></i></div>
+                    <h3>Quiz & Exercices</h3>
+                    <p>Évaluez vos acquis avec des quiz et exercices générés par IA pour renforcer votre apprentissage.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-robot"></i></div>
+                    <h3>IA Intelligente</h3>
+                    <p>DeepSeek génère des résumés structurés et des QCM adaptés à chaque cours.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-headphones"></i></div>
+                    <h3>Lecture Audio</h3>
+                    <p>Écoutez vos résumés grâce à la synthèse vocale intégrée, pour apprendre en mobilité.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon"><i class="fas fa-lock"></i></div>
+                    <h3>Sécurisé</h3>
+                    <p>Protection contre les captures d'écran, connexion sécurisée et données chiffrées.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section Guide d'utilisation -->
+    <section id="guide" class="section section-alt">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Guide</span>
+                <h2>Mode d'emploi</h2>
+                <p class="section-sub">Comment utiliser Résumé+ selon votre profil</p>
+            </div>
+
+            <!-- Vue d'ensemble -->
+            <div class="legal-content">
+                <div class="legal-section">
+                    <h3>Bienvenue sur Résumé+</h3>
+                    <p>Résumé+ est une application mobile qui transforme vos cours en résumés clairs et intelligents. Elle repose sur l'intelligence artificielle DeepSeek pour analyser les enregistrements audio de cours et produire des résumés structurés, des exercices QCM, et bien plus encore.</p>
+                    <p>L'application distingue deux profils d'utilisateurs : le <strong>CP (Chef de Promotion)</strong> qui crée et publie les résumés, et l'<strong>Étudiant</strong> qui consulte et achète les résumés. Chaque profil dispose de fonctionnalités adaptées à son rôle.</p>
+                </div>
+
+                <!-- Profil CP -->
+                <div class="legal-section">
+                    <h3><i class="fas fa-user-tie" style="margin-right:8px;"></i> Guide pour le CP (Chef de Promotion)</h3>
+                    <p>Le CP est le créateur de contenu sur Résumé+. Il est responsable de l'enregistrement des cours, de la génération des résumés et de leur validation.</p>
+
+                    <p><strong>1. Première connexion — Parcours onboarding</strong></p>
+                    <p>Lors de votre première connexion, un parcours guidé en 3 étapes vous accompagne :</p>
+                    <ul>
+                        <li><strong>Créer un professeur</strong> — Renseignez le nom complet, le téléphone et la spécialité du professeur. Le backend crée automatiquement un compte utilisateur associé.</li>
+                        <li><strong>Créer un cours</strong> — Donnez un nom et une description à votre cours. L'université, la filière et la promotion sont automatiquement attribuées depuis votre profil.</li>
+                        <li><strong>Association automatique</strong> — Le professeur et le cours sont automatiquement liés (Dispense). Vous pouvez commencer à enregistrer des séances.</li>
+                    </ul>
+                    <p>Ce parcours n'est proposé qu'une seule fois. Par la suite, vous pouvez créer professeurs, cours et associations depuis le menu principal.</p>
+
+                    <p><strong>2. Enregistrement d'une séance audio</strong></p>
+                    <ul>
+                        <li>Depuis le menu <strong>Créer → Enregistrement audio</strong>, sélectionnez un cours, saisissez un titre et un prix pour le résumé.</li>
+                        <li>Le professeur est automatiquement résolu si une association (Dispense) existe, sinon vous pouvez le saisir manuellement.</li>
+                        <li>Enregistrez un audio (micro) ou importez un fichier audio (MP3, WAV, OGG, M4A).</li>
+                        <li>Après l'enregistrement, le fichier est sauvegardé localement comme brouillon (jusqu'à 5 brouillons). Vous pouvez le supprimer ou l'envoyer quand vous êtes prêt.</li>
+                        <li>L'envoi déclenche automatiquement la transcription (Deepgram) et la génération du résumé (DeepSeek) en arrière-plan via Celery.</li>
+                    </ul>
+
+                    <p><strong>3. Création manuelle d'un résumé</strong></p>
+                    <ul>
+                        <li>Depuis <strong>Créer → Saisie manuelle</strong>, vous pouvez rédiger directement un résumé.</li>
+                        <li>Saisissez le titre, le contenu, le cours, le professeur et le prix.</li>
+                        <li>Le résumé est automatiquement marqué comme validé s'il est rédigé par un CP.</li>
+                    </ul>
+
+                    <p><strong>4. Validation des résumés</strong></p>
+                    <ul>
+                        <li>Depuis l'onglet <strong>Validation</strong>, vous voyez tous les résumés en attente de validation (générés par IA ou rédigés par d'autres CP).</li>
+                        <li>Vous pouvez lire le contenu, valider ou refuser un résumé, et modifier le texte si nécessaire.</li>
+                        <li>Une fois validé, le résumé devient visible et accessible aux étudiants sous forme de contenu payant.</li>
+                        <li>Une notification push est automatiquement envoyée aux étudiants ciblés lors de la validation.</li>
+                    </ul>
+
+                    <p><strong>5. Génération d'exercices QCM</strong></p>
+                    <ul>
+                        <li>Depuis le détail d'un résumé, cliquez sur <strong>Lancer le QCM</strong>.</li>
+                        <li>Choisissez la difficulté : Facile, Moyen ou Difficile.</li>
+                        <li>DeepSeek génère 5 à 10 questions à choix multiples basées sur le contenu du résumé.</li>
+                        <li>Vous pouvez voir le résultat et les corrections.</li>
+                    </ul>
+
+                    <p><strong>6. Gestion des professeurs, cours et associations</strong></p>
+                    <ul>
+                        <li>Depuis le menu <strong>Créer</strong>, vous pouvez gérer professeurs, cours et associations.</li>
+                        <li>Créez un professeur sans l'associer à un cours, ou créez un cours sans professeur.</li>
+                        <li>L'écran <strong>Association</strong> permet de lier un professeur à un cours (Dispense), ce qui permet le remplissage automatique du professeur lors de la création d'une séance.</li>
+                    </ul>
+                </div>
+
+                <!-- Profil Étudiant -->
+                <div class="legal-section">
+                    <h3><i class="fas fa-user-graduate" style="margin-right:8px;"></i> Guide pour l'Étudiant</h3>
+                    <p>L'étudiant est le consommateur de contenu sur Résumé+. Il peut acheter des résumés, les consulter et s'exercer avec des QCM.</p>
+
+                    <p><strong>1. Connexion et inscription</strong></p>
+                    <ul>
+                        <li>Saisissez votre numéro de téléphone, recevez un code OTP à 4 chiffres, puis validez.</li>
+                        <li>Si c'est votre première connexion, complétez votre profil (université, filière, promotion).</li>
+                        <li>Vous accédez ensuite à votre espace personnel avec les cours et résumés de votre filière.</li>
+                    </ul>
+
+                    <p><strong>2. Consultation des résumés</strong></p>
+                    <ul>
+                        <li>L'onglet <strong>Accueil</strong> affiche les cours de votre filière avec les résumés disponibles.</li>
+                        <li>Un résumé gratuit est accessible sans achat.</li>
+                        <li>Un résumé payant affiche un aperçu limité (150 caractères). Pour le contenu complet, vous devez l'acheter.</li>
+                        <li>Les résumés achetés sont dans l'onglet <strong>Mes Achats</strong>.</li>
+                    </ul>
+
+                    <p><strong>3. Achat d'un résumé</strong></p>
+                    <ul>
+                        <li>Ouvrez un résumé payant, cliquez sur <strong>Acheter maintenant</strong>.</li>
+                        <li>Saisissez votre numéro de téléphone Mobile Money.</li>
+                        <li>Confirmez le paiement. Dès la confirmation, le résumé complet est accessible instantanément.</li>
+                        <li>Plus besoin d'attendre : le contenu se déverrouille immédiatement sur tous les écrans.</li>
+                    </ul>
+
+                    <p><strong>4. Lecture audio (TTS)</strong></p>
+                    <ul>
+                        <li>Sur la page de détail d'un résumé, un lecteur audio vous permet d'écouter le contenu.</li>
+                        <li>Contrôles : lecture, pause, reprise, arrêt et vitesse de lecture.</li>
+                        <li>Utile pour apprendre en mobilité ou pour les révisions auditives.</li>
+                    </ul>
+
+                    <p><strong>5. Exercices et QCM</strong></p>
+                    <ul>
+                        <li>Si vous avez un abonnement actif au service d'exercices, vous pouvez générer des QCM.</li>
+                        <li>Choisissez la difficulté et répondez aux questions.</li>
+                        <li>Après soumission, consultez vos résultats, les bonnes réponses et les explications.</li>
+                        <li>Un abonnement QCM/Exercices est requis (souscrivez depuis l'onglet Abonnement).</li>
+                    </ul>
+
+                    <p><strong>6. Notifications</strong></p>
+                    <ul>
+                        <li>Recevez des notifications push lorsqu'un nouveau résumé est disponible ou validé.</li>
+                        <li>Le badge sur l'icône de l'application affiche le nombre de notifications non lues.</li>
+                        <li>Consultez l'onglet <strong>Notifications</strong> pour voir l'historique.</li>
+                    </ul>
+                </div>
+
+                <!-- Fonctionnalités générales -->
+                <div class="legal-section">
+                    <h3><i class="fas fa-cogs" style="margin-right:8px;"></i> Fonctionnalités générales</h3>
+
+                    <p><strong>Abonnements</strong></p>
+                    <ul>
+                        <li>L'abonnement au service QCM/Exercices donne accès à la génération illimitée de questionnaires.</li>
+                        <li>Durée : 1 mois, renouvelable.</li>
+                        <li>La souscription se fait depuis l'onglet <strong>Abonnement</strong> dans l'application.</li>
+                    </ul>
+
+                    <p><strong>Recherche et filtres</strong></p>
+                    <ul>
+                        <li>Barre de recherche dans la section Résumés et Validation.</li>
+                        <li>Recherche par titre, professeur, matière.</li>
+                    </ul>
+
+                    <p><strong>Sécurité</strong></p>
+                    <ul>
+                        <li>Protection contre les captures d'écran (Android).</li>
+                        <li>Connexion sécurisée par OTP et tokens JWT.</li>
+                        <li>Téléchargement des résumés désactivé pour protéger le contenu acheté.</li>
+                        <li>Session automatiquement fermée en cas d'inactivité prolongée.</li>
+                    </ul>
+
+                    <p><strong>Brouillons audio</strong></p>
+                    <ul>
+                        <li>Les enregistrements audio sont automatiquement sauvegardés en local.</li>
+                        <li>Jusqu'à 5 brouillons peuvent être conservés simultanément.</li>
+                        <li>Ils sont supprimés automatiquement après envoi réussi, ou manuellement par l'utilisateur.</li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section Politique de Confidentialité -->
+    <section id="privacy" class="section section-alt">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Légal</span>
+                <h2>Politique de Confidentialité</h2>
+                <p class="section-sub">Comment nous protégeons vos données</p>
+            </div>
+            <div class="legal-content">
+                <div class="legal-section">
+                    <h3>1. Collecte des Informations</h3>
+                    <p>Nous collectons les informations suivantes :</p>
+                    <ul>
+                        <li><strong>Informations personnelles :</strong> nom, prénom, adresse e-mail, numéro de téléphone</li>
+                        <li><strong>Informations académiques :</strong> université, filière, promotion</li>
+                        <li><strong>Informations d'utilisation :</strong> historique des achats, préférences</li>
+                        <li><strong>Données techniques :</strong> adresse IP, type d'appareil, système d'exploitation</li>
+                    </ul>
+                    <p>Ces informations sont collectées lors de :</p>
+                    <ul>
+                        <li>Création de votre compte</li>
+                        <li>Utilisation de l'application</li>
+                        <li>Achats de résumés et abonnements</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>2. Utilisation des Données</h3>
+                    <p>Vos données sont utilisées pour :</p>
+                    <ul>
+                        <li>Fournir et améliorer nos services</li>
+                        <li>Traiter vos achats et abonnements</li>
+                        <li>Personnaliser votre expérience</li>
+                        <li>Communiquer avec vous</li>
+                        <li>Assurer la sécurité de notre plateforme</li>
+                        <li>Prévenir le partage non autorisé de contenu acheté</li>
+                    </ul>
+                    <div class="highlight-box">
+                        <i class="fas fa-shield-alt"></i>
+                        <p><strong>Protection des contenus achetés :</strong> Nous désactivons intentionnellement la fonction de téléchargement pour protéger les résumés achetés et empêcher leur partage entre utilisateurs.</p>
+                    </div>
+                </div>
+
+                <div class="legal-section">
+                    <h3>3. Partage des Données</h3>
+                    <p>Nous ne partageons vos données personnelles avec des tiers que dans les cas suivants :</p>
+                    <ul>
+                        <li>Fournisseurs de paiement (pour traiter vos transactions)</li>
+                        <li>Autorités légales (si requis par la loi)</li>
+                        <li>Partenaires techniques (pour le fonctionnement de l'application)</li>
+                        <li>Avec votre consentement explicite</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>4. Sécurité des Données</h3>
+                    <p>Nous mettons en œuvre des mesures de sécurité appropriées :</p>
+                    <ul>
+                        <li>Chiffrement des données sensibles</li>
+                        <li>Accès limité aux données personnelles</li>
+                        <li>Surveillance régulière de notre système</li>
+                        <li>Mises à jour régulières de nos protocoles de sécurité</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>5. Vos Droits</h3>
+                    <p>Vous avez le droit de :</p>
+                    <ul>
+                        <li>Accéder à vos données personnelles</li>
+                        <li>Modifier vos informations</li>
+                        <li>Supprimer votre compte</li>
+                        <li>Vous opposer au traitement de vos données</li>
+                        <li>Demander la portabilité de vos données</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>6. Conservation des Données</h3>
+                    <p>Nous conservons vos données pendant :</p>
+                    <ul>
+                        <li>La durée de votre compte actif</li>
+                        <li>5 ans après suppression du compte (pour obligations légales)</li>
+                        <li>Périodes plus longues si requis par la loi</li>
+                    </ul>
+                    <p>Les données financières sont conservées 7 ans pour raisons fiscales.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>7. Cookies et Technologies Similaires</h3>
+                    <p>Nous utilisons des cookies pour :</p>
+                    <ul>
+                        <li>Maintenir votre session active</li>
+                        <li>Mémoriser vos préférences</li>
+                        <li>Analyser l'utilisation de notre application</li>
+                        <li>Améliorer nos services</li>
+                    </ul>
+                    <p>Vous pouvez gérer les cookies dans les paramètres de votre navigateur.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>8. Contact</h3>
+                    <p>Pour toute question concernant cette politique de confidentialité :</p>
+                    <ul>
+                        <li><i class="fas fa-envelope"></i> jeyyeta01@gmail.com</li>
+                        <li><i class="fas fa-phone"></i> 0996816806</li>
+                    </ul>
+                    <p>Nous répondrons à votre demande dans un délai de 30 jours.</p>
+                </div>
+
+                <div class="legal-footer">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Dernière mise à jour : 29 Mars 2026</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section Conditions d'Utilisation -->
+    <section id="terms" class="section">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Légal</span>
+                <h2>Conditions d'Utilisation</h2>
+                <p class="section-sub">Les règles qui régissent l'utilisation de Résumé+</p>
+            </div>
+            <div class="legal-content">
+                <div class="legal-section">
+                    <h3>1. Acceptation des Conditions</h3>
+                    <p>En utilisant l'application Résumé+, vous acceptez les présentes conditions d'utilisation. Si vous n'acceptez pas ces conditions, n'utilisez pas notre application. Ces conditions s'appliquent à tous les utilisateurs de Résumé+.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>2. Description du Service</h3>
+                    <p>Résumé+ est une application mobile qui permet :</p>
+                    <ul>
+                        <li>D'accéder à des résumés de cours académiques</li>
+                        <li>D'acheter des résumés collectifs</li>
+                        <li>De souscrire à des abonnements pour accéder à du contenu premium</li>
+                        <li>De bénéficier d'exercices et corrections</li>
+                    </ul>
+                    <p>Notre service est destiné aux étudiants et enseignants.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>3. Compte Utilisateur</h3>
+                    <p>Pour utiliser Résumé+, vous devez :</p>
+                    <ul>
+                        <li>Créer un compte avec des informations exactes</li>
+                        <li>Maintenir vos informations à jour</li>
+                        <li>Ne pas partager votre compte avec des tiers</li>
+                    </ul>
+                    <p>Vous êtes responsable de toutes les activités effectuées depuis votre compte.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>4. Abonnements et Paiements</h3>
+                    <p>Nos abonnements offrent :</p>
+                    <ul>
+                        <li>Accès aux exercices et corrections</li>
+                        <li>Support prioritaire</li>
+                    </ul>
+                    <p><strong>Paiements :</strong></p>
+                    <ul>
+                        <li>Traitement sécurisé via Mobile Money</li>
+                        <li>Renouvellement automatique (optionnel)</li>
+                        <li>Annulation possible à tout moment</li>
+                        <li>Pas de remboursement pour les services utilisés</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>5. Contenu et Propriété Intellectuelle</h3>
+                    <div class="highlight-box">
+                        <i class="fas fa-copyright"></i>
+                        <p><strong>Protection du contenu :</strong> La fonctionnalité de téléchargement est intentionnellement désactivée pour protéger les contenus achetés.</p>
+                    </div>
+                    <p>Les résumés disponibles sur Résumé+ sont :</p>
+                    <ul>
+                        <li>Créés par des Chefs de Promotion qualifiés</li>
+                        <li>Validés par notre équipe éditoriale</li>
+                        <li>Protégés par le droit d'auteur</li>
+                    </ul>
+                    <p><strong>Vous pouvez :</strong> Consulter les résumés pour usage personnel.</p>
+                    <p><strong>Vous ne pouvez pas :</strong></p>
+                    <ul>
+                        <li>Revendre ou redistribuer les résumés</li>
+                        <li>Publier les résumés sur d'autres plateformes</li>
+                        <li>Utiliser les résumés à des fins commerciales</li>
+                        <li>Télécharger ou exporter les résumés (fonction désactivée)</li>
+                        <li>Partager votre compte ou les résumés achetés avec d'autres utilisateurs</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>6. Confidentialité</h3>
+                    <p>Nous respectons votre vie privée conformément à notre politique de confidentialité. Consultez notre politique de confidentialité pour plus de détails.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>7. Disponibilité du Service</h3>
+                    <p>Nous nous efforçons de maintenir Résumé+ disponible en permanence, mais :</p>
+                    <ul>
+                        <li>Le service peut être indisponible pour maintenance</li>
+                        <li>Des interruptions peuvent survenir pour des raisons techniques</li>
+                        <li>Nous ne garantissons pas une disponibilité à 100%</li>
+                    </ul>
+                </div>
+
+                <div class="legal-section">
+                    <h3>8. Résiliation</h3>
+                    <p>Nous pouvons résilier votre compte si vous violez ces conditions d'utilisation, utilisez l'application de manière frauduleuse, ou ne respectez pas les droits d'auteur. Vous pouvez résilier votre compte à tout moment depuis les paramètres.</p>
+                </div>
+
+                <div class="legal-section">
+                    <h3>9. Contact</h3>
+                    <p>Pour toute question concernant ces conditions :</p>
+                    <ul>
+                        <li><i class="fas fa-envelope"></i> jeyyeta01@gmail.com</li>
+                        <li><i class="fas fa-phone"></i> 0996816806</li>
+                    </ul>
+                </div>
+
+                <div class="legal-footer">
+                    <i class="fas fa-info-circle"></i>
+                    <span>Dernière mise à jour : 29 Mars 2026</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Section Contact -->
+    <section id="contact" class="section section-alt">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-tag">Contact</span>
+                <h2>Nous contacter</h2>
+                <p class="section-sub">Une question ? Une suggestion ? Écrivez-nous</p>
+            </div>
+            <div class="contact-grid">
+                <div class="contact-card">
+                    <i class="fas fa-envelope"></i>
+                    <h3>Email</h3>
+                    <p>jeyyeta01@gmail.com</p>
+                    <a href="mailto:jeyyeta01@gmail.com" class="contact-link">Nous écrire <i class="fas fa-arrow-right"></i></a>
+                </div>
+                <div class="contact-card">
+                    <i class="fas fa-phone"></i>
+                    <h3>Téléphone</h3>
+                    <p>0996816806</p>
+                    <a href="tel:0996816806" class="contact-link">Appeler <i class="fas fa-arrow-right"></i></a>
+                </div>
+                <div class="contact-card">
+                    <i class="fas fa-map-marker-alt"></i>
+                    <h3>Localisation</h3>
+                    <p>République Démocratique du Congo</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-grid">
+                <div class="footer-brand">
+                    <span class="footer-logo">Résumé+</span>
+                    <p>Apprenez mieux, résumez intelligemment. L'IA au service de votre réussite académique.</p>
+                </div>
+                <div class="footer-links">
+                    <h4>Liens rapides</h4>
+                    <ul>
+                        <li><a href="#accueil">Accueil</a></li>
+                        <li><a href="#apropos">À propos</a></li>
+                        <li><a href="#guide">Guide d'utilisation</a></li>
+                        <li><a href="#privacy">Confidentialité</a></li>
+                        <li><a href="#terms">Conditions</a></li>
+                    </ul>
+                </div>
+                <div class="footer-links">
+                    <h4>Contact</h4>
+                    <ul>
+                        <li><a href="mailto:jeyyeta01@gmail.com">jeyyeta01@gmail.com</a></li>
+                        <li><a href="tel:0996816806">0996816806</a></li>
+                        <li>RDC</li>
+                    </ul>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2026 Résumé+. Tous droits réservés.</p>
+            </div>
+        </div>
+    </footer>
+
+    <script src="script.js"></script>
+</body>
+</html>
