@@ -1,0 +1,39 @@
+<VirtualHost *:443>
+    ServerName resumecours.gestionhospitaliare.site
+
+    SSLEngine on
+    SSLCertificateFile /etc/letsencrypt/live/resumecours.gestionhospitaliare.site/fullchain.pem
+    SSLCertificateKeyFile /etc/letsencrypt/live/resumecours.gestionhospitaliare.site/privkey.pem
+
+    WSGIDaemonProcess resumecours \
+        python-home=/home/jey/resumecours.gestionhospitaliare.site/env39 \
+        python-path=/home/jey/resumecours.gestionhospitaliare.site/backend
+
+    WSGIProcessGroup resumecours
+    WSGIScriptAlias / /home/jey/resumecours.gestionhospitaliare.site/backend/backend/wsgi.py
+
+    <Directory /home/jey/resumecours.gestionhospitaliare.site/backend/backend>
+        <Files wsgi.py>
+            Require all granted
+        </Files>
+    </Directory>
+  
+    WSGIPassAuthorization On
+
+    Alias /static /home/jey/resumecours.gestionhospitaliare.site/backend/staticfiles
+    <Directory /home/jey/resumecours.gestionhospitaliare.site/backend/staticfiles>
+        Require all granted
+    </Directory>
+
+    Alias /media /home/jey/resumecours.gestionhospitaliare.site/backend/media
+    <Directory /home/jey/resumecours.gestionhospitaliare.site/backend/media>
+        Require all granted
+    </Directory>
+   # Logs
+    ErrorLog /home/jey/resumecours.gestionhospitaliare.site/backend/log/apis_error.log
+    CustomLog /home/jey/resumecours.gestionhospitaliare.site/backend/log/apis_access.log combined
+
+
+    #ErrorLog logs/resumecours_error.log
+    #CustomLog logs/resumecours_access.log combined
+</VirtualHost>
