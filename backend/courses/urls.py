@@ -47,6 +47,7 @@ urlpatterns = [
     
     # Onboarding
     path('onboarding/status/', views.onboarding_status_view, name='onboarding-status'),
+    path('onboarding/complete-cp/', views.complete_cp_onboarding_view, name='onboarding-complete-cp'),
     
     # Dispenses
     path('dispenses/', views.list_dispenses_view, name='dispense-list'),

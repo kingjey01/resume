@@ -3,9 +3,9 @@ import 'package:flutter/services.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/services/otp_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
-import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
+import 'package:resume_plus_clean/features/onboarding/cp_onboarding_flow.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:dio/dio.dart';
 import 'dart:async';
@@ -175,6 +175,23 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
 
         if (mounted) {
           if (profileComplete) {
+            // 🆕 Détection du premier accès CP : si l'utilisateur est CP
+            // et n'a jamais terminé son onboarding, rediriger DIRECTEMENT
+            // vers l'onboarding CP (sans passer par l'écran d'accueil).
+            final role = result['role']?.toString() ?? '';
+            final cpOnboardingCompleted = result['cp_onboarding_completed'] == true;
+
+            if ((role == 'CP' || role == 'ADMIN') && !cpOnboardingCompleted) {
+              print('🎓 [OTP] Premier accès CP détecté → Onboarding CP');
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(
+                  builder: (_) => const CPOnboardingFlow(),
+                ),
+                (route) => false,
+              );
+              return;
+            }
+
             print('✅ [OTP] Profil complet → Navigation vers /main');
             Navigator.of(context).pushNamedAndRemoveUntil(
               '/main',

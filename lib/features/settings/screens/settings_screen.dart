@@ -442,6 +442,23 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 8),
+            GestureDetector(
+              onTap: () async {
+                final uri = Uri.parse('https://www.resumeplus.org');
+                if (await canLaunchUrl(uri)) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
+              },
+              child: const Text(
+                '🌐 Site web: www.resumeplus.org',
+                style: TextStyle(
+                  color: Colors.blue,
+                  decoration: TextDecoration.underline,
+                  decorationColor: Colors.blue,
+                ),
+              ),
+            ),
             const SizedBox(height: 16),
             const Text('Heures d\'ouverture:'),
             const Text('Lundi - Vendredi: 8h00 - 17h00'),

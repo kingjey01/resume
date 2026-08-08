@@ -170,6 +170,7 @@ Les modifications prennent effet 30 jours après notification.
 Pour toute question concernant cette politique de confidentialité :
 • E-mail : jeyyeta01@gmail.com
 • Téléphone : 0996816806
+• Site web : www.resumeplus.org
 
 Nous répondrons à votre demande dans un délai de 30 jours.
                   ''',

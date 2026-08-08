@@ -1571,8 +1571,14 @@ def get_summaries_for_validation_view(request):
 @permission_classes([permissions.IsAuthenticated])
 def onboarding_status_view(request):
     """
-    Vérifie si l'utilisateur CP a déjà des données.
-    Retourne les étapes complétées pour le parcours de première utilisation.
+    Vérifie si l'utilisateur CP doit faire l'onboarding.
+
+    SOURCE DE VÉRITÉ UNIQUE : le champ cp_onboarding_completed.
+    AUCUNE requête sur les tables d'association (professeur/cours/session/résumé)
+    pour décider — le champ est mis à jour exclusivement par le backend
+    quand l'onboarding est entièrement terminé.
+
+    Les 'steps' sont conservés uniquement pour l'affichage, pas pour la décision.
     """
     try:
         user = request.user
@@ -1581,6 +1587,12 @@ def onboarding_status_view(request):
 
         profile = user.profile
 
+        cp_onboarding_completed = profile.cp_onboarding_completed
+
+        # Décision basée UNIQUEMENT sur le champ
+        is_first_use = not cp_onboarding_completed
+
+        # Steps (affichage uniquement — optionnel)
         has_professeur = Professeur.objects.filter(
             universite=profile.universite
         ).exists() if profile.universite else False
@@ -1591,34 +1603,90 @@ def onboarding_status_view(request):
             promotions=profile.promotion
         ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
 
-        has_session = Session.objects.filter(
-            course__universites=profile.universite,
-            course__filieres=profile.filiere,
-            course__promotions=profile.promotion
-        ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
-
-        has_summary = Summary.objects.filter(
-            course__universites=profile.universite,
-            course__filieres=profile.filiere,
-            course__promotions=profile.promotion
-        ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
-
-        all_completed = has_professeur and has_course and has_session and has_summary
-
         return Response({
-            'is_first_use': not (has_professeur or has_course or has_session or has_summary),
+            'is_first_use': is_first_use,
             'steps': {
                 'has_professeur': has_professeur,
                 'has_course': has_course,
-                'has_session': has_session,
-                'has_summary': has_summary,
+                'has_session': False,
+                'has_summary': False,
             },
-            'all_completed': all_completed,
+            'cp_onboarding_completed': cp_onboarding_completed,
             'groupe': profile.groupe,
         })
 
     except Exception as e:
         logger.error(f"Erreur onboarding_status: {e}")
+        return Response({'error': str(e)}, status=500)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def complete_cp_onboarding_view(request):
+    """
+    Marque l'onboarding CP comme terminé.
+
+    Transactionnel : ne passe le champ à True QUE si les 3 étapes
+    obligatoires ont réellement été créées :
+      1. un professeur
+      2. un cours
+      3. une association Professeur ↔ Cours (Dispense)
+
+    En cas d'erreur, la transaction est annulée → rien n'est modifié.
+    """
+    from django.db import transaction
+
+    try:
+        profile = request.user.profile
+
+        # Vérifier que l'utilisateur est bien CP (un étudiant ne peut pas
+        # marquer l'onboarding CP comme terminé)
+        if profile.groupe not in ['CP', 'ADMIN']:
+            return Response({
+                'error': 'Seul un CP peut valider cet onboarding.'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        with transaction.atomic():
+            # 1. Professeur créé ?
+            has_professeur = Professeur.objects.filter(
+                universite=profile.universite
+            ).exists() if profile.universite else False
+
+            # 2. Cours créé ?
+            has_course = Course.objects.filter(
+                universites=profile.universite,
+                filieres=profile.filiere,
+                promotions=profile.promotion
+            ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
+
+            # 3. Association (Dispense) créée ?
+            has_dispense = Dispense.objects.filter(
+                universite=profile.universite,
+                filiere=profile.filiere,
+                promotion=profile.promotion,
+            ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
+
+            if not (has_professeur and has_course and has_dispense):
+                return Response({
+                    'success': False,
+                    'error': 'Onboarding incomplet : professeur, cours et association requis.',
+                    'steps': {
+                        'has_professeur': has_professeur,
+                        'has_course': has_course,
+                        'has_dispense': has_dispense,
+                    },
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Tout est en place → source de vérité mise à True (transactionnel)
+            profile.cp_onboarding_completed = True
+            profile.save()
+
+        return Response({
+            'success': True,
+            'message': 'Onboarding CP marqué comme terminé.',
+        }, status=status.HTTP_200_OK)
+    except Exception as e:
+        logger.error(f"Erreur complete_cp_onboarding: {e}")
         return Response({'error': str(e)}, status=500)
 
 

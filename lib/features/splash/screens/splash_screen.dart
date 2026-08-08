@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:resume_plus_clean/features/onboarding/onboarding_screen.dart';
+import 'package:resume_plus_clean/features/onboarding/cp_onboarding_flow.dart';
 import 'package:resume_plus_clean/features/app/screens/main_navigation_screen.dart';
 import 'package:resume_plus_clean/features/auth/screens/phone_login_screen.dart';
 import 'package:resume_plus_clean/services/auto_login_service.dart';
+import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/version_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -97,6 +99,22 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             print('⚠️ [Splash] Badge sync error: $e');
           }
         }
+
+        // 🆓 Détection du premier accès CP pour les sessions restaurées :
+        // si l'utilisateur est CP et n'a jamais terminé son onboarding,
+        // rediriger DIRECTEMENT vers l'onboarding CP (sans l'accueil).
+        if (mounted) {
+          final needsCPOnboarding = await _checkNeedsCPOnboarding();
+          if (!mounted) return;
+          if (needsCPOnboarding) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const CPOnboardingFlow()),
+            );
+            return;
+          }
+        }
+
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(builder: (_) => MainNavigationScreen(key: MainNavigationScreen.navKey)),
@@ -121,6 +139,30 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           MaterialPageRoute(builder: (_) => const OnboardingScreen()),
         );
         break;
+    }
+  }
+
+  /// Vérifie si l'utilisateur connecté doit faire l'onboarding CP.
+  ///
+  /// Source de vérité : le champ cp_onboarding_completed renvoyé par le backend.
+  /// - role == CP/ADMIN ET cp_onboarding_completed == False → onboarding requis
+  /// - sinon → False (pas d'onboarding)
+  Future<bool> _checkNeedsCPOnboarding() async {
+    try {
+      final profile = await ApiService().getUserProfile();
+      final userProfile = profile['profile'];
+      if (userProfile == null) return false;
+
+      final role = userProfile['groupe']?.toString() ?? '';
+      final cpOnboardingCompleted = userProfile['cp_onboarding_completed'] == true;
+
+      final needsOnboarding = (role == 'CP' || role == 'ADMIN') && !cpOnboardingCompleted;
+      print('🎓 [Splash] CP onboarding requis: $needsOnboarding (role=$role, completed=$cpOnboardingCompleted)');
+      return needsOnboarding;
+    } catch (e) {
+      // Si le profil ne charge pas, on continue normalement (non bloquant)
+      print('⚠️ [Splash] Erreur vérification onboarding CP: $e');
+      return false;
     }
   }
 

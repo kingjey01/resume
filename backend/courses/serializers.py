@@ -129,10 +129,16 @@ class TranscriptionSerializer(serializers.ModelSerializer):
 class SummarySerializer(serializers.ModelSerializer):
     course_name = serializers.CharField(source='course.nom', read_only=True)
     filiere_name = serializers.SerializerMethodField()
-    author_name = serializers.CharField(source='author_user.username', read_only=True)
+    author_name = serializers.SerializerMethodField()
     transcription_id = serializers.IntegerField(source='transcription.id', read_only=True, allow_null=True)
     professeur_info = ProfesseurSerializer(source='professeur', read_only=True)
     professor_display = serializers.SerializerMethodField()
+
+    def get_author_name(self, obj):
+        """Nom de l'auteur — 'Inconnu' si le compte a été supprimé (auteur anonymisé)"""
+        if obj.author_user:
+            return obj.author_user.get_full_name() or obj.author_user.username
+        return 'Inconnu'
 
     def get_professor_display(self, obj):
         """Retourne le nom du professeur (FK, session.professeur_fk, ou session.professeur texte)"""

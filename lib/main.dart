@@ -6,14 +6,9 @@ import 'package:resume_plus_clean/features/splash/screens/splash_screen.dart';
 import 'package:resume_plus_clean/features/app/screens/main_navigation_screen.dart';
 import 'package:resume_plus_clean/features/auth/screens/phone_login_screen.dart';
 import 'package:resume_plus_clean/features/auth/screens/profile_completion_screen.dart';
-import 'package:resume_plus_clean/pages/debug_page.dart';
-import 'package:resume_plus_clean/test_simple_page.dart';
 import 'package:resume_plus_clean/features/settings/providers/theme_provider.dart';
 import 'package:resume_plus_clean/services/screen_security_service.dart';
 import 'package:resume_plus_clean/services/snackbar_service.dart';
-import 'package:resume_plus_clean/pages/simple_login_page.dart';
-import 'package:resume_plus_clean/pages/simple_data_page.dart';
-import 'package:resume_plus_clean/pages/enhanced_auth_demo_page.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:intl/intl.dart';
@@ -53,13 +48,12 @@ void main() async {
     }
 
     // 🔒 Initialiser la protection contre les captures d'écran globalement
-    // ⚠️ TEMPORAIREMENT DÉSACTIVÉ pour le build de test
-    // try {
-    //   await ScreenSecurityService.enableGlobalScreenSecurity();
-    //   print('🔒 Protection contre les captures d\'écran activée globalement');
-    // } catch (e) {
-    //   print('⚠️ Erreur lors de l\'initialisation de la protection d\'écran: $e');
-    // }
+    try {
+      await ScreenSecurityService.enableGlobalScreenSecurity();
+      print('🔒 Protection contre les captures d\'écran activée globalement');
+    } catch (e) {
+      print('⚠️ Erreur lors de l\'initialisation de la protection d\'écran: $e');
+    }
   }
 
   runApp(const ProviderScope(child: MyApp()));
@@ -94,11 +88,6 @@ class MyApp extends ConsumerWidget {
         '/login': (context) => const PhoneLoginScreen(),
         '/main': (context) => MainNavigationScreen(key: MainNavigationScreen.navKey),
         '/profile-completion': (context) => const ProfileCompletionScreen(),
-        '/debug': (context) => const DebugPage(),
-        '/test': (context) => const TestSimplePage(),
-        '/simple-login': (context) => const SimpleLoginPage(),
-        '/simple-data': (context) => const SimpleDataPage(),
-        '/enhanced-auth': (context) => const EnhancedAuthDemoPage(),
       },
     );
   }

@@ -768,7 +768,9 @@ def verify_otp_view(request):
                 'user': UserSerializer(user).data,
                 'refresh': str(refresh),
                 'access': str(refresh.access_token),
-                'profile_complete': profile_complete
+                'profile_complete': profile_complete,
+                'role': profile.groupe,
+                'cp_onboarding_completed': profile.cp_onboarding_completed,
             }, status=status.HTTP_200_OK)
         else:
             # Vérifier si trop de tentatives
@@ -987,7 +989,9 @@ def delete_account_view(request):
         username = user.username
         logger.info(f"Suppression de compte confirmée pour {username} - Raison: {reason}")
 
-        # Supprimer l'utilisateur (cascade vers le profil)
+        # Supprimer l'utilisateur (cascade vers le profil et ses données personnelles).
+        # Son contenu publié (résumés, sessions, exercices) survit grâce aux FKs en SET_NULL,
+        # ce qui préserve les achats des étudiants qui ont payé pour ce contenu.
         user.delete()
 
         return Response({'message': 'Compte supprimé avec succès'}, status=status.HTTP_200_OK)
@@ -1039,13 +1043,33 @@ def create_cp_request_view(request):
 
         # Créer la demande
         motivation = request.data.get('motivation', '').strip()
+        # Email du candidat : celui fourni dans le formulaire, sinon l'email du compte
+        email = (request.data.get('email') or '').strip() or user.email
         cp_request = CPRequest.objects.create(
             user=user,
+            email=email,
             motivation=motivation,
             status='pending',
         )
 
         logger.info(f"📝 Nouvelle demande CP de {user.username} (ID: {cp_request.id})")
+
+        # Notifier l'administration par email (arrière-plan Celery, pas de push)
+        try:
+            from .tasks import notify_admin_new_cp_request
+            try:
+                notify_admin_new_cp_request.apply_async(
+                    kwargs={'cp_request_id': cp_request.id},
+                    countdown=2,
+                )
+            except Exception as celery_error:
+                # File Celery indisponible : envoi synchrone en dernier recours
+                try:
+                    notify_admin_new_cp_request.run(cp_request_id=cp_request.id)
+                except Exception as sync_error:
+                    logger.warning(f"Échec notification admin (demande {cp_request.id}): {sync_error}")
+        except Exception as import_error:
+            logger.warning(f"Notification admin non planifiée (demande {cp_request.id}): {import_error}")
 
         return Response({
             'message': 'Votre demande pour devenir CP a été envoyée. Elle sera traitée par un administrateur.',

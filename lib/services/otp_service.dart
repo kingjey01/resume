@@ -73,6 +73,9 @@ class OtpService {
         'refresh_token': response.data['refresh'],
         'profile_complete': response.data['profile_complete'] ?? false,
         'requires_profile_completion': response.data['requires_profile_completion'] ?? false,
+        // Détection du premier accès CP (source de vérité = backend)
+        'role': response.data['role'],
+        'cp_onboarding_completed': response.data['cp_onboarding_completed'] ?? false,
       };
     } on DioException catch (e) {
       if (kDebugMode) {

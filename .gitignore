@@ -34,6 +34,15 @@ android/app/upload-keystore.jks
 .swiftpm/
 migrate_working_dir/
 
+# Secrets et credentials
+*.json
+!package.json
+!package-lock.json
+.env
+*.pem
+*.key
+*.crt
+
 # IntelliJ related
 *.iml
 *.ipr
@@ -64,3 +73,10 @@ app.*.map.json
 
 # Graphify output (generated files)
 graphify-out/
+
+#cloud firebase
+firebase-admin-sdk.json
+backend/firebase-admin-sdk.json
+
+# Captures d'écran / documents personnels (hors du repo)
+interface_image/

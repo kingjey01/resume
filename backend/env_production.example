@@ -46,3 +46,16 @@ CORS_ALLOW_ALL=False
 OTP_TEST_MODE=False
 # Liste JSON des numéros de test (formats : 09XXXXXXXX, +243XXXXXXXXX, 243XXXXXXXXX, XXXXXXXXX)
 OTP_TEST_PHONE_NUMBERS=[]
+
+# ========================================
+# EMAIL (notifications CP, administration)
+# ========================================
+EMAIL_BACKEND=django.core.mail.backends.smtp.EmailBackend
+EMAIL_HOST=smtp.gmail.com
+EMAIL_PORT=587
+EMAIL_USE_TLS=True
+EMAIL_HOST_USER=votre-email@gmail.com
+EMAIL_HOST_PASSWORD=votre-mot-de-passe-application
+DEFAULT_FROM_EMAIL=noreply@resumecours.gestionhospitaliare.site
+# Email(s) de l'administration pour les notifications de demandes CP (séparés par des virgules)
+ADMIN_NOTIFICATION_EMAIL=admin@resumecours.gestionhospitaliare.site
