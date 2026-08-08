@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
-import 'package:resume_plus_clean/features/auth/screens/login_screen.dart';
+import 'package:resume_plus_clean/features/auth/screens/phone_login_screen.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 
 class DeleteAccountScreen extends ConsumerStatefulWidget {
@@ -71,7 +71,7 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
       if (mounted) {
         await ref.read(authProvider.notifier).logout();
         Navigator.of(context).pushAndRemoveUntil(
-          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          MaterialPageRoute(builder: (_) => const PhoneLoginScreen()),
           (route) => false,
         );
         ScaffoldMessenger.of(context).showSnackBar(

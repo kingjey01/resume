@@ -219,6 +219,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     if (_cpRequestPending) return;
 
     final TextEditingController motivationCtrl = TextEditingController();
+    final TextEditingController emailCtrl = TextEditingController(
+      text: ref.read(currentUserProvider)?.email ?? '',
+    );
     bool isSubmitting = false;
 
     await showDialog(
@@ -239,82 +242,117 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               ),
             ],
           ),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  'En devenant Chef de Promotion (CP), vous pourrez créer des cours, '
-                  'enregistrer des séances et publier des résumés pour les étudiants.',
-                  style: const TextStyle(fontSize: 14, height: 1.5),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Text(
+                'En devenant Chef de Promotion (CP), vous pourrez créer des cours, '
+                'enregistrer des séances et publier des résumés pour les étudiants.',
+                style: const TextStyle(fontSize: 14, height: 1.5),
+              ),
+              const SizedBox(height: 16),
+              // Champ email TOUJOURS visible (hors zone de défilement)
+              TextField(
+                controller: emailCtrl,
+                keyboardType: TextInputType.emailAddress,
+                decoration: InputDecoration(
+                  labelText: 'Email (pour les notifications)',
+                  hintText: 'Vous recevrez la réponse de l\'administrateur ici',
+                  prefixIcon: const Icon(Icons.mail_outline_rounded),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
                 ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: motivationCtrl,
-                  maxLines: 4,
-                  maxLength: 500,
-                  decoration: InputDecoration(
-                    labelText: 'Motivation (optionnel)',
-                    hintText: 'Pourquoi souhaitez-vous devenir CP ?',
-                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                    filled: true,
+              ),
+              const SizedBox(height: 12),
+              // Motivation seule dans une zone scrollable (écrans petits)
+              Flexible(
+                child: SingleChildScrollView(
+                  child: TextField(
+                    controller: motivationCtrl,
+                    maxLines: 4,
+                    maxLength: 500,
+                    decoration: InputDecoration(
+                      labelText: 'Motivation (optionnel)',
+                      hintText: 'Pourquoi souhaitez-vous devenir CP ?',
+                      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                      filled: true,
+                    ),
                   ),
                 ),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: isSubmitting ? null : () => Navigator.pop(dialogContext),
-              child: const Text('Annuler'),
-            ),
-            ElevatedButton(
-              onPressed: isSubmitting
-                  ? null
-                  : () async {
-                      setDialogState(() => isSubmitting = true);
-                      try {
-                        await _apiService.createCPRequest(
-                          motivation: motivationCtrl.text.trim(),
-                        );
-                        if (!dialogContext.mounted) return;
-                        Navigator.pop(dialogContext);
-                        if (mounted) {
-                          setState(() {
-                            _cpRequestStatus = 'pending';
-                            _cpRequestPending = true;
-                          });
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Demande envoyée. Elle sera traitée par un administrateur.'),
-                              backgroundColor: AppTheme.success,
-                            ),
-                          );
-                        }
-                      } catch (e) {
-                        if (!dialogContext.mounted) return;
-                        setDialogState(() => isSubmitting = false);
-                        ScaffoldMessenger.of(dialogContext).showSnackBar(
-                          SnackBar(
-                            content: Text(ApiService.getErrorMessage(e)),
-                            backgroundColor: AppTheme.error,
-                          ),
-                        );
-                      }
-                    },
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.primaryBlue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               ),
-              child: isSubmitting
-                  ? const SizedBox(
-                      width: 20, height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
-                    )
-                  : const Text('Envoyer la demande'),
-            ),
-          ],
+              const SizedBox(height: 20),
+              // Boutons TOUJOURS côte à côte (Row + Expanded)
+              Row(
+                children: [
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: TextButton(
+                        onPressed: isSubmitting
+                            ? null
+                            : () => Navigator.pop(dialogContext),
+                        child: const Text('Annuler'),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SizedBox(
+                      height: 48,
+                      child: ElevatedButton(
+                        onPressed: isSubmitting
+                            ? null
+                            : () async {
+                                setDialogState(() => isSubmitting = true);
+                                try {
+                                  await _apiService.createCPRequest(
+                                    motivation: motivationCtrl.text.trim(),
+                                    email: emailCtrl.text.trim(),
+                                  );
+                                  if (!dialogContext.mounted) return;
+                                  Navigator.pop(dialogContext);
+                                  if (mounted) {
+                                    setState(() {
+                                      _cpRequestStatus = 'pending';
+                                      _cpRequestPending = true;
+                                    });
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text('Demande envoyée. Elle sera traitée par un administrateur.'),
+                                        backgroundColor: AppTheme.success,
+                                      ),
+                                    );
+                                  }
+                                } catch (e) {
+                                  if (!dialogContext.mounted) return;
+                                  setDialogState(() => isSubmitting = false);
+                                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                    SnackBar(
+                                      content: Text(ApiService.getErrorMessage(e)),
+                                      backgroundColor: AppTheme.error,
+                                    ),
+                                  );
+                                }
+                              },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.primaryBlue,
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        child: isSubmitting
+                            ? const SizedBox(
+                                width: 20, height: 20,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                              )
+                            : const Text('Envoyer la demande'),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );

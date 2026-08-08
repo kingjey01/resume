@@ -16,7 +16,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = UserProfile
-        fields = ['groupe', 'phone', 'profile_picture', 'universite', 'promotion', 'filiere', 'points', 'has_active_subscription']
+        fields = ['groupe', 'cp_onboarding_completed', 'phone', 'profile_picture', 'universite', 'promotion', 'filiere', 'points', 'has_active_subscription']
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -144,11 +144,12 @@ class CPRequestSerializer(serializers.ModelSerializer):
     username = serializers.CharField(source='user.username', read_only=True)
     user_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
+    email = serializers.EmailField(required=False, allow_blank=True)
 
     class Meta:
         model = CPRequest
         fields = [
-            'id', 'username', 'user_name', 'motivation',
+            'id', 'username', 'user_name', 'email', 'motivation',
             'status', 'status_display', 'admin_comment',
             'created_at', 'processed_at',
         ]

@@ -129,7 +129,7 @@ class Session(models.Model):
     ]
     
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='sessions')
-    professeur_fk = models.ForeignKey('Professeur', on_delete=models.CASCADE, related_name='sessions', null=True, blank=True)
+    professeur_fk = models.ForeignKey('Professeur', on_delete=models.SET_NULL, related_name='sessions', null=True, blank=True)
     date = models.DateTimeField()
     professeur = models.CharField(max_length=200, blank=True, default='')  # Nom texte pour compatibilité (optionnel)
     audio_file = models.FileField(upload_to='audio_sessions/', blank=True, null=True)
@@ -212,12 +212,12 @@ class Summary(models.Model):
     
     titre = models.CharField(max_length=200)
     texte_resume = models.TextField()
-    professeur = models.ForeignKey('Professeur', on_delete=models.CASCADE, related_name='summaries', null=True, blank=True)
+    professeur = models.ForeignKey('Professeur', on_delete=models.SET_NULL, related_name='summaries', null=True, blank=True)
     session = models.ForeignKey(Session, on_delete=models.CASCADE, related_name='summaries', blank=True, null=True)
     course = models.ForeignKey(Course, on_delete=models.CASCADE, related_name='summaries')
     transcription = models.ForeignKey(Transcription, on_delete=models.SET_NULL, related_name='summaries', blank=True, null=True, help_text="Transcription source du résumé")
     author_type = models.CharField(max_length=10, choices=AUTHOR_CHOICES, default='cp')
-    author_user = models.ForeignKey(User, on_delete=models.CASCADE, blank=True, null=True)
+    author_user = models.ForeignKey(User, on_delete=models.SET_NULL, blank=True, null=True, related_name='authored_summaries')
     pdf_file = models.FileField(upload_to='summaries/pdfs/', blank=True, null=True)
     prix = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     is_free = models.BooleanField(default=False)
@@ -412,7 +412,7 @@ class Exercise(models.Model):
     ]
     
     summary = models.ForeignKey(Summary, on_delete=models.CASCADE, related_name='exercises')
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE, related_name='exercises', null=True, blank=True)
+    created_by = models.ForeignKey(User, on_delete=models.SET_NULL, related_name='exercises', null=True, blank=True)
     titre = models.CharField(max_length=200)
     description = models.TextField(blank=True, null=True)
     difficulty = models.CharField(max_length=20, default='medium', choices=[('easy', 'Facile'), ('medium', 'Moyen'), ('hard', 'Difficile')])

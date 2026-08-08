@@ -134,13 +134,7 @@ class ApiService {
 
   Future<void> _onRequest(RequestOptions options, RequestInterceptorHandler handler) async {
     final publicEndpoints = [
-      '/auth/login/',
-      '/auth/register/',
-      '/auth/password/reset/',
       '/auth/token/refresh/',
-      '/auth/forgot-password/',
-      '/auth/verify-reset-code/',
-      '/auth/reset-password/',
       '/auth/otp/request/',
       '/auth/otp/verify/',
       '/courses/universites/',
@@ -188,7 +182,6 @@ class ApiService {
     // Refresh token automatique pour 401
     if (statusCode == 401 &&
         !path.endsWith('/auth/token/refresh/') &&
-        !path.endsWith('/auth/login/') &&
         !path.endsWith('/auth/otp/request/') &&
         !path.endsWith('/auth/otp/verify/')) {
       AppLogger.info('🔄 Tentative refresh token pour $path');
@@ -354,40 +347,6 @@ class ApiService {
   // ═════════════════════════════════════════════════════════════════════
 
   // ─── Authentification ───────────────────────────────────────────────
-
-  Future<Map<String, dynamic>> login(String username, String password) async {
-    try {
-      final response = await _dio.post('/auth/login/', data: {
-        'username': username,
-        'password': password,
-      });
-
-      if (response.statusCode == 200) {
-        final data = response.data;
-        _currentAccessToken = data['access'];
-        _currentRefreshToken = data['refresh'];
-        await _storageService.saveTokens(data['access'], data['refresh']);
-        return {'success': true, ...data};
-      }
-      throw ApiException('Identifiants incorrects.', type: ApiExceptionType.validation);
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
-    }
-  }
-
-  Future<void> register(Map<String, dynamic> registrationData) async {
-    try {
-      final response = await _dio.post('/auth/register/', data: registrationData);
-      if (response.statusCode != 201) {
-        final msg = _extractBackendMessage(response) ?? 'Erreur lors de l\'inscription.';
-        throw ApiException(msg, type: ApiExceptionType.validation);
-      }
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
-    }
-  }
 
   Future<void> logout() async {
     try {
@@ -642,59 +601,6 @@ class ApiService {
         throw ApiException('Erreur lors de la suppression du compte.',
             type: ApiExceptionType.server);
       }
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
-    }
-  }
-
-  Future<Map<String, dynamic>> forgotPassword(String email) async {
-    try {
-      final response = await _dio.post('/auth/forgot-password/', data: {'email': email});
-      if (response.statusCode == 200) {
-        return response.data as Map<String, dynamic>;
-      }
-      throw ApiException('Erreur lors de l\'envoi du code de réinitialisation.',
-          type: ApiExceptionType.server);
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
-    }
-  }
-
-  Future<Map<String, dynamic>> verifyResetCode({required String email, required String code}) async {
-    try {
-      final response = await _dio.post('/auth/verify-reset-code/', data: {
-        'email': email,
-        'code': code,
-      });
-      if (response.statusCode == 200) {
-        return response.data as Map<String, dynamic>;
-      }
-      throw ApiException('Code de réinitialisation invalide ou expiré.',
-          type: ApiExceptionType.validation);
-    } catch (e) {
-      if (e is ApiException) rethrow;
-      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
-    }
-  }
-
-  Future<Map<String, dynamic>> resetPassword({
-    required String email,
-    required String code,
-    required String newPassword,
-  }) async {
-    try {
-      final response = await _dio.post('/auth/reset-password/', data: {
-        'email': email,
-        'code': code,
-        'new_password': newPassword,
-      });
-      if (response.statusCode == 200) {
-        return response.data as Map<String, dynamic>;
-      }
-      throw ApiException('Erreur lors de la réinitialisation du mot de passe.',
-          type: ApiExceptionType.server);
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
@@ -1273,11 +1179,14 @@ class ApiService {
   // ─── Demande pour devenir CP ───────────────────────────────────────
 
   /// Crée une demande pour devenir CP (uniquement si aucune en attente).
-  Future<Map<String, dynamic>> createCPRequest({String motivation = ''}) async {
+  Future<Map<String, dynamic>> createCPRequest({
+    String motivation = '',
+    String email = '',
+  }) async {
     try {
-      final response = await _dio.post('/auth/cp-request/', data: {
-        'motivation': motivation,
-      });
+      final data = <String, dynamic>{'motivation': motivation};
+      if (email.isNotEmpty) data['email'] = email;
+      final response = await _dio.post('/auth/cp-request/', data: data);
       if (response.statusCode == 201 || response.statusCode == 200) {
         return response.data as Map<String, dynamic>;
       }
@@ -1303,6 +1212,16 @@ class ApiService {
   }
 
   // ─── Onboarding CP ──────────────────────────────────────────────────
+
+  /// Marque l'onboarding CP comme terminé pour l'utilisateur connecté.
+  Future<void> completeCPOnboarding() async {
+    try {
+      await _dio.post('/onboarding/complete-cp/');
+    } catch (e) {
+      // Non bloquant : si l'appel échoue, l'onboarding sera re-proposé
+      AppLogger.warning('completeCPOnboarding error (non bloquant)', e.toString());
+    }
+  }
 
   Future<Map<String, dynamic>> getOnboardingStatus() async {
     try {

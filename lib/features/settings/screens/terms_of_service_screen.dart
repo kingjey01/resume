@@ -230,6 +230,7 @@ En cas de litige, nous privilégions une résolution à l'amiable.
 Pour toute question concernant ces conditions :
 • E-mail : jeyyeta01@gmail.com
 • Téléphone : 0996816806
+• Site web : www.resumeplus.org
 
 Nous sommes à votre disposition pour clarifier ces conditions.
                   ''',

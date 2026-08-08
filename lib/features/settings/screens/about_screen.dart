@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 
 class AboutScreen extends StatelessWidget {
@@ -75,6 +76,26 @@ class AboutScreen extends StatelessWidget {
                       const Text(
                         'v1.0.0',
                         style: TextStyle(color: Colors.white70, fontSize: 12),
+                      ),
+                      const SizedBox(height: 6),
+                      GestureDetector(
+                        onTap: _openWebsite,
+                        child: const Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Icon(Icons.public_rounded, size: 14, color: Colors.white70),
+                            SizedBox(width: 4),
+                            Text(
+                              'www.resumeplus.org',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                decoration: TextDecoration.underline,
+                                decorationColor: Colors.white70,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                     ],
                   ),
@@ -228,6 +249,14 @@ class AboutScreen extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _buildContactRow(
+                      theme,
+                      Icons.public_rounded,
+                      'Site web',
+                      'www.resumeplus.org',
+                      onTap: _openWebsite,
+                    ),
+                    const SizedBox(height: 8),
                     _buildContactRow(theme, Icons.email_rounded, 'Email', 'jeyyeta01@gmail.com'),
                     const SizedBox(height: 8),
                     _buildContactRow(theme, Icons.phone_rounded, 'WhatsApp', '+243 996 816 806'),
@@ -243,11 +272,28 @@ class AboutScreen extends StatelessWidget {
               Center(
                 child: Padding(
                   padding: const EdgeInsets.only(bottom: 40),
-                  child: Text(
-                    '© 2024 Résumé+ · Tous droits réservés',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurface.withOpacity(0.4),
-                    ),
+                  child: Column(
+                    children: [
+                      Text(
+                        '© 2024 Résumé+ · Tous droits réservés',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: theme.colorScheme.onSurface.withOpacity(0.4),
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      GestureDetector(
+                        onTap: _openWebsite,
+                        child: Text(
+                          'www.resumeplus.org',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.primary,
+                            fontWeight: FontWeight.w600,
+                            decoration: TextDecoration.underline,
+                            decorationColor: theme.colorScheme.primary,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               ),
@@ -496,34 +542,50 @@ class AboutScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildContactRow(ThemeData theme, IconData icon, String label, String value) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 17, color: theme.colorScheme.primary),
-        const SizedBox(width: 10),
-        Expanded(
-          child: RichText(
-            text: TextSpan(
-              children: [
-                TextSpan(
-                  text: '$label : ',
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    fontWeight: FontWeight.w700,
-                    color: theme.colorScheme.onSurface,
+  Widget _buildContactRow(ThemeData theme, IconData icon, String label, String value,
+      {VoidCallback? onTap}) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 17, color: theme.colorScheme.primary),
+          const SizedBox(width: 10),
+          Expanded(
+            child: RichText(
+              text: TextSpan(
+                children: [
+                  TextSpan(
+                    text: '$label : ',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: theme.colorScheme.onSurface,
+                    ),
                   ),
-                ),
-                TextSpan(
-                  text: value,
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: theme.colorScheme.onSurface.withOpacity(0.7),
+                  TextSpan(
+                    text: value,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: onTap != null
+                          ? theme.colorScheme.primary
+                          : theme.colorScheme.onSurface.withOpacity(0.7),
+                      fontWeight: onTap != null ? FontWeight.w600 : null,
+                      decoration: onTap != null ? TextDecoration.underline : null,
+                      decorationColor: onTap != null ? theme.colorScheme.primary : null,
+                    ),
                   ),
-                ),
-              ],
+                ],
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
+  }
+
+  Future<void> _openWebsite() async {
+    final uri = Uri.parse('https://www.resumeplus.org');
+    if (await canLaunchUrl(uri)) {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    }
   }
 }

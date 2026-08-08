@@ -7,8 +7,19 @@ import 'package:screen_protector/screen_protector.dart';
 class ScreenSecurityService {
   static bool _isSecured = false;
 
+  /// Compteur de verrous : la protection reste active tant qu'au moins un
+  /// verrou est détenu (verrou global de l'app + verrous par écran).
+  /// Sans cela, la désactivation d'un écran (dispose de SecureScreenWrapper)
+  /// éteindrait la protection globale pour toute l'application.
+  static int _secureLocks = 0;
+
   /// Active la protection contre les captures d'écran
   static Future<void> enableScreenSecurity() async {
+    _secureLocks++;
+    // Déjà verrouillé par un autre appel : le flag FLAG_SECURE est posé,
+    // inutile de ré-invoquer le plugin.
+    if (_secureLocks > 1) return;
+
     if (kIsWeb) {
       // Sur le web, on peut utiliser CSS pour masquer le contenu lors des captures
       _enableWebScreenSecurity();
@@ -28,6 +39,12 @@ class ScreenSecurityService {
 
   /// Désactive la protection contre les captures d'écran
   static Future<void> disableScreenSecurity() async {
+    if (_secureLocks <= 0) return;
+    _secureLocks--;
+    // D'autres verrous sont encore détenus (ex : protection globale) :
+    // on ne retire PAS le flag FLAG_SECURE.
+    if (_secureLocks > 0) return;
+
     if (kIsWeb) {
       _disableWebScreenSecurity();
       return;

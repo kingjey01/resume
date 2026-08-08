@@ -35,16 +35,25 @@
 - Contrôles : play, pause, reprise, arrêt, vitesse
 - Vitesse constante après pause/reprise
 
+### 🔐 Authentification (Téléphone + OTP)
+- Connexion **uniquement** par numéro de téléphone + code OTP reçu par SMS
+- Le système username/password a été **entièrement supprimé** de l'application (écrans, routes, méthodes API)
+- Profil complété à la première connexion (nom, université, promotion, filière)
+- **Suppression de compte** : confirmation par code OTP SMS, puis redirection automatique vers la connexion par téléphone
+- **Contenu préservé à la suppression** : les résumés, sessions et exercices publiés par un CP supprimé restent accessibles (auteur anonymisé → « Inconnu ») — les achats des étudiants qui ont payé ce contenu ne sont **jamais perdus**
+
 ### 🔔 Notifications
 - Notifications push **Firebase Cloud Messaging (FCM)**
 - Ciblage individuel (jamais de broadcast pour paiements/abonnements)
 - Badge sur l'icône de l'application (Android via ShortcutBadger, iOS natif)
 - Centre de notifications : recherche, filtres, pagination infinie, "Tout lire"
+- **Emails de statut CP** (approbation/refus) envoyés en **arrière-plan via Celery** (`users/tasks.py`) avec relance automatique — le commentaire de l'admin est inclus dans l'email de refus
+- **Notification admin** : à chaque nouvelle demande CP, l'administration reçoit un email (jamais de push) — destinataires dynamiques via `ADMIN_NOTIFICATION_EMAIL` dans `.env` (plusieurs emails séparés par des virgules)
 
 ### 👥 Rôles
 | Rôle | Rôle |
 |------|------|
-| **CP (Chef de Promotion)** | Crée professeurs, cours, associations (Dispense), enregistre les séances, valide les résumés, gère les brouillons audio |
+| **CP (Chef de Promotion)** | Dépose une demande avec **email de contact** (notifié par email + push à l'approbation/refus), crée professeurs, cours, associations (Dispense), enregistre les séances, valide les résumés |
 | **Étudiant** | Consulte, achète et écoute les résumés, passe les QCM |
 
 ### 💾 Brouillons Audio Locaux
@@ -120,7 +129,7 @@ resume_plus_clean/
 │   ├── courses/              # Cours, résumés, exercices, dispenses
 │   ├── payments/             # Services, abonnements, FlexPay
 │   ├── notifications/        # FCM, notifications push
-│   ├── users/                # Auth, OTP, profils
+│   ├── users/                # Auth OTP, profils, demandes CP, emails Celery
 │   ├── security/             # Logs, AppVersion, ResumePricingConfig
 │   └── resume_backend/       # Configuration Django (settings, urls)
 │
@@ -140,6 +149,7 @@ resume_plus_clean/
 | Exercices personnalisés | `backend/courses/personalized_exercise_generator.py` | QCM uniques par utilisateur |
 | FlexPay | `backend/payments/flexpay_integration.py` | Paiement Mobile Money |
 | Notifications | `backend/notifications/tasks.py` | FCM + notifications en base |
+| Emails CP | `backend/users/tasks.py` | Emails approbation/refus CP + notification admin nouvelle demande (Celery, relance auto) |
 | Signaux | `backend/payments/signals.py` | Déclenchement automatique des notifications |
 
 ### Frontend
@@ -181,8 +191,8 @@ python manage.py makemigrations
 python manage.py migrate
 python manage.py seed_production
 
-# Celery (transcription + résumés asynchrones)
-celery -A backend worker -l info --concurrency=2
+# Celery (transcription, résumés asynchrones, notifications, emails CP)
+celery -A resume_backend worker -l info --concurrency=2
 
 # Serveur
 python manage.py runserver
@@ -200,6 +210,10 @@ flutter run
 |----------|------|
 | `POST /api/auth/otp/request/` | Demande de code OTP |
 | `POST /api/auth/otp/verify/` | Vérification OTP + connexion JWT |
+| `POST /api/auth/cp-request/` | Création demande CP (motivation + email de contact) |
+| `GET /api/auth/cp-request/status/` | Statut de la demande CP |
+| `POST /api/auth/delete-account/request-otp/` | Envoi du code OTP de confirmation de suppression |
+| `DELETE /api/auth/delete-account/` | Suppression du compte (après vérification OTP) |
 | `GET /api/courses/` | Liste des cours |
 | `GET /api/summaries/` | Liste des résumés |
 | `POST /api/courses/sessions/upload-audio/` | Upload audio de session |
@@ -217,8 +231,8 @@ Le dossier `website/` contient un site statique responsive (politique de confide
 
 ## 🛡️ Sécurité
 
-- Authentification JWT (SimpleJWT) + OTP par SMS
-- Protection anti-capture d'écran (Android)
+- Authentification JWT (SimpleJWT) + OTP par SMS (téléphone uniquement — username/password retiré)
+- Protection anti-capture d'écran (Android) activée globalement au démarrage
 - Téléchargement des résumés désactivé
 - Notifications individuelles (pas de broadcast)
 - Exercices uniques par utilisateur (anti-triche)

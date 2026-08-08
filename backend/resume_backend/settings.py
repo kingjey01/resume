@@ -426,6 +426,10 @@ EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
 EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
 DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='')
 
+# Email(s) de l'administration pour les notifications de demandes CP
+# (séparés par des virgules si plusieurs : 'admin1@x.com, admin2@y.com')
+ADMIN_NOTIFICATION_EMAIL = config('ADMIN_NOTIFICATION_EMAIL', default='')
+
 # Configuration timeout pour éviter les erreurs de connexion
 EMAIL_TIMEOUT = 30  # 30 secondes
 EMAIL_SSL_CERTFILE = None

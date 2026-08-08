@@ -15,6 +15,14 @@ class UserProfile(models.Model):
     
     user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
     groupe = models.CharField(max_length=20, choices=GROUPE_CHOICES, default='ETUDIANT')
+    # Source de vérité UNIQUE pour détecter le premier accès CP.
+    # - False par défaut : tant que False, le CP doit faire l'onboarding.
+    # - Mis à True UNIQUEMENT par le backend, dans une transaction,
+    #   quand l'onboarding CP (professeur + cours + association) est terminé.
+    cp_onboarding_completed = models.BooleanField(
+        default=False,
+        help_text="Source de vérité : le CP a-t-il terminé son onboarding ?"
+    )
     phone = models.CharField(max_length=20, blank=True, null=True)
     profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
     
@@ -160,6 +168,10 @@ class CPRequest(models.Model):
         User, on_delete=models.CASCADE,
         related_name='cp_requests',
         help_text="Utilisateur qui fait la demande"
+    )
+    email = models.EmailField(
+        blank=True,
+        help_text="Email du candidat pour les notifications d'approbation/refus"
     )
     motivation = models.TextField(
         blank=True,

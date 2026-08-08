@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/features/auth/repositories/auth_repository.dart';
@@ -99,44 +98,6 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
     }
   }
 
-  Future<void> login(String username, String password) async {
-    try {
-      state = const AsyncValue.loading();
-      
-      // Appel au repository pour la connexion
-      final user = await _authRepository.login(username, password);
-      
-      // Nettoyer le cache API de l'ancien utilisateur
-      _apiService.clearSession();
-      // Mettre à jour l'état avec l'utilisateur connecté
-      state = AsyncValue.data(user);
-      // Enregistrer le token FCM maintenant que l'utilisateur est authentifié
-      // AWAIT important : garantir que le token est bien associé au bon user
-      if (!kIsWeb) {
-        try {
-          final success = await FcmService().registerCurrentUserToken();
-          debugPrint('🔔 [Auth] FCM token registration: ${success ? "✅ OK" : "❌ FAILED"}');
-        } catch (e) {
-          debugPrint('⚠️ [Auth] FCM token registration error (non-blocking): $e');
-        }
-        // Synchroniser le badge d'icône maintenant que le JWT est disponible
-        try {
-          await BadgeService().refresh();
-          debugPrint('🔴 [Auth] Badge d\'icône synchronisé après login');
-        } catch (e) {
-          debugPrint('⚠️ [Auth] Badge sync error (non-blocking): $e');
-        }
-      }
-    } catch (e, stackTrace) {
-      // En cas d'échec, s'assurer que l'état est bien mis à jour
-      state = const AsyncValue.data(null);
-      
-      // Propage l'erreur pour qu'elle puisse être gérée par l'UI
-      // (le message d'erreur est déjà affiché par le SnackbarService dans l'ApiService)
-      rethrow;
-    }
-  }
-
   Future<void> logout() async {
     try {
       // Ne pas afficher l'état de chargement pour éviter les clignotements inutiles
@@ -180,55 +141,6 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
       
       // Logger l'erreur mais ne pas la propager pour ne pas bloquer l'utilisateur
       debugPrint('Erreur lors de la déconnexion: $e\n$stackTrace');
-    }
-  }
-
-  Future<void> register(String username, String email, String password, {
-    String? firstName,
-    String? lastName,
-    int? universiteId,
-    int? promotionId,
-    int? filiereId,
-  }) async {
-    try {
-      state = const AsyncValue.loading();
-      
-      // Appeler la méthode d'inscription du repository avec les paramètres supplémentaires
-      final user = await _authRepository.register(
-        username,
-        email,
-        password,
-        firstName: firstName,
-        lastName: lastName,
-        universiteId: universiteId,
-        promotionId: promotionId,
-        filiereId: filiereId,
-      );
-      
-      // Mettre à jour l'état avec l'utilisateur connecté
-      state = AsyncValue.data(user);
-      // Enregistrer le token FCM après inscription (auto-login) — AWAIT
-      if (!kIsWeb) {
-        try {
-          final success = await FcmService().registerCurrentUserToken();
-          debugPrint('🔔 [Auth/Register] FCM token registration: ${success ? "✅ OK" : "❌ FAILED"}');
-        } catch (e) {
-          debugPrint('⚠️ [Auth/Register] FCM token registration error: $e');
-        }
-        // Synchroniser le badge d'icône après inscription
-        try {
-          await BadgeService().refresh();
-          debugPrint('🔴 [Auth/Register] Badge d\'icône synchronisé');
-        } catch (e) {
-          debugPrint('⚠️ [Auth/Register] Badge sync error (non-blocking): $e');
-        }
-      }
-    } catch (e, stackTrace) {
-      // En cas d'échec, s'assurer que l'état est bien mis à jour
-      state = const AsyncValue.data(null);
-      
-      // Propage l'erreur pour qu'elle puisse être gérée par l'UI
-      rethrow;
     }
   }
 

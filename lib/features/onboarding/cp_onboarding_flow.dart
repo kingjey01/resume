@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
+import 'package:resume_plus_clean/features/app/screens/main_navigation_screen.dart';
+import 'package:resume_plus_clean/features/upload/screens/upload_choice_screen.dart';
 
 class CPOnboardingFlow extends StatefulWidget {
   const CPOnboardingFlow({super.key});
@@ -766,13 +768,46 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
     }
   }
 
-  void _goToHome() {
-    Navigator.of(context).pop();
+  Future<void> _goToHome() async {
+    await _finishOnboarding();
+    if (!mounted) return;
+    // L'onboarding est la SEULE route (poussée en pushReplacement depuis le splash) :
+    // un pop() laisserait un écran noir — on remplace toute la pile par l'accueil.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => MainNavigationScreen(key: MainNavigationScreen.navKey),
+      ),
+      (route) => false,
+    );
   }
 
-  void _goToCreateSession() {
-    Navigator.of(context).pop();
-    // TODO: naviguer vers l'écran de création de séance
+  Future<void> _goToCreateSession() async {
+    await _finishOnboarding();
+    if (!mounted) return;
+    // Remplacer la pile par le menu principal, puis ouvrir l'écran de création
+    // de séance PAR-DESSUS : le bouton retour ramène à l'accueil.
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(
+        builder: (_) => MainNavigationScreen(key: MainNavigationScreen.navKey),
+      ),
+      (route) => false,
+    );
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const UploadChoiceScreen()),
+    );
+  }
+
+  /// Marque l'onboarding CP comme terminé côté backend
+  /// (cp_onboarding_completed = True) pour ne plus le re-proposer.
+  /// Attendu avant la navigation : sinon, au prochain démarrage,
+  /// le splash re-redirigerait vers l'onboarding.
+  Future<void> _finishOnboarding() async {
+    try {
+      await _apiService.completeCPOnboarding();
+    } catch (e) {
+      // Non bloquant : si l'appel échoue, l'onboarding sera re-proposé
+      debugPrint('⚠️ [CPOnboarding] completeCPOnboarding échoué (non bloquant): $e');
+    }
   }
 
   // ─── Build ──────────────────────────────────────────────────────────────────
