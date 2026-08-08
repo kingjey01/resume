@@ -771,29 +771,49 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
   Future<void> _goToHome() async {
     await _finishOnboarding();
     if (!mounted) return;
-    // L'onboarding est la SEULE route (poussée en pushReplacement depuis le splash) :
-    // un pop() laisserait un écran noir — on remplace toute la pile par l'accueil.
-    Navigator.of(context).pushAndRemoveUntil(
-      MaterialPageRoute(
-        builder: (_) => MainNavigationScreen(key: MainNavigationScreen.navKey),
-      ),
-      (route) => false,
-    );
+    // Retour au menu principal, onglet Accueil.
+    _exitToMainNavigation();
   }
 
   Future<void> _goToCreateSession() async {
     await _finishOnboarding();
     if (!mounted) return;
-    // Remplacer la pile par le menu principal, puis ouvrir l'écran de création
-    // de séance PAR-DESSUS : le bouton retour ramène à l'accueil.
-    Navigator.of(context).pushAndRemoveUntil(
+    _exitToMainNavigation();
+    // Le menu de création (UploadChoiceScreen) est empilé PAR-DESSUS le menu
+    // principal : le bouton retour ramène à l'accueil. On attend la pose de
+    // la prochaine frame pour que la route du menu principal soit rendue
+    // AVANT d'en pousser une autre — deux navigations dans la même frame
+    // produisent un écran noir.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => const UploadChoiceScreen()),
+      );
+    });
+  }
+
+  /// Quitte l'onboarding vers le menu principal.
+  ///
+  /// Cas 1 — l'onboarding a été poussé PAR-DESSUS le menu principal (depuis
+  /// MainNavigationScreen._checkCPOnboarding) : un simple pop() suffit, on
+  /// réutilise l'instance existante (état + GlobalKey navKey conservés).
+  /// Recréer une instance avec la même navKey pendant que l'ancienne est
+  /// encore montée donne un écran noir en release.
+  ///
+  /// Cas 2 — l'onboarding est la racine (poussée depuis l'OTP ou le splash
+  /// par pushAndRemoveUntil / pushReplacement) : on remplace toute la pile
+  /// par une nouvelle instance du menu principal.
+  void _exitToMainNavigation() {
+    final navigator = Navigator.of(context);
+    if (navigator.canPop()) {
+      navigator.pop();
+      return;
+    }
+    navigator.pushAndRemoveUntil(
       MaterialPageRoute(
         builder: (_) => MainNavigationScreen(key: MainNavigationScreen.navKey),
       ),
       (route) => false,
-    );
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const UploadChoiceScreen()),
     );
   }
 
