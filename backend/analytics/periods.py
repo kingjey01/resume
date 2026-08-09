@@ -135,16 +135,31 @@ def iso(dt):
     return dt.isoformat() if dt else None
 
 
+def _localize(dt):
+    """
+    Normalise un datetime éventuellement naive vers le timezone local.
+
+    En production, les colonnes datetime legacy (créées avant l'activation
+    de USE_TZ ou via datetime.now()) sont relues NAIVES par Django, et les
+    agrégations Trunc* les propagent telles quelles. timezone.localtime()
+    lève ValueError sur un datetime naive → toutes les séries de statistiques
+    plantaient. On les interprète dans le timezone configuré (Africa/Kinshasa).
+    """
+    if dt is not None and timezone.is_naive(dt):
+        return timezone.make_aware(dt, timezone.get_default_timezone())
+    return dt
+
+
 def day_key(dt):
     """Clé 'YYYY-MM-DD' en timezone local (pour les séries)."""
-    return timezone.localtime(dt).strftime('%Y-%m-%d')
+    return timezone.localtime(_localize(dt)).strftime('%Y-%m-%d')
 
 
 def week_key(dt):
     """Clé 'YYYY-MM-DD' du lundi de la semaine en timezone local."""
-    return day_key(_start_of_week(timezone.localtime(dt)))
+    return day_key(_start_of_week(timezone.localtime(_localize(dt))))
 
 
 def month_key(dt):
     """Clé 'YYYY-MM' en timezone local."""
-    return timezone.localtime(dt).strftime('%Y-%m')
+    return timezone.localtime(_localize(dt)).strftime('%Y-%m')
