@@ -1,5 +1,5 @@
 from rest_framework import status, generics, permissions
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, authentication_classes
 from rest_framework.response import Response
 from rest_framework_simplejwt.tokens import RefreshToken, AccessToken
 from django.contrib.auth.models import User
@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def register_view(request):
     """
     Endpoint d'inscription - Accessible sans authentification
@@ -47,6 +48,7 @@ logger = logging.getLogger(__name__)
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def login_view(request):
     """
     Endpoint de connexion - Accessible sans authentification
@@ -189,6 +191,7 @@ def update_profile_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def refresh_token_view(request):
     """
     Rafraîchir un token d'accès avec un refresh token
@@ -297,6 +300,7 @@ def logout_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def forgot_password_view(request):
     """
     Endpoint pour demander la réinitialisation du mot de passe.
@@ -403,6 +407,7 @@ L'équipe ResumeCours
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def verify_reset_code_view(request):
     """
     Vérifie le code de réinitialisation envoyé par email.
@@ -452,6 +457,7 @@ def verify_reset_code_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def reset_password_view(request):
     """
     Réinitialise le mot de passe avec le token de réinitialisation.
@@ -583,6 +589,7 @@ def change_password_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def request_otp_view(request):
     """
     Demande d'envoi d'un code OTP par SMS
@@ -720,6 +727,7 @@ def request_otp_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
+@authentication_classes([])
 def verify_otp_view(request):
     """
     Vérification du code OTP et connexion automatique
