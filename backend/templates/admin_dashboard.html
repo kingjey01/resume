@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Résumé+ — Statistiques administrateur</title>
+<link rel="stylesheet" href="/static/admin_dashboard/style.css">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script>
+  // Thème sombre des graphiques (apparence uniquement).
+  Chart.defaults.color = '#9a9aa8';
+  Chart.defaults.borderColor = 'rgba(255, 255, 255, 0.06)';
+</script>
+</head>
+<body>
+
+<!-- ═══════════ ÉCRAN DE CONNEXION ═══════════ -->
+<div id="login-screen" class="login-screen">
+  <div class="login-card">
+    <div class="login-logo">Résumé<span>+</span></div>
+    <p class="login-subtitle">Dashboard statistiques administrateur</p>
+    <div id="login-error" class="login-error" hidden></div>
+    <form id="login-form">
+      <label>Identifiant (username)</label>
+      <input type="text" id="login-username" autocomplete="username" required>
+      <label>Mot de passe</label>
+      <input type="password" id="login-password" autocomplete="current-password" required>
+      <button type="submit" id="login-submit">Se connecter</button>
+    </form>
+  </div>
+</div>
+
+<!-- ═══════════ DASHBOARD ═══════════ -->
+<div id="dashboard" class="dashboard" hidden>
+
+  <header class="topbar">
+    <div class="brand">Résumé<span>+</span> <small>Statistiques</small></div>
+
+    <div class="period-controls">
+      <select id="period-select" aria-label="Période">
+        <option value="today">Aujourd'hui</option>
+        <option value="last_7_days">7 derniers jours</option>
+        <option value="last_30_days" selected>30 derniers jours</option>
+        <option value="this_week">Cette semaine</option>
+        <option value="this_month">Ce mois</option>
+        <option value="last_month">Mois précédent</option>
+        <option value="custom">Période personnalisée</option>
+      </select>
+      <input type="date" id="custom-start" hidden aria-label="Début de période">
+      <input type="date" id="custom-end" hidden aria-label="Fin de période">
+    </div>
+
+    <div class="export-controls">
+      <button id="export-excel" class="btn btn-outline" title="Exporter en Excel (toutes les sections)">
+        📄 Exporter Excel
+      </button>
+      <button id="export-csv" class="btn btn-outline" title="Exporter en CSV (section courante)">
+        📄 Exporter CSV
+      </button>
+      <button id="logout-btn" class="btn btn-ghost">Déconnexion</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <nav class="sidebar" id="sidebar">
+      <button class="nav-item active" data-section="overview">Vue générale</button>
+      <button class="nav-item" data-section="users">Utilisateurs</button>
+      <button class="nav-item" data-section="summaries">Résumés</button>
+      <button class="nav-item" data-section="qcm">QCM</button>
+      <button class="nav-item" data-section="transactions">Transactions</button>
+      <button class="nav-item" data-section="purchases">Achats</button>
+      <button class="nav-item" data-section="subscriptions">Abonnements</button>
+      <button class="nav-item" data-section="revenue">Revenus</button>
+    </nav>
+
+    <main class="content">
+      <div id="section-filters" class="section-filters"></div>
+      <div id="status-banner" class="status-banner" hidden></div>
+
+      <!-- Vue générale -->
+      <section id="section-overview" class="tab-section active">
+        <div class="cards-grid" id="overview-cards"></div>
+        <div class="panel">
+          <h3>Revenu quotidien</h3>
+          <div class="chart-box"><canvas id="chart-overview-revenue"></canvas></div>
+        </div>
+      </section>
+
+      <!-- Utilisateurs -->
+      <section id="section-users" class="tab-section">
+        <div class="cards-grid" id="users-cards"></div>
+        <div class="panel"><h3>Évolution quotidienne</h3>
+          <div class="chart-box"><canvas id="chart-users-daily"></canvas></div></div>
+        <div class="panel-row">
+          <div class="panel"><h3>Évolution hebdomadaire</h3>
+            <div class="chart-box"><canvas id="chart-users-weekly"></canvas></div></div>
+          <div class="panel"><h3>Évolution mensuelle</h3>
+            <div class="chart-box"><canvas id="chart-users-monthly"></canvas></div></div>
+        </div>
+      </section>
+
+      <!-- Résumés -->
+      <section id="section-summaries" class="tab-section">
+        <div class="cards-grid" id="summaries-cards"></div>
+        <div class="panel"><h3>Résumés générés par jour</h3>
+          <div class="chart-box"><canvas id="chart-summaries-daily"></canvas></div></div>
+        <div class="panel-row">
+          <div class="panel"><h3>Par semaine</h3>
+            <div class="chart-box"><canvas id="chart-summaries-weekly"></canvas></div></div>
+          <div class="panel"><h3>Par mois</h3>
+            <div class="chart-box"><canvas id="chart-summaries-monthly"></canvas></div></div>
+        </div>
+      </section>
+
+      <!-- QCM -->
+      <section id="section-qcm" class="tab-section">
+        <div class="cards-grid" id="qcm-cards"></div>
+        <div class="panel"><h3>QCM générés par jour</h3>
+          <div class="chart-box"><canvas id="chart-qcm-daily"></canvas></div></div>
+        <div class="panel-row">
+          <div class="panel"><h3>Par semaine</h3>
+            <div class="chart-box"><canvas id="chart-qcm-weekly"></canvas></div></div>
+          <div class="panel"><h3>Par mois</h3>
+            <div class="chart-box"><canvas id="chart-qcm-monthly"></canvas></div></div>
+        </div>
+      </section>
+
+      <!-- Transactions -->
+      <section id="section-transactions" class="tab-section">
+        <div class="cards-grid" id="transactions-cards"></div>
+        <div class="panel"><h3>Transactions par jour</h3>
+          <div class="chart-box"><canvas id="chart-transactions-daily"></canvas></div></div>
+        <div class="panel-row">
+          <div class="panel"><h3>Par semaine</h3>
+            <div class="chart-box"><canvas id="chart-transactions-weekly"></canvas></div></div>
+          <div class="panel"><h3>Par mois</h3>
+            <div class="chart-box"><canvas id="chart-transactions-monthly"></canvas></div></div>
+        </div>
+      </section>
+
+      <!-- Achats -->
+      <section id="section-purchases" class="tab-section">
+        <div class="cards-grid" id="purchases-cards"></div>
+        <div class="panel"><h3>Résumés achetés par jour</h3>
+          <div class="chart-box"><canvas id="chart-purchases-daily"></canvas></div></div>
+        <div class="panel"><h3>Montant quotidien</h3>
+          <div class="chart-box"><canvas id="chart-purchases-amounts"></canvas></div></div>
+      </section>
+
+      <!-- Abonnements -->
+      <section id="section-subscriptions" class="tab-section">
+        <div class="cards-grid" id="subscriptions-cards"></div>
+        <div class="panel"><h3>Abonnements créés par jour</h3>
+          <div class="chart-box"><canvas id="chart-subscriptions-daily"></canvas></div></div>
+        <div class="panel"><h3>Revenus des abonnements par jour</h3>
+          <div class="chart-box"><canvas id="chart-subscriptions-revenue"></canvas></div></div>
+      </section>
+
+      <!-- Revenus -->
+      <section id="section-revenue" class="tab-section">
+        <div class="cards-grid" id="revenue-cards"></div>
+        <div class="panel"><h3>Revenu quotidien — achats vs abonnements</h3>
+          <div class="chart-box"><canvas id="chart-revenue-daily"></canvas></div></div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<script src="/static/admin_dashboard/app.js"></script>
+</body>
+</html>

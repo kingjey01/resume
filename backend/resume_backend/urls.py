@@ -10,6 +10,7 @@ from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from health_check import health_check
 from security.views import app_version_view, resume_pricing_config_view
+from analytics.views import AdminDashboardView
 
 schema_view = get_schema_view(
    openapi.Info(
@@ -32,7 +33,11 @@ urlpatterns = [
     path('api/', include('payments.urls')),  # Services et abonnements directement sous /api/
     path('api/security/', include('security.urls')),
     path('api/notifications/', include('notifications.urls')),
-    
+    path('api/', include('analytics.urls')),  # Statistiques administrateur /api/admin/statistics/
+
+    # Page web du dashboard administrateur (Statistiques).
+    path('admin-dashboard/', AdminDashboardView.as_view(), name='admin-dashboard'),
+
     # Health check endpoint
     path('api/health/', health_check, name='health-check'),
 
