@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 /// ═══════════════════════════════════════════════════════════════════════════════
 ///  MODÈLES POUR LES EXERCICES QCM PERSONNALISÉS
 /// ═══════════════════════════════════════════════════════════════════════════════
@@ -86,11 +84,15 @@ class ExerciseQuestion {
   final int index;
   final String questionText;
   final Map<String, String> options; // {'A': 'Option A', 'B': 'Option B', ...}
+  final String? codeLanguage;
+  final String? codeBlock;
 
   const ExerciseQuestion({
     required this.index,
     required this.questionText,
     required this.options,
+    this.codeLanguage,
+    this.codeBlock,
   });
 
   factory ExerciseQuestion.fromJson(Map<String, dynamic> json) {
@@ -99,6 +101,8 @@ class ExerciseQuestion {
       index: json['index'] as int? ?? 0,
       questionText: json['question_text'] as String? ?? '',
       options: optionsMap.map((k, v) => MapEntry(k, v.toString())),
+      codeLanguage: json['code_language'] as String?,
+      codeBlock: json['code_block'] as String?,
     );
   }
 
@@ -199,6 +203,8 @@ class QuestionResult {
   final bool isCorrect;
   final String explanation;
   final Map<String, String> options;
+  final String? codeLanguage;
+  final String? codeBlock;
 
   const QuestionResult({
     required this.questionIndex,
@@ -208,6 +214,8 @@ class QuestionResult {
     required this.isCorrect,
     required this.explanation,
     required this.options,
+    this.codeLanguage,
+    this.codeBlock,
   });
 
   factory QuestionResult.fromJson(Map<String, dynamic> json) {
@@ -220,6 +228,8 @@ class QuestionResult {
       isCorrect: json['is_correct'] as bool? ?? false,
       explanation: json['explanation'] as String? ?? '',
       options: optionsMap.map((k, v) => MapEntry(k, v.toString())),
+      codeLanguage: json['code_language'] as String?,
+      codeBlock: json['code_block'] as String?,
     );
   }
 }

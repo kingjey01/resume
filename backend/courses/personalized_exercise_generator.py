@@ -1,9 +1,18 @@
 """
 Générateur d'exercices QCM personnalisés avec niveaux de difficulté.
 Chaque utilisateur reçoit des questions uniques pour chaque résumé.
+
+La logique de génération (voie IA et fallback local) reprend celle du générateur
+standard `exercise_generator` — considérée comme la référence validée :
+- Voie IA : réutilise deepseek_service.generate_exercises (prompt pédagogique
+  détaillé, contenu réel du résumé injecté, options issues du contenu).
+- Fallback local : questions construites UNIQUEMENT à partir du contenu réel
+  du résumé (phrases, termes, valeurs, code). Aucune question générique,
+  aucun placeholder, aucun concept inventé.
 """
 import json
 import random
+import re
 import logging
 from typing import List, Dict, Any, Optional, Tuple
 from .models import Summary, UserPersonalizedExercise
@@ -11,124 +20,18 @@ from .deepseek_service import deepseek_service
 
 logger = logging.getLogger(__name__)
 
-
-# ═══════════════════════════════════════════════════════════════════════════════
-#  TEMPLATES DE PROMPTS PAR DIFFICULTÉ
-# ═══════════════════════════════════════════════════════════════════════════════
-
-PROMPT_TEMPLATES = {
-    'easy': """
-Tu es un professeur expert en pédagogie. Génère exactement 8 questions QCM FACILES (niveau débutant) 
-sur le texte suivant.
-
-INSTRUCTIONS SPÉCIFIQUES NIVEAU FACILE:
-- Questions factuelles directes (qui, quoi, où, quand)
-- Définitions simples trouvables directement dans le texte
-- Aucun raisonnement complexe requis
-- Réponses évidentes pour quelqu'un ayant lu le texte
-- Questions de mémorisation basique
-
-FORMAT JSON STRICT REQUIS:
-[
-  {
-    "question_text": "Question claire et factuelle ?",
-    "options": {
-      "A": "Option A (distractor plausible mais incorrect)",
-      "B": "Option B (correcte)",
-      "C": "Option C (distractor)",
-      "D": "Option D (distractor)"
-    },
-    "correct_answer": "B",
-    "explanation": "Explication claire pourquoi B est correct"
-  }
-]
-
-RÈGLES:
-1. Réponds UNIQUEMENT avec le JSON, aucun texte avant/après
-2. Exactement 8 questions
-3. Une seule bonne réponse par question
-4. Les distractors doivent être plausibles mais clairement incorrects
-5. La bonne réponse doit être répartie aléatoirement (A, B, C, D)
-6. Explications concises mais pédagogiques
-
-TEXTE À COUVRIR:
-{content}
-""",
-    'medium': """
-Tu es un professeur expert en pédagogie. Génère exactement 8 questions QCM MOYENNES (niveau intermédiaire) 
-sur le texte suivant.
-
-INSTRUCTIONS SPÉCIFIQUES NIVEAU MOYEN:
-- Compréhension des concepts (pas juste mémorisation)
-- Application simple des concepts à des situations
-- Liens entre différentes parties du texte
-- Différenciation de concepts proches
-- Questions nécessitant une compréhension globale du sujet
-
-FORMAT JSON STRICT REQUIS:
-[
-  {
-    "question_text": "Question nécessitant compréhension/application ?",
-    "options": {
-      "A": "Option plausible",
-      "B": "Option plausible",
-      "C": "Option correcte",
-      "D": "Option plausible"
-    },
-    "correct_answer": "C",
-    "explanation": "Explication détaillée du raisonnement"
-  }
-]
-
-RÈGLES:
-1. Réponds UNIQUEMENT avec le JSON
-2. Exactement 8 questions
-3. Distractors crédibles (erreurs communes d'étudiants)
-4. Questions testant la compréhension, pas la mémorisation
-5. Répartition équilibrée des bonnes réponses
-6. Explications éducatives
-
-TEXTE À COUVRIR:
-{content}
-""",
-    'hard': """
-Tu es un professeur expert en pédagogie. Génère exactement 8 questions QCM DIFFICILES (niveau avancé) 
-sur le texte suivant.
-
-INSTRUCTIONS SPÉCIFIQUES NIVEAU DIFFICILE:
-- Analyse critique et raisonnement avancé
-- Synthese de plusieurs concepts du texte
-- Cas pratiques complexes à résoudre
-- Questions avec pièges logiques bien construits
-- Inférences nécessaires (information implicite)
-- Élimination de plusieurs options avant de trouver la bonne
-
-FORMAT JSON STRICT REQUIS:
-[
-  {
-    "question_text": "Question complexe nécessitant analyse et raisonnement ?",
-    "options": {
-      "A": "Option plausible avec piège logique",
-      "B": "Option plausible mais incorrecte",
-      "C": "Option correcte après analyse",
-      "D": "Option très crédible (distractor fort)"
-    },
-    "correct_answer": "C",
-    "explanation": "Explication détaillée du raisonnement analytique requis"
-  }
-]
-
-RÈGLES:
-1. Réponds UNIQUEMENT avec le JSON
-2. Exactement 8 questions de haute qualité analytique
-3. Distractors très crédibles (pièges pour étudiants non attentifs)
-4. Questions stimulant la réflexion critique
-5. Niveau examen ou concours difficile
-6. Explications détaillées montrant le raisonnement
-
-TEXTE À COUVRIR:
-{content}
-"""
+# Mots trop génériques pour servir d'options réelles dans le fallback local
+STOP_WORDS = {
+    'dans', 'avec', 'pour', 'sont', 'cette', 'tout', 'mais', 'plus',
+    'comme', 'aussi', 'donc', 'leur', 'leurs', 'nous', 'vous', 'elle',
+    'entre', 'sous', 'sans', 'autre', 'après', 'avant', 'bien', 'alors',
+    'être', 'avoir', 'faire', 'cours', 'texte', 'résumé', 'peut', 'très',
+    'elles', 'ils', 'aux', 'des', 'une', 'sur', 'titre', 'leçon',
+    'chapitre', 'quand', 'ainsi', 'enfin', 'pendant', 'plusieurs',
+    'différent', 'différents', 'même', 'toute', 'tous', 'toutes', 'avec',
+    'cela', 'ça', 'cette', 'celui', 'celle', 'leurs', 'aucun', 'aucune',
+    'chaque', 'quelques', 'certains', 'certaines', 'autres', 'où', 'quoi',
+    'dont', 'dans', 'selon', 'afin', 'environ', 'notamment', 'ainsi',
 }
 
 
@@ -183,6 +86,7 @@ class PersonalizedExerciseGenerator:
             # Générer les questions via IA
             questions_data, generated_by_ai = self._generate_questions(
                 summary.texte_resume,
+                summary.titre,
                 difficulty,
                 seed
             )
@@ -217,11 +121,14 @@ class PersonalizedExerciseGenerator:
     def _generate_questions(
         self,
         resume_text: str,
+        titre: str,
         difficulty: str,
         seed: int
     ) -> Tuple[Optional[List[Dict]], bool]:
         """
         Génère les questions via DeepSeek ou fallback local.
+        La voie IA réutilise le prompt validé du générateur standard
+        (deepseek_service.generate_exercises) avec la variante seed anti-triche.
         """
         # Initialiser le seed pour la variation
         random.seed(seed)
@@ -232,23 +139,14 @@ class PersonalizedExerciseGenerator:
             return self._generate_mock_questions(resume_text, difficulty, seed), False
 
         try:
-            # Préparer le prompt selon la difficulté
-            template = PROMPT_TEMPLATES.get(difficulty, PROMPT_TEMPLATES['medium'])
-            # Tronquer le texte si trop long (DeepSeek a des limites)
-            content = resume_text[:8000] if len(resume_text) > 8000 else resume_text
-            # NB: .replace() et non .format() car le template contient des accolades JSON littérales
-            prompt = template.replace('{content}', content)
-
-            # 🔒 ANTI-TRICHE : injecter le seed dans le prompt pour garantir
-            #    des questions UNIQUES par utilisateur (variation forcée par l'IA)
-            seed_hint = f"\n\nIMPORTANT - Variante personnelle #{seed} :\n" \
-                        f"Génère des questions DIFFÉRENTES de celles données à d'autres étudiants.\n" \
-                        f"Utilise des exemples, angles et formulations originaux basés sur ce seed.\n" \
-                        f"Ne répète jamais les mêmes questions deux fois pour ce même cours.\n"
-            prompt = prompt + seed_hint
-
-            # Appeler DeepSeek
-            result = deepseek_service.generate_summary(prompt, max_tokens=2000)
+            # Réutiliser le prompt IA validé du générateur standard :
+            # questions et options issues du contenu réel du résumé
+            result = deepseek_service.generate_exercises(
+                resume_text,
+                titre,
+                difficulty=difficulty,
+                seed=seed
+            )
 
             if result.get('success'):
                 questions = self._parse_response(result['content'])
@@ -296,7 +194,10 @@ class PersonalizedExerciseGenerator:
             return None
 
     def _validate_question(self, question: Dict) -> bool:
-        """Valide la structure d'une question."""
+        """
+        Valide la structure d'une question et rejette les placeholders et les
+        questions artificielles (logique de validation du générateur standard).
+        """
         # Normaliser la clé : certains modèles renvoient 'question' au lieu de 'question_text'
         if 'question_text' not in question and 'question' in question:
             question['question_text'] = question['question']
@@ -312,7 +213,45 @@ class PersonalizedExerciseGenerator:
         if question['correct_answer'] not in ['A', 'B', 'C', 'D']:
             return False
 
+        # Détection de placeholders génériques dans les options
+        placeholder_patterns = ['concept a', 'concept b', 'concept c', 'concept d',
+                                'option a', 'option b', 'option c', 'option d',
+                                'réponse a', 'réponse b', 'réponse c', 'réponse d',
+                                'notion a', 'notion b', 'notion c', 'notion d',
+                                'terme a', 'terme b', 'terme c', 'terme d']
+        for opt in ['A', 'B', 'C', 'D']:
+            opt_text = str(options.get(opt, '')).lower()
+            if any(p in opt_text for p in placeholder_patterns):
+                logger.warning(f"Placeholder détecté dans option {opt}: '{options[opt]}' — question rejetée")
+                return False
+            if len(opt_text.strip()) < 3:
+                logger.warning(f"Option {opt} trop courte: '{options[opt]}' — question rejetée")
+                return False
+
+        # Détection des questions artificielles interdites (règles du prompt)
+        question_text = str(question.get('question_text', '')).lower()
+        artificial_patterns = [
+            'parmi les concepts', 'parmi les notions', 'parmi les termes',
+            'parmi les idées', 'parmi les options',
+            'quel concept est correct', 'que signifie le concept',
+            'que veut dire le concept', 'quel est le concept principal',
+            'quel concept est central', 'quel terme est central',
+            'quel terme est essentiel', 'quelle est la notion principale',
+            'quel terme est lié', 'quel est le terme clé',
+        ]
+        for p in artificial_patterns:
+            if p in question_text:
+                logger.warning(f"Question artificielle détectée: '{question['question_text']}' — question rejetée")
+                return False
+
         return True
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  FALLBACK LOCAL : questions construites UNIQUEMENT sur le contenu réel
+    #  (même logique que le fallback du générateur standard). Aucune question
+    #  générique ni inventée : si le contenu est insuffisant, on renvoie moins
+    #  de questions plutôt que d'en inventer.
+    # ═══════════════════════════════════════════════════════════════════════════
 
     def _generate_mock_questions(
         self,
@@ -321,174 +260,251 @@ class PersonalizedExerciseGenerator:
         seed: int
     ) -> List[Dict]:
         """
-        Génère des questions fallback basées sur le contenu réel.
-        Variation selon la difficulté demandée.
+        Génère des questions fallback UNIQUEMENT à partir du contenu réel du
+        résumé : phrases complétées avec de vrais termes, affirmations exactes
+        avec des faits altérés (distracteurs réels), valeurs numériques réelles,
+        extraits de code réels. Variation selon la difficulté et le seed.
         """
-        import re
+        questions = []
+
+        if not resume_text or len(resume_text.strip()) < 50:
+            logger.warning("Fallback: résumé trop court pour générer des questions réelles")
+            return questions
 
         random.seed(seed)
 
-        # Extraire des phrases clés
-        sentences = re.split(r'[.!?\n]+', resume_text)
-        sentences = [s.strip() for s in sentences if 30 < len(s.strip()) < 300]
+        # ── Extraction des éléments réels du résumé ────────────────────────────
+        # Phrases significatives
+        sentences = [s.strip() for s in re.split(r'[.!?\n]+', resume_text) if 40 < len(s.strip()) < 250]
 
-        # Extraire des mots-clés
+        # Termes réels (mots longs non triviaux) — utilisés comme options réelles
         words = re.findall(r'\b[a-zA-ZÀ-ÿ]{5,}\b', resume_text.lower())
-        stop_words = {'dans', 'avec', 'pour', 'sont', 'cette', 'tout', 'mais', 'plus',
-                      'comme', 'aussi', 'donc', 'leur', 'leurs', 'nous', 'vous', 'elle',
-                      'entre', 'sous', 'sans', 'autre', 'après', 'avant', 'bien', 'alors'}
-        keywords = list({w for w in words if w not in stop_words})[:30]
-        random.shuffle(keywords)
+        terms = list(dict.fromkeys(w for w in words if w not in STOP_WORDS))
 
-        questions = []
+        # Nombres réels présents dans le résumé
+        numbers = re.findall(
+            r'\b\d+(?:[.,]\d+)?\s*(?:%|€|\$|FCFA|ans|jours|mois|heures|min|s|km|m|cm|g|kg|Mo|Go|Hz|V)\b|\b\d+(?:[.,]\d+)?\b',
+            resume_text
+        )
 
-        # Générer selon la difficulté
-        if difficulty == 'easy':
-            questions = self._generate_easy_questions(sentences, keywords)
-        elif difficulty == 'hard':
-            questions = self._generate_hard_questions(sentences, keywords)
-        else:  # medium (défaut)
-            questions = self._generate_medium_questions(sentences, keywords)
+        # Extraits de code réels (blocs ```langage ... ```)
+        code_blocks = re.findall(r'```(\w+)?\s*\n([\s\S]*?)```', resume_text)
 
-        # Compléter jusqu'à 8 questions si nécessaire
-        while len(questions) < 8:
-            questions.append(self._generate_generic_question(difficulty, len(questions)))
+        random.shuffle(sentences)
+
+        # Ordre des types de questions selon la difficulté
+        builders_by_difficulty = {
+            'easy': ['definition', 'completion', 'statement', 'number', 'code'],
+            'medium': ['completion', 'statement', 'definition', 'number', 'code'],
+            'hard': ['statement', 'definition', 'completion', 'code', 'number'],
+        }
+        builder_order = builders_by_difficulty.get(difficulty, builders_by_difficulty['medium'])
+
+        # Au maximum 2 questions par type pour garantir un mélange varié
+        builder_counts = {}
+        for builder_key in builder_order:
+            for sentence in sentences:
+                if len(questions) >= 8:
+                    break
+                if builder_counts.get(builder_key, 0) >= 2:
+                    break
+                q = None
+                if builder_key == 'definition':
+                    q = self._build_definition_question(sentence, terms)
+                elif builder_key == 'completion':
+                    q = self._build_completion_question(sentence, terms)
+                elif builder_key == 'statement':
+                    q = self._build_statement_question(sentence, terms)
+                if q:
+                    questions.append(q)
+                    builder_counts[builder_key] = builder_counts.get(builder_key, 0) + 1
+
+        # Question sur une valeur numérique réelle (si le résumé en contient)
+        if len(numbers) >= 4 and len(questions) < 6:
+            q = self._build_number_question(numbers, sentences)
+            if q:
+                questions.append(q)
+
+        # Question sur un extrait de code réel (si le résumé en contient)
+        if code_blocks and len(questions) < 7:
+            q = self._build_code_question(code_blocks[0], terms)
+            if q:
+                questions.append(q)
+
+        # Compléter si nécessaire avec d'autres phrases du résumé (jamais inventées)
+        if len(questions) < 8:
+            for sentence in sentences:
+                if len(questions) >= 8:
+                    break
+                q = self._build_completion_question(sentence, terms)
+                if q and q not in questions:
+                    questions.append(q)
 
         return questions[:8]
 
-    def _generate_easy_questions(self, sentences, keywords):
-        """Questions faciles factuelles."""
-        questions = []
+    def _pick_real_options(self, target, terms, count=4):
+        """Construit les options avec le terme réel cible + d'autres termes réels du résumé."""
+        distractors = [t for t in terms if t.lower() != target.lower()]
+        if len(distractors) < count - 1:
+            return None
+        options_list = [target] + random.sample(distractors, count - 1)
+        random.shuffle(options_list)
+        return options_list
 
-        if sentences:
-            # Q1: Définition/Mot clé
-            if keywords:
-                kw = keywords[0].capitalize()
-                others = [k.capitalize() for k in keywords[1:4]] if len(keywords) > 3 else ["Concept", "Idée", "Terme"]
-                opts = [kw] + others
-                random.shuffle(opts)
-                correct = ['A', 'B', 'C', 'D'][opts.index(kw)]
-                questions.append({
-                    "question_text": f"Quel terme clé est central dans ce cours ?",
-                    "options": dict(zip('ABCD', opts)),
-                    "correct_answer": correct,
-                    "explanation": f"Le terme '{kw}' est essentiel dans ce cours."
-                })
-
-            # Q2: Phrase complétion
-            if len(sentences) > 0:
-                sent = sentences[0][:100]
-                questions.append({
-                    "question_text": f"Complétez: '{sent}...'",
-                    "options": {
-                        "A": "C'est une définition correcte",
-                        "B": "C'est un exemple concret",
-                        "C": "C'est le concept principal",
-                        "D": "Aucune de ces réponses"
-                    },
-                    "correct_answer": "C",
-                    "explanation": "Cette phrase introduit le concept principal du cours."
-                })
-
-        return questions
-
-    def _generate_medium_questions(self, sentences, keywords):
-        """Questions moyennes compréhension."""
-        questions = []
-
-        # Q1: Compréhension concept
-        if len(sentences) >= 2:
-            questions.append({
-                "question_text": "Quel est l'objectif principal de ce cours ?",
-                "options": {
-                    "A": "Mémoriser des dates et noms",
-                    "B": "Comprendre et appliquer les concepts fondamentaux",
-                    "C": "Apprendre par cœur sans comprendre",
-                    "D": "Étudier uniquement la théorie"
-                },
-                "correct_answer": "B",
-                "explanation": "Le vrai apprentissage vise la compréhension et l'application."
-            })
-
-        # Q2: Lien entre concepts
-        if len(keywords) >= 2:
-            questions.append({
-                "question_text": f"Comment '{keywords[0]}' et '{keywords[1]}' sont-ils liés ?",
-                "options": {
-                    "A": "Ils sont complètement indépendants",
-                    "B": "Ils sont interconnectés dans ce cours",
-                    "C": "Ils s'opposent l'un à l'autre",
-                    "D": "Ils n'ont aucun rapport"
-                },
-                "correct_answer": "B",
-                "explanation": f"Ces concepts sont liés et se complètent dans le cours."
-            })
-
-        return questions
-
-    def _generate_hard_questions(self, sentences, keywords):
-        """Questions difficiles analyse."""
-        questions = []
-
-        # Q1: Analyse critique
-        questions.append({
-            "question_text": "Quelle conclusion peut-on tirer de l'analyse de ce cours ?",
-            "options": {
-                "A": "La théorie est suffisante sans pratique",
-                "B": "L'application pratique est essentielle à la maîtrise",
-                "C": "La mémorisation suffit pour réussir",
-                "D": "Le cours n'a pas d'application réelle"
-            },
-            "correct_answer": "B",
-            "explanation": "L'analyse montre que la pratique est indispensable pour maîtriser le sujet."
-        })
-
-        # Q2: Synthèse
-        if keywords:
-            questions.append({
-                "question_text": f"Si on applique '{keywords[0]}' dans un cas complexe, qu'arrive-t-il ?",
-                "options": {
-                    "A": "Cela ne fonctionne pas du tout",
-                    "B": "Cela nécessite une adaptation et une analyse",
-                    "C": "Cela fonctionne exactement comme dans le cours",
-                    "D": "C'est impossible à appliquer"
-                },
-                "correct_answer": "B",
-                "explanation": "L'application réelle demande toujours adaptation et réflexion critique."
-            })
-
-        return questions
-
-    def _generate_generic_question(self, difficulty, index):
-        """Question générique de fallback."""
-        templates = {
-            'easy': [
-                ("Quelle est la notion principale abordée ?", "B", "La notion principale est au cœur du cours."),
-                ("Quel élément est essentiel à retenir ?", "A", "Cet élément est fondamental pour comprendre le sujet."),
-            ],
-            'medium': [
-                ("Quelle compétence ce cours vise-t-il à développer ?", "B", "Le cours vise le développement de compétences pratiques."),
-                ("Comment les concepts s'organisent-ils ?", "C", "Les concepts forment un ensemble cohérent et structuré."),
-            ],
-            'hard': [
-                ("Quelle analyse critique ce sujet mérite-t-il ?", "B", "Une analyse critique révèle les nuances et implications profondes."),
-                ("Comment ce concept évolue-t-il dans des contextes complexes ?", "C", "L'évolution du concept dépend du contexte et des applications."),
-            ]
+    def _build_definition_question(self, sentence, terms):
+        """
+        Question de définition : « ___ est ... » avec un terme réel du résumé,
+        distracteurs = autres termes réels du résumé.
+        """
+        if not terms:
+            return None
+        # Chercher un motif de définition réel : « X est ... », « X désigne ... », etc.
+        match = re.search(
+            r'\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]{2,})\s+(?:est|sont|représente|représentent|désigne|désignent|signifie|correspond à)\s+',
+            sentence
+        )
+        if not match:
+            return None
+        target = match.group(1)
+        if target.lower() in STOP_WORDS or target.lower() not in [t.lower() for t in terms]:
+            return None
+        blanked = sentence.replace(target, '___', 1)
+        options_list = self._pick_real_options(target, terms, count=4)
+        if not options_list:
+            return None
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
+        return {
+            "question_text": f"Complétez la définition tirée du résumé : « {blanked} »",
+            "options": dict(zip('ABCD', options_list)),
+            "correct_answer": correct_letter,
+            "explanation": f"Le terme « {target} » est défini ainsi dans le résumé : « {sentence} »",
         }
 
-        pool = templates.get(difficulty, templates['medium'])
-        q_text, correct, expl = pool[index % len(pool)]
-
-        # Générer options aléatoires
-        opts = ["Concept A", "Concept B", "Concept C", "Concept D"]
-        random.shuffle(opts)
-        correct_letter = ['A', 'B', 'C', 'D'][opts.index("Concept B")]
-
+    def _build_completion_question(self, sentence, terms):
+        """
+        Question de complétion : une phrase réelle du résumé avec un mot réel
+        masqué, distracteurs = d'autres termes réels du résumé.
+        """
+        if not terms:
+            return None
+        candidates = [w for w in sentence.split() if len(w) > 4 and w.lower() not in STOP_WORDS]
+        if not candidates:
+            return None
+        target = random.choice(candidates)
+        options_list = self._pick_real_options(target, terms, count=4)
+        if not options_list:
+            return None
+        blanked = sentence.replace(target, '___', 1)
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
         return {
-            "question_text": q_text,
-            "options": dict(zip('ABCD', opts)),
+            "question_text": f"Complétez la phrase extraite du résumé : « {blanked} »",
+            "options": dict(zip('ABCD', options_list)),
             "correct_answer": correct_letter,
-            "explanation": expl
+            "explanation": f"La phrase du résumé contient bien le mot « {target} » : « {sentence} »",
+        }
+
+    def _mutate_sentence(self, sentence, terms):
+        """
+        Altère une phrase réelle en remplaçant un de ses mots importants par un
+        autre terme réel du résumé → affirmations fausses mais crédibles.
+        """
+        words = sentence.split()
+        candidates = [w for w in words if len(w) > 5 and w.lower() not in STOP_WORDS]
+        random.shuffle(candidates)
+        for target in candidates:
+            replacements = [t for t in terms if t.lower() != target.lower() and t not in words]
+            if not replacements:
+                continue
+            replacement = random.choice(replacements)
+            return sentence.replace(target, replacement, 1)
+        return None
+
+    def _build_statement_question(self, sentence, terms):
+        """
+        Question d'affirmation : la bonne réponse est une phrase RÉELLE du résumé,
+        les distracteurs sont cette même phrase avec un fait altéré par un autre
+        terme réel du résumé (jamais d'affirmation générique).
+        """
+        if not terms:
+            return None
+        distractors = []
+        for _ in range(6):
+            mutated = self._mutate_sentence(sentence, terms)
+            if mutated and mutated != sentence and mutated not in distractors:
+                distractors.append(mutated)
+            if len(distractors) >= 3:
+                break
+        if len(distractors) < 3:
+            return None
+        options_list = [sentence] + distractors
+        random.shuffle(options_list)
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == sentence][0]
+        return {
+            "question_text": "Laquelle de ces affirmations correspond au contenu du résumé ?",
+            "options": dict(zip('ABCD', options_list)),
+            "correct_answer": correct_letter,
+            "explanation": f"Cette affirmation est directement tirée du résumé : « {sentence} »",
+        }
+
+    def _build_number_question(self, numbers, sentences):
+        """
+        Question sur une valeur numérique réelle du résumé : la phrase avec la
+        valeur masquée, options = de vraies valeurs présentes dans le résumé.
+        """
+        distinct_numbers = list(dict.fromkeys(numbers))
+        if len(distinct_numbers) < 4:
+            return None
+        # Trouver une phrase contenant un des nombres
+        for sentence in sentences:
+            num_match = re.search(
+                r'\b\d+(?:[.,]\d+)?\s*(?:%|€|\$|FCFA|ans|jours|mois|heures|min|s|km|m|cm|g|kg|Mo|Go|Hz|V)?\b',
+                sentence
+            )
+            if not num_match:
+                continue
+            target = num_match.group(0).strip()
+            if target not in distinct_numbers:
+                continue
+            blanked = sentence.replace(target, '___', 1)
+            options_list = random.sample(distinct_numbers, 4)
+            if target not in options_list:
+                options_list[random.randint(0, 3)] = target
+            random.shuffle(options_list)
+            correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
+            return {
+                "question_text": f"Complétez avec la valeur réellement indiquée dans le résumé : « {blanked} »",
+                "options": dict(zip('ABCD', options_list)),
+                "correct_answer": correct_letter,
+                "explanation": f"Le résumé indique bien la valeur « {target} » : « {sentence} »",
+            }
+        return None
+
+    def _build_code_question(self, code_block, terms):
+        """
+        Question sur un extrait de code réel du résumé : on interroge sur une
+        instruction réellement présente dans l'extrait, avec des distracteurs
+        réels (autres instructions du code ou termes du résumé).
+        """
+        language, code = code_block
+        tokens = list(dict.fromkeys(re.findall(r'[a-zA-Z_]\w*', code)))
+        tokens = [t for t in tokens if len(t) > 1][:8]
+        if not tokens:
+            return None
+        # Combiner avec les termes réels du résumé pour avoir assez d'options
+        pool = tokens + [t for t in terms if t.lower() not in [x.lower() for x in tokens]]
+        if len(pool) < 4:
+            return None
+        target = random.choice(tokens)
+        options_list = [target] + random.sample(
+            [p for p in pool if p.lower() != target.lower()], 3
+        )
+        random.shuffle(options_list)
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
+        return {
+            "question_text": f"Voici un extrait de code tiré du résumé :\n{code}\nQuelle instruction est utilisée dans cet extrait ?",
+            "options": dict(zip('ABCD', options_list)),
+            "correct_answer": correct_letter,
+            "explanation": f"L'instruction « {target} » apparaît dans l'extrait de code du résumé.",
         }
 
 

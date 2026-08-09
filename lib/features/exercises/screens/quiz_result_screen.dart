@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:resume_plus_clean/models/personalized_exercise.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
+import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
 
 /// Écran affichant les résultats détaillés d'un quiz
 class QuizResultScreen extends StatelessWidget {
@@ -299,6 +300,12 @@ class QuizResultScreen extends StatelessWidget {
                     fontSize: 15,
                     fontWeight: FontWeight.w500,
                   ),
+                ),
+
+                // Bloc technique (code, formule, algorithme)
+                TechBlockWidget(
+                  codeLanguage: result.codeLanguage,
+                  codeBlock: result.codeBlock,
                 ),
                 const SizedBox(height: 16),
 

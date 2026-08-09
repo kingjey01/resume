@@ -214,6 +214,8 @@ def get_personalized_exercise_view(request, exercise_id):
                     'index': idx,
                     'question_text': q.get('question_text') or q.get('question', ''),
                     'options': q.get('options', {}),
+                    'code_language': q.get('code_language'),
+                    'code_block': q.get('code_block'),
                 })
 
             return Response({
@@ -310,6 +312,8 @@ def submit_personalized_exercise_view(request, exercise_id):
                 'is_correct': r['is_correct'],
                 'explanation': r['explanation'],
                 'options': r.get('options', {}),
+                'code_language': r.get('code_language'),
+                'code_block': r.get('code_block'),
             })
 
         return Response({

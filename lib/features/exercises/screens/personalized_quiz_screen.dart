@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/features/exercises/providers/personalized_exercise_provider.dart';
 import 'package:resume_plus_clean/features/exercises/screens/quiz_result_screen.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
+import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
 
 /// Écran principal du quiz QCM personnalisé
 class PersonalizedQuizScreen extends ConsumerStatefulWidget {
@@ -263,6 +264,12 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
                     fontWeight: FontWeight.w600,
                     height: 1.4,
                   ),
+                ),
+
+                // Bloc technique (code, formule, algorithme)
+                TechBlockWidget(
+                  codeLanguage: currentQuestion.codeLanguage,
+                  codeBlock: currentQuestion.codeBlock,
                 ),
                 const SizedBox(height: 32),
 
