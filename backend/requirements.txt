@@ -14,3 +14,4 @@ django-extensions==3.2.3
 mutagen==1.47.0
 firebase-admin==6.4.0
 django-filter==23.5
+openpyxl==3.0.10
