@@ -379,11 +379,12 @@ Puis continue avec:
         except requests.exceptions.RequestException as e:
             return {'success': False, 'error': f'Erreur connexion DeepSeek: {str(e)}'}
 
-    def generate_exercises(self, resume_text, course_name, difficulty='medium'):
+    def generate_exercises(self, resume_text, course_name, difficulty='medium', seed=None):
         if not self.is_configured():
             return {'success': False, 'error': 'DeepSeek API non configuree.'}
 
-        prompt = self._build_exercises_prompt(resume_text, course_name, difficulty=difficulty)
+        # seed optionnel : variante personnalisée (anti-triche, exercices uniques par utilisateur)
+        prompt = self._build_exercises_prompt(resume_text, course_name, difficulty=difficulty, seed=seed)
 
         try:
             response = self._call_api(prompt, temperature=0.2, max_tokens=5000, timeout=90)
@@ -395,7 +396,7 @@ Puis continue avec:
             logger.error(f"Erreur DeepSeek (exercices): {e}")
             return {'success': False, 'error': str(e)}
 
-    def _build_exercises_prompt(self, resume_text, course_name, difficulty='medium'):
+    def _build_exercises_prompt(self, resume_text, course_name, difficulty='medium', seed=None):
         difficulty_labels = {
             'easy': (
                 'FACILE - Questions tres simples pour verifier les bases. '
@@ -558,7 +559,17 @@ NIVEAU: {difficulty_text}
 RESUME:
 {resume_text}
 
----
+"""
+        # Variante personnalisée (anti-triche) : questions uniques par utilisateur
+        if seed is not None:
+            user_prompt += (
+                f"IMPORTANT - Variante personnelle #{seed} :\n"
+                f"Genere des questions DIFFERENTES de celles donnees a d'autres etudiants.\n"
+                f"Utilise des exemples, angles et formulations originaux bases sur ce seed.\n"
+                f"Ne repete jamais les memes questions deux fois pour ce meme cours.\n\n"
+            )
+
+        user_prompt += """---
 
 Genere maintenant des QCM en francais a partir de ce resume.
 

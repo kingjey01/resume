@@ -679,6 +679,8 @@ class UserPersonalizedAttempt(models.Model):
                 'is_correct': is_correct,
                 'explanation': question.get('explanation', ''),
                 'options': question.get('options', {}),
+                'code_language': question.get('code_language'),
+                'code_block': question.get('code_block'),
             })
 
         total = len(questions)
