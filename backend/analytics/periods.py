@@ -8,6 +8,7 @@ start est inclus, end est exclus. Pour 'custom', end est inclusif
 """
 from datetime import datetime, timedelta
 
+from django.conf import settings
 from django.utils import timezone
 
 # Périodes acceptées par l'API (clé → libellé d'affichage)
@@ -25,9 +26,30 @@ PERIOD_CHOICES = {
 # utilisées pour les sous-métriques "aujourd'hui / cette semaine / ce mois".
 
 
+def _ensure_local(dt):
+    """
+    Datetime dans l'heure locale (Africa/Kinshasa), quel que soit USE_TZ.
+
+    - USE_TZ = True  : naive → interprété dans le timezone Django ;
+                       aware → converti en heure locale.
+    - USE_TZ = False : tout est déjà stocké en heure locale naive
+                       (timezone.localtime() lèverait ValueError dessus) →
+                       laissé tel quel.
+    """
+    if dt is None:
+        return None
+    if settings.USE_TZ:
+        if timezone.is_naive(dt):
+            dt = timezone.make_aware(dt, timezone.get_default_timezone())
+        return timezone.localtime(dt)
+    if timezone.is_naive(dt):
+        return dt
+    return timezone.make_naive(dt, timezone.get_default_timezone())
+
+
 def local_now():
     """Maintenant dans le timezone local (Africa/Kinshasa)."""
-    return timezone.localtime(timezone.now())
+    return _ensure_local(timezone.now())
 
 
 def _start_of_day(dt):
@@ -121,17 +143,21 @@ def resolve_period(period_key='last_30_days', start_date=None, end_date=None):
 
 
 def _parse_custom_date(value, default):
-    """Parse une date 'YYYY-MM-DD' en datetime aware (timezone local)."""
+    """Parse une date 'YYYY-MM-DD' en datetime local (naive si USE_TZ = False)."""
     if not value:
         return default
     try:
-        return timezone.make_aware(datetime.strptime(str(value), '%Y-%m-%d'))
+        dt = datetime.strptime(str(value), '%Y-%m-%d')
     except (ValueError, TypeError):
         return default
+    if settings.USE_TZ:
+        return timezone.make_aware(dt, timezone.get_default_timezone())
+    return dt
 
 
 def iso(dt):
     """Format ISO 8601 avec offset pour une réponse JSON."""
+    dt = _ensure_local(dt)
     return dt.isoformat() if dt else None
 
 
@@ -143,23 +169,22 @@ def _localize(dt):
     de USE_TZ ou via datetime.now()) sont relues NAIVES par Django, et les
     agrégations Trunc* les propagent telles quelles. timezone.localtime()
     lève ValueError sur un datetime naive → toutes les séries de statistiques
-    plantaient. On les interprète dans le timezone configuré (Africa/Kinshasa).
+    plantaient. On les interprète dans le timezone configuré (Africa/Kinshasa)
+    — ou on les laisse naïves quand USE_TZ = False (déjà en heure locale).
     """
-    if dt is not None and timezone.is_naive(dt):
-        return timezone.make_aware(dt, timezone.get_default_timezone())
-    return dt
+    return _ensure_local(dt)
 
 
 def day_key(dt):
     """Clé 'YYYY-MM-DD' en timezone local (pour les séries)."""
-    return timezone.localtime(_localize(dt)).strftime('%Y-%m-%d')
+    return _ensure_local(dt).strftime('%Y-%m-%d')
 
 
 def week_key(dt):
     """Clé 'YYYY-MM-DD' du lundi de la semaine en timezone local."""
-    return day_key(_start_of_week(timezone.localtime(_localize(dt))))
+    return _start_of_week(_ensure_local(dt)).strftime('%Y-%m-%d')
 
 
 def month_key(dt):
     """Clé 'YYYY-MM' en timezone local."""
-    return timezone.localtime(_localize(dt)).strftime('%Y-%m')
+    return _ensure_local(dt).strftime('%Y-%m')
