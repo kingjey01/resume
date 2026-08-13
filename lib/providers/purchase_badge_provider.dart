@@ -21,7 +21,9 @@ class PurchaseBadgeNotifier extends StateNotifier<int> {
       final lastViewedStr = prefs.getString(_lastViewedKey);
       final lastViewed = lastViewedStr != null ? DateTime.parse(lastViewedStr) : DateTime(2000);
       
-      final purchases = await _apiService.getPurchasedSummaries();
+      // TACHE4 : l'endpoint /purchases/ est paginé — on charge toutes les
+      // pages pour compter les achats récents (le badge doit tout voir).
+      final purchases = await _apiService.getAllPurchases();
       
       // Compter les achats complétés APRÈS la dernière visite
       int recentCount = 0;

@@ -1,103 +1,393 @@
-  Thought for 1m 7s (ctrl+o to expand)
-● ✅ PROMPT 1 + PROMPT 2 exécutés en entier, testés. (Note : android/app/build.gradle et backend/prompt.md étaient déjà modifiés avant cette
-  session.)
+{"error":"localtime() cannot be applied to a naive datetime"}
+"""
+Résolution des fenêtres de période pour les statistiques.
 
-  ---
-  📋 BILAN PROMPT 1 — Backend statistiques
+Toutes les bornes sont calculées dans le timezone configuré de Django
+(Africa/Kinshasa).
 
-  Fichiers créés
+Les fenêtres sont des demi-ouvertes [start, end) :
+start inclus, end exclus.
 
-  ┌────────────────────────────────────────┬───────────────────────────────────────────────────────────┐  │                Fichier                 │                           Rôle                            │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/__init__.py, apps.py │ App Django analytics                                      │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/permissions.py       │ Admin uniquement (staff/superuser ou profil groupe=ADMIN) │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/periods.py           │ Fenêtres de période en timezone Africa/Kinshasa           │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/services.py          │ Agrégations ORM (Count/Sum/TruncDay/Week/Month), zéro N+1 │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/views.py             │ 10 endpoints + page dashboard                             │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/urls.py              │ Routes /api/admin/statistics/*                            │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/exports.py           │ Exports CSV + Excel (openpyxl)                            │
-  ├────────────────────────────────────────┼───────────────────────────────────────────────────────────┤
-  │ backend/analytics/tests.py             │ 21 tests                                                  │
-  └────────────────────────────────────────┴───────────────────────────────────────────────────────────┘
+Pour 'custom', end est inclusif
+(23:59:59.999999 de la date de fin).
+"""
 
-  Fichiers modifiés
+from datetime import datetime, timedelta
 
-  - backend/resume_backend/settings.py — ajout 'analytics' aux INSTALLED_APPS
-  - backend/resume_backend/urls.py — include des routes + /admin-dashboard/
-  - backend/requirements.txt — ajout openpyxl==3.0.10
+from django.utils import timezone
 
-  Endpoints (tous protégés admin, sans données personnelles)
 
-  /api/admin/statistics/ + overview/, users/, summaries/, qcm/, transactions/, purchases/, subscriptions/, revenue/, export/excel/, export/csv/
+PERIOD_CHOICES = {
+    'today': "Aujourd'hui",
+    'last_7_days': '7 derniers jours',
+    'last_30_days': '30 derniers jours',
+    'this_week': 'Cette semaine',
+    'this_month': 'Ce mois',
+    'last_month': 'Mois précédent',
+    'custom': 'Période personnalisée',
+}
 
-  Sources de chaque statistique
 
-  - Utilisateurs → User.date_joined · Résumés → Summary.created_at · QCM → Exercise + UserPersonalizedExercise (created_at)
-  - Transactions → Purchase (pending=lancée, completed=réussie, failed=échouée, refunded=annulée) + taux de réussite
-  - Achats résumés → Purchase.summary≠null · Abonnements → Abonnement ; revenus = Purchase.service≠null
-  - Revenus → uniquement Purchase.status='completed' (jamais Firebase), séparés achats/abonnements + comparaison période précédente
-  - Filtres : 7 périodes + custom ; statut et type de transaction ; service_id (type d'abonnement)
-  - Migrations : aucune (aucun nouveau modèle, aucun stockage supplémentaire)
+def _ensure_aware(dt):
+    """
+    Garantit qu'un datetime est timezone-aware.
 
-  Statistiques impossibles avec les modèles actuels
+    - datetime aware → retourné tel quel
+    - datetime naive → interprété dans le timezone Django
+    - None → None
+    """
+    if dt is None:
+        return None
 
-  - Abonnements renouvelés — aucun champ ne distingue renouvellement/nouvel achat (l'Abonnement actif existant n'est pas recréé,
-  flexpay_integration.py:105). L'API renvoie renewed: null + renewed_not_trackable: true, le dashboard affiche « N/A ».
-  - Date d'annulation des abonnements — seul created_at existe → seuls les annulés créés dans la période sont comptés.
+    if timezone.is_naive(dt):
+        return timezone.make_aware(
+            dt,
+            timezone.get_default_timezone()
+        )
 
-  Tests PROMPT 1 — 21/21 OK (python manage.py test analytics)
+    return dt
 
-  Permissions (401/403/200), cohérence des 8 agrégations, 6 périodes + custom + période invalide, anonymisation vérifiée (aucun email/nom/téléphone
-  dans les réponses), exports CSV/Excel + respect de la période. Smoke test sur db.sqlite3 réel : 8/8 endpoints 200 (bug None+None découvert et
-  corrigé — base sans transactions réussies).
 
-  ---
-  📋 BILAN PROMPT 2 — Dashboard « Statistiques »
+def local_now():
+    """Retourne maintenant dans le timezone Django configuré."""
+    return timezone.localtime(timezone.now())
 
-  Fichiers créés (dashboard web autonome, comme convenu)
 
-  - backend/templates/admin_dashboard.html — shell (login + sidebar + 8 onglets)
-  - backend/static/admin_dashboard/style.css — design aligné sur le thème de l'app (bleu #1A237E), responsive
-  - backend/static/admin_dashboard/app.js — logique (Chart.js)
+def _start_of_day(dt):
+    dt = _ensure_aware(dt)
+    return dt.replace(
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
 
-  Endpoints utilisés
 
-  Tous les 10 endpoints statistiques + /api/auth/login/, /api/auth/token/refresh/ (rafraîchissement auto du token), /api/services/ (filtre type
-  d'abonnement).
+def _start_of_week(dt):
+    """
+    Lundi de la semaine du datetime donné.
+    """
+    dt = _ensure_aware(dt)
+    return _start_of_day(dt) - timedelta(days=dt.weekday())
 
-  Ce que le dashboard affiche
 
-  - Filtre global : 7 périodes + personnalisée (dates) → recharge toutes les sections
-  - Cartes principales : 9 cartes (utilisateurs, nouveaux, résumés, QCM, transactions, réussies, achats, abonnements actifs, revenu total)
-  - Onglets : Utilisateurs, Résumés, QCM, Transactions (filtres statut/type), Achats (quantités + montants + panier moyen), Abonnements
-  (actifs/nouveaux/expirés/annulés + revenus + filtre service), Revenus (achats vs abonnements vs total, évolution vs période précédente)
-  - Graphiques : évolution quotidienne/hebdomadaire/mensuelle (Chart.js), barres empilées revenus
-  - Exports : Excel (toutes sections) + CSV (section courante), respectent période + filtres
-  - UX : loading, error banner, empty state (« Aucune donnée sur cette période »), responsive, zéro donnée hardcodée
+def _start_of_month(dt):
+    dt = _ensure_aware(dt)
+    return dt.replace(
+        day=1,
+        hour=0,
+        minute=0,
+        second=0,
+        microsecond=0
+    )
 
-  Tests PROMPT 2 — OK
 
-  Ce que le dashboard affiche
+def fixed_windows():
+    """
+    Fenêtres fixes :
+    aujourd'hui, cette semaine, ce mois.
+    """
+    now = local_now()
 
-  - Filtre global : 7 périodes + personnalisée (dates) → recharge toutes les sections
-  - Cartes principales : 9 cartes (utilisateurs, nouveaux, résumés, QCM, transactions, réussies, achats, abonnements actifs, revenu total)
-  - Onglets : Utilisateurs, Résumés, QCM, Transactions (filtres statut/type), Achats (quantités + montants + panier moyen), Abonnements (actifs/nouveaux/expirés/annulés + revenus + filtre
-  service), Revenus (achats vs abonnements vs total, évolution vs période précédente)
-  - Graphiques : évolution quotidienne/hebdomadaire/mensuelle (Chart.js), barres empilées revenus
-  - Exports : Excel (toutes sections) + CSV (section courante), respectent période + filtres
-  - UX : loading, error banner, empty state (« Aucune donnée sur cette période »), responsive, zéro donnée hardcodée
+    today_start = _start_of_day(now)
+    week_start = _start_of_week(now)
+    month_start = _start_of_month(now)
 
-  Tests PROMPT 2 — OK
+    return {
+        'today': (
+            today_start,
+            today_start + timedelta(days=1)
+        ),
+        'this_week': (
+            week_start,
+            week_start + timedelta(days=7)
+        ),
+        'this_month': (
+            month_start,
+            _start_of_month(now + timedelta(days=32))
+        ),
+    }
 
-  Test unitaire page /admin-dashboard/ (200 + JS référencé) et test de bout en bout sur serveur réel : page 200, CSS/JS 200, login → token, API 200 avec token, CSV 200, Excel 200, 401 sans  token.
 
-  ---
-  Accès : https://<domaine>/admin-dashboard/ — connexion avec un compte admin (staff/superuser ou groupe ADMIN). L'utilisateur de test temporaire a été supprimé et le serveur arrêté.
+def _month_bounds(month_start):
+    """
+    [1er du mois, 1er du mois suivant)
+    """
+    month_start = _ensure_aware(month_start)
 
-  Si tu veux, je peux faire un commit de ces changements sur la branche courante.
+    return (
+        month_start,
+        _start_of_month(month_start + timedelta(days=32))
+    )
+
+
+def resolve_period(
+    period_key='last_30_days',
+    start_date=None,
+    end_date=None
+):
+    """
+    Résout une période en bornes datetime aware.
+
+    Retourne :
+      key
+      label
+      start
+      end
+      previous_start
+      previous_end
+    """
+
+    now = local_now()
+
+    if period_key == 'today':
+
+        start = _start_of_day(now)
+        end = start + timedelta(days=1)
+
+    elif period_key == 'last_7_days':
+
+        start = _start_of_day(now) - timedelta(days=6)
+        end = _start_of_day(now) + timedelta(days=1)
+
+    elif period_key == 'last_30_days':
+
+        start = _start_of_day(now) - timedelta(days=29)
+        end = _start_of_day(now) + timedelta(days=1)
+
+    elif period_key == 'this_week':
+
+        start = _start_of_week(now)
+        end = start + timedelta(days=7)
+
+    elif period_key == 'this_month':
+
+        start = _start_of_month(now)
+        end = _start_of_month(now + timedelta(days=32))
+
+    elif period_key == 'last_month':
+
+        start = _start_of_month(
+            _start_of_month(now) - timedelta(days=1)
+        )
+
+        end, _ = _month_bounds(start)
+
+    elif period_key == 'custom':
+
+        start = _parse_custom_date(
+            start_date,
+            default=_start_of_day(now)
+        )
+
+        end_raw = _parse_custom_date(
+            end_date,
+            default=start
+        )
+
+        end = end_raw.replace(
+            hour=23,
+            minute=59,
+            second=59,
+            microsecond=999999
+        )
+
+        previous_start = None
+        previous_end = None
+
+    else:
+        raise ValueError(
+            f"Période inconnue: {period_key}"
+        )
+
+    if period_key != 'custom':
+
+        span = end - start
+
+        previous_start = start - span
+        previous_end = start
+
+    else:
+
+        previous_start = None
+        previous_end = None
+
+    return {
+        'key': period_key,
+        'label': PERIOD_CHOICES.get(
+            period_key,
+            period_key
+        ),
+        'start': _ensure_aware(start),
+        'end': _ensure_aware(end),
+        'previous_start': _ensure_aware(previous_start),
+        'previous_end': _ensure_aware(previous_end),
+    }
+
+
+def _parse_custom_date(value, default):
+    """
+    Parse YYYY-MM-DD en datetime aware
+    dans le timezone Django.
+    """
+
+    if not value:
+        return _ensure_aware(default)
+
+    try:
+
+        dt = datetime.strptime(
+            str(value),
+            '%Y-%m-%d'
+        )
+
+        return timezone.make_aware(
+            dt,
+            timezone.get_default_timezone()
+        )
+
+    except (ValueError, TypeError):
+
+        return _ensure_aware(default)
+
+
+def iso(dt):
+    """
+    Format ISO 8601 avec offset.
+    """
+    dt = _ensure_aware(dt)
+
+    return dt.isoformat() if dt else None
+
+
+def _localize(dt):
+    """
+    Normalise un datetime éventuellement naive
+    vers le timezone Django.
+    """
+    return _ensure_aware(dt)
+
+
+def day_key(dt):
+    """
+    Clé YYYY-MM-DD en timezone local.
+    """
+    dt = _ensure_aware(dt)
+
+    if dt is None:
+        return None
+
+    return timezone.localtime(dt).strftime(
+        '%Y-%m-%d'
+    )
+
+
+def week_key(dt):
+    """
+    Clé YYYY-MM-DD correspondant au lundi
+    de la semaine en timezone local.
+    """
+    dt = _ensure_aware(dt)
+
+    if dt is None:
+        return None
+
+    local_dt = timezone.localtime(dt)
+
+    return _start_of_week(local_dt).strftime(
+        '%Y-%m-%d'
+    )
+
+
+def month_key(dt):
+    """
+    Clé YYYY-MM en timezone local.
+    """
+    dt = _ensure_aware(dt)
+
+    if dt is None:
+        return None
+
+    return timezone.localtime(dt).strftime(
+        '%Y-%m'
+    )
+    Mais attention : il y a probablement un deuxième problème
+
+Ton commentaire dit :
+
+les agrégations Trunc* les propagent telles quelles
+
+C'est très probablement là que je regarderais ensuite.
+
+Si tu fais quelque chose comme :
+
+TruncDay('created_at')
+
+ou :
+
+TruncMonth('created_at')
+
+dans tes statistiques, il faut vérifier comment c'est configuré en production.
+
+Avec Django + PostgreSQL/MySQL, la configuration doit notamment être cohérente :
+
+USE_TZ = True
+
+TIME_ZONE = 'Africa/Kinshasa'
+
+Et surtout, en production, vérifie que ton serveur utilise bien le même code et les mêmes migrations/configurations que ton environnement local.
+
+Test rapide à faire en production
+
+Ajoute temporairement :
+
+from django.conf import settings
+from django.utils import timezone
+
+print("USE_TZ =", settings.USE_TZ)
+print("TIME_ZONE =", settings.TIME_ZONE)
+print("DEFAULT TIMEZONE =", timezone.get_default_timezone())
+print("NOW =", timezone.now())
+print("IS AWARE =", timezone.is_aware(timezone.now()))
+
+Tu devrais obtenir quelque chose du genre :
+
+USE_TZ = True
+TIME_ZONE = Africa/Kinshasa
+DEFAULT TIMEZONE = Africa/Kinshasa
+NOW = 2026-08-10 06:35:00+00:00
+IS AWARE = True
+
+Puis :
+
+print("LOCAL NOW =", local_now())
+
+devrait donner :
+
+2026-08-10 08:35:00+02:00
+Point important
+
+Ne corrige pas uniquement ce fichier si l'erreur continue.
+
+L'erreur :
+
+localtime() cannot be applied to a naive datetime
+
+signifie qu'il existe au moins un chemin d'exécution où un datetime naïf atteint timezone.localtime().
+
+La version ci-dessus protège ce fichier, mais si tes statistiques font ailleurs :
+
+timezone.localtime(some_date)
+
+il faudra également passer par :
+
+timezone.localtime(_ensure_aware(some_date))
+
+voici mon parametrage en production du setting:
+
+# Internationalization
+LANGUAGE_CODE = 'fr-fr'
+TIME_ZONE = 'Africa/Kinshasa'
+USE_I18N = True
+USE_L10N = True
+USE_TZ = False

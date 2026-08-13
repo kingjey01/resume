@@ -99,12 +99,17 @@ class PersonalizedExerciseNotifier extends StateNotifier<PersonalizedExerciseSta
   //  1. VÉRIFICATION INITIALE
   // ═══════════════════════════════════════════════════════════════════════════════
 
-  /// Vérifie si un exercice existe déjà pour ce résumé
-  Future<void> checkExistingExercise(int summaryId) async {
+  /// Vérifie si un exercice existe déjà pour ce résumé.
+  /// [difficulty] (optionnel) : ne vérifie QUE ce niveau — un exercice par
+  /// combinaison Utilisateur + Résumé + Niveau.
+  Future<void> checkExistingExercise(int summaryId, {String? difficulty}) async {
     state = state.copyWith(status: ExerciseGenerationStatus.checking, isLoading: true);
 
     try {
-      final data = await _api.checkPersonalizedExercise(summaryId);
+      final data = await _api.checkPersonalizedExercise(
+        summaryId,
+        difficulty: difficulty,
+      );
       final exists = data['exists'] as bool? ?? false;
 
       if (exists) {

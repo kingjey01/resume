@@ -4,17 +4,16 @@ import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
 
 /// Écran affichant les résultats détaillés d'un quiz
+/// (TACHE3 : uniquement le bouton retour — plus de régénération)
 class QuizResultScreen extends StatelessWidget {
   final AttemptResult result;
   final PersonalizedExercise exercise;
-  final VoidCallback onRetry;
   final VoidCallback onBack;
 
   const QuizResultScreen({
     super.key,
     required this.result,
     required this.exercise,
-    required this.onRetry,
     required this.onBack,
   });
 
@@ -435,23 +434,9 @@ class QuizResultScreen extends StatelessWidget {
   Widget _buildActionButtons() {
     return Column(
       children: [
-        // Bouton réessayer (régénérer avec nouvelles questions)
-        ElevatedButton.icon(
-          onPressed: onRetry,
-          icon: const Icon(Icons.refresh_rounded),
-          label: const Text('Nouvel exercice'),
-          style: ElevatedButton.styleFrom(
-            backgroundColor: AppTheme.primaryBlue,
-            foregroundColor: Colors.white,
-            minimumSize: const Size(double.infinity, 50),
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(12),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-
-        // Bouton retour
+        // TACHE3 : bouton « Nouvel exercice / Régénérer » supprimé —
+        // l'exercice d'un niveau ne se régénère jamais, il se réutilise.
+        // Seul le bouton retour reste.
         OutlinedButton.icon(
           onPressed: onBack,
           icon: const Icon(Icons.arrow_back_rounded),

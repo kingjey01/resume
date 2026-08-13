@@ -1,0 +1,104 @@
+août 11 14:44:35 vps114384 python[603472]: [2026-08-11 14:44:35,464: INFO/ForkPoolWorker-2] Task courses.tasks.process_audio_session_task[0d7fea39-430a-49bd-9e96-a93b8923e760] retry: Retry in 30s: Exception('Échec de la génération du résumé (résultat vide)')
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,458: INFO/ForkPoolWorker-2] 🚀 [Celery] Début traitement complet session 29
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,479: INFO/ForkPoolWorker-2] 🎵 [Celery] Session 29 - durée: 106.00s (1.77min) [source: db] | limite: 10800s (180min)
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,483: INFO/ForkPoolWorker-2] 🎤 [Celery] Étape 1/2 : Transcription session 29...
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,483: INFO/ForkPoolWorker-2] 🔍 DIAGNOSTIC - Début étape 1 transcription
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,483: INFO/ForkPoolWorker-2] 🔍 Session ID: 29
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,483: INFO/ForkPoolWorker-2] 🔍 Session date: 2026-08-11 14:43:21.950427
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,490: INFO/ForkPoolWorker-2] 🔍 Session course: Statistiques - INFORMATIQUE (UCC)
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,491: INFO/ForkPoolWorker-2] 🔍 Audio file: audio_sessions/session_12_1786455791739.webm
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,494: INFO/ForkPoolWorker-2] Transcription existante trouvée: ID 27
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] ✅ [Celery] Étape 1/2 terminée: Transcription #27
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 📝 [Celery] Étape 2/2 : Résumé session 29...
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 🔍 DIAGNOSTIC - Début étape 2 génération résumé
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 🔍 Transcription ID: 27
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 🔍 Transcription created_at: 2026-08-11 14:43:22.222930
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 🔍 Session ID: 29
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 🔍 Session date: 2026-08-11 14:43:21.950427
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,496: INFO/ForkPoolWorker-2] 🔍 Author user: YETA6
+août 11 14:45:05 vps114384 python[603472]: [2026-08-11 14:45:05,500: INFO/ForkPoolWorker-2] 🤖 Génération du résumé via DeepSeek API...
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,315: INFO/ForkPoolWorker-2] Tokens: 10394
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,317: INFO/ForkPoolWorker-2] ✅ Résumé DeepSeek généré avec succès
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,317: INFO/ForkPoolWorker-2] 🔍 Création Summary avec:
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,317: INFO/ForkPoolWorker-2] 🔍   - titre: introduction
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,320: INFO/ForkPoolWorker-2] 🔍   - course: Statistiques - INFORMATIQUE (UCC)
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,321: INFO/ForkPoolWorker-2] 🔍   - session: Statistiques - 11/08/2026
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,323: INFO/ForkPoolWorker-2] 🔍   - transcription: Transcription - Statistiques - 11/08/2026 (completed)
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,323: INFO/ForkPoolWorker-2] 🔍   - author_user: YETA6
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,330: INFO/ForkPoolWorker-2] 🔍 Summary créé: ID=32, created_at=2026-08-11 14:46:17.325787
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,332: INFO/ForkPoolWorker-2] ✅ [Celery] Session 29 terminée — Transcription #27, Résumé #32
+août 11 14:46:17 vps114384 python[603472]: [2026-08-11 14:46:17,333: INFO/ForkPoolWorker-2] Task courses.tasks.process_audio_session_task[0d7fea39-430a-49bd-9e96-a93b8923e760] succeeded in 71.8785469669383s: {'success': True, 'session_id': 29, 'summary_id': 32, 'transcription_id': 27}
+août 11 14:47:19 vps114384 python[603467]: [2026-08-11 14:47:19,829: INFO/MainProcess] Task notifications.tasks.create_and_send_notification[cd927957-2efe-4843-ab31-3e31c06a1890] received
+août 11 14:47:22 vps114384 python[603472]: [2026-08-11 14:47:22,811: INFO/ForkPoolWorker-2] 🔔 [Task] Notification créée: id=79 type=summary_validated
+août 11 14:47:22 vps114384 python[603472]: [2026-08-11 14:47:22,828: INFO/ForkPoolWorker-2] 👥 [Task] 3 utilisateurs ciblés pour la notification 79
+août 11 14:47:22 vps114384 python[603472]: [2026-08-11 14:47:22,831: INFO/ForkPoolWorker-2] Task notifications.tasks.create_and_send_notification[cd927957-2efe-4843-ab31-3e31c06a1890] succeeded in 0.04850416595581919s: {'notification_id': 79, 'targeted_users': 3}
+août 11 14:47:22 vps114384 python[603467]: [2026-08-11 14:47:22,831: INFO/MainProcess] Task notifications.tasks.send_fcm_notification[d53b98fc-c7bf-40a7-b424-d7d52eaf33f1] received
+août 11 14:47:24 vps114384 python[603472]: [2026-08-11 14:47:24,844: WARNING/ForkPoolWorker-2] /home/jey/resumecours.gestionhospitaliare.site/env39/lib64/python3.9/site-packages/google/auth/__init__.py:54: FutureWarning: You are using a Python version 3.9 past its end of life. Google will update google-auth with critical bug fixes on a best-effort basis, but not with any other fixes or features. Please upgrade your Python version, and then update google-auth.
+août 11 14:47:24 vps114384 python[603472]:   warnings.warn(eol_message.format("3.9"), FutureWarning)
+août 11 14:47:24 vps114384 python[603472]: [2026-08-11 14:47:24,860: WARNING/ForkPoolWorker-2] /home/jey/resumecours.gestionhospitaliare.site/env39/lib64/python3.9/site-packages/google/oauth2/__init__.py:40: FutureWarning: You are using a Python version 3.9 past its end of life. Google will update google-auth with critical bug fixes on a best-effort basis, but not with any other fixes or features. Please upgrade your Python version, and then update google-auth.
+août 11 14:47:24 vps114384 python[603472]:   warnings.warn(eol_message.format("3.9"), FutureWarning)
+août 11 14:47:25 vps114384 python[603472]: [2026-08-11 14:47:25,345: INFO/ForkPoolWorker-2] 📊 [FCM] Batch terminé — envoyés: 1, échoués: 0
+août 11 14:47:25 vps114384 python[603472]: [2026-08-11 14:47:25,346: INFO/ForkPoolWorker-2] Task notifications.tasks.send_fcm_notification[d53b98fc-c7bf-40a7-b424-d7d52eaf33f1] succeeded in 0.5155709329992533s: {'sent': 1, 'failed': 0}
+^C
+Vous avez du nouveau courrier dans /var/spool/mail/root
+(env39_compiled) [root@vps114384 backend]# sudo journalctl -f
+-- Logs begin at Wed 2026-08-05 08:24:39 WAT. --
+août 11 14:49:55 vps114384 postfix/smtpd[604170]: warning: unknown[192.253.248.59]: SASL LOGIN authentication failed: UGFzc3dvcmQ6
+août 11 14:49:56 vps114384 sshd[604178]: Failed password for invalid user admin from 92.118.39.71 port 37982 ssh2
+août 11 14:49:56 vps114384 sshd[604178]: Connection closed by invalid user admin 92.118.39.71 port 37982 [preauth]
+août 11 14:50:01 vps114384 systemd[1]: Starting system activity accounting tool...
+août 11 14:50:02 vps114384 systemd[1]: sysstat-collect.service: Succeeded.
+août 11 14:50:02 vps114384 systemd[1]: Started system activity accounting tool.
+août 11 14:50:05 vps114384 postfix/smtpd[604170]: warning: unknown[192.253.248.59]: SASL LOGIN authentication failed: UGFzc3dvcmQ6
+août 11 14:50:05 vps114384 postfix/smtpd[604170]: disconnect from unknown[192.253.248.59] ehlo=1 auth=0/3 rset=3 quit=1 commands=5/8
+août 11 14:50:29 vps114384 sudo[604195]:     root : TTY=pts/5 ; PWD=/home/jey/resumecours.gestionhospitaliare.site/backend ; USER=root ; COMMAND=/bin/journalctl -f
+août 11 14:50:29 vps114384 sudo[604195]: pam_unix(sudo:session): session opened for user root by root(uid=0)
+^C
+(env39_compiled) [root@vps114384 backend]# cd log
+(env39_compiled) [root@vps114384 log]# tail -f apis_error.log
+[Tue Aug 11 14:40:06.520516 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]     response = get_response(request)
+[Tue Aug 11 14:40:06.520520 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]   File "/home/jey/resumecours.gestionhospitaliare.site/env39/lib64/python3.9/site-packages/django/utils/deprecation.py", line 133, in __call__
+[Tue Aug 11 14:40:06.520524 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]     response = self.process_request(request)
+[Tue Aug 11 14:40:06.520528 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]   File "/home/jey/resumecours.gestionhospitaliare.site/env39/lib64/python3.9/site-packages/django/middleware/common.py", line 48, in process_request
+[Tue Aug 11 14:40:06.520544 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]     host = request.get_host()
+[Tue Aug 11 14:40:06.520549 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]   File "/home/jey/resumecours.gestionhospitaliare.site/env39/lib64/python3.9/site-packages/django/http/request.py", line 150, in get_host
+[Tue Aug 11 14:40:06.520553 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292]     raise DisallowedHost(msg)
+[Tue Aug 11 14:40:06.520557 2026] [wsgi:error] [pid 603225:tid 139704712283904] [remote 45.148.10.119:26292] django.core.exceptions.DisallowedHost: Invalid HTTP_HOST header: 'nuruya-congo.com'. You may need to add 'nuruya-congo.com' to ALLOWED_HOSTS.
+[Tue Aug 11 14:49:36.324082 2026] [wsgi:error] [pid 603225:tid 139704011847424] Option A trop courte: '10' \xe2\x80\x94 question rejet\xc3\xa9e
+[Tue Aug 11 14:49:36.324221 2026] [wsgi:error] [pid 603225:tid 139704011847424] Option A trop courte: '10' \xe2\x80\x94 question rejet\xc3\xa9e
+[Tue Aug 11 14:53:41.848777 2026] [wsgi:error] [pid 603225:tid 139704011847424] Option A trop courte: '8' \xe2\x80\x94 question rejet\xc3\xa9e
+
+### Tâche — Déclenchement fiable des notifications
+
+vérifie et Corriger s'il le faut le processus de notification lorsqu’un résumé devient disponible.
+
+### Comportement attendu
+
+Lorsqu’un audio est correctement traité et que son statut passe à **« Résumé disponible »** :
+
+1. Le changement de statut doit déclencher systématiquement la tâche de création de notification.
+2. Une notification doit être créée pour **l’utilisateur qui a créé/soumis l’audio (CP)**.
+3. La notification doit indiquer que **le résumé est disponible**.
+4. La tâche d’envoi de notification doit ensuite être déclenchée afin que l’utilisateur reçoive réellement la notification.
+
+### Problème actuel
+
+Le processus fonctionne dans certains cas, mais **la tâche de notification ne se déclenche pas toujours** lorsque le résumé passe à « disponible ».
+
+Il faut donc vérifier toute la chaîne :
+
+**Audio traité → statut « Résumé disponible » → création de la notification → envoi de la notification au CP**
+
+Identifier pourquoi le déclenchement est parfois perdu ou non exécuté et rendre ce processus **fiable et systématique**.
+
+### Point important
+
+Le déclenchement doit être lié au **changement réel vers le statut « Résumé disponible »** et ne pas dépendre uniquement d’un comportement d’interface ou d’une action manuelle.
+
+Ajouter également des logs permettant de savoir clairement :
+
+* quand le statut passe à « Résumé disponible » ;
+* si la tâche de notification est déclenchée ;
+* si la notification est créée ;
+* si la tâche d’envoi est exécutée ;
+* si l’envoi réussit ou échoue, et pourquoi.

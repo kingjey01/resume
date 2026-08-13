@@ -83,6 +83,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   List<AudioDraft> _localDrafts = [];
   bool _isLoadingDrafts = false;
   String? _activeDraftId; // ID du brouillon actuellement chargé dans le formulaire
+  Future<void>? _pendingDraftSave; // Sauvegarde de brouillon en cours (attente avant sortie)
+  bool _isExiting = false; // Anti double-sortie pendant la sauvegarde de sortie
+  bool _draftIntentionallyDiscarded = false; // Brouillon actif supprimé explicitement → ne pas le recréer à la sortie
 
   // Sauvegarde locale - Liste des 5 derniers enregistrements
   List<SavedRecording> _savedRecordings = [];
@@ -149,6 +152,15 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         university: '',
         createdAt: DateTime.now(),
       );
+    }
+
+    // Restaurer le professeur (auto-résolu ou saisi manuellement)
+    if (draft.professeurNom != null && draft.professeurNom!.isNotEmpty) {
+      _autoResolvedProfessorName = draft.professeurNom;
+      _professorNameController.text = draft.professeurNom!;
+    }
+    if (draft.professeurId != null) {
+      _autoResolvedProfessorId = draft.professeurId;
     }
 
     // Restaurer les bytes audio
@@ -304,13 +316,63 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       _recordedBytes = bytes;
       _recordedMimeType = mimeType;
     });
-    // Sauvegarder automatiquement le brouillon
-    _autoSaveDraft(bytes, mimeType);
+    // Sauvegarder automatiquement le brouillon (le future est mémorisé
+    // pour être attendu avant toute sortie d'écran)
+    _pendingDraftSave = _autoSaveDraft(bytes, mimeType);
+  }
+
+  /// Construit un [AudioDraft] à partir de l'état courant du formulaire.
+  /// Les champs vides du formulaire sont conservés depuis [base] (s'il existe)
+  /// afin de ne jamais perdre les métadonnées d'un brouillon chargé.
+  AudioDraft _buildDraftFromCurrent({
+    required String id,
+    required Uint8List bytes,
+    required String mimeType,
+    DateTime? createdAt,
+    AudioDraft? base,
+  }) {
+    final price = double.tryParse(_priceController.text.trim());
+    final title = _titleController.text.trim();
+    final profNom = _professorNameController.text.trim().isNotEmpty
+        ? _professorNameController.text.trim()
+        : _autoResolvedProfessorName;
+    return AudioDraft(
+      id: id,
+      audioBytes: bytes,
+      mimeType: mimeType,
+      fileName: 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a',
+      courseId: _selectedCourse?.id ?? base?.courseId,
+      courseName: _selectedCourse?.nom ?? base?.courseName,
+      title: title.isNotEmpty ? title : base?.title,
+      price: price ?? base?.price,
+      duration: _recordDuration,
+      professeurNom: profNom?.isNotEmpty == true ? profNom : base?.professeurNom,
+      professeurId: (_autoResolvedProfessorId ?? _selectedProfesseur?.id) ?? base?.professeurId,
+      createdAt: createdAt ?? DateTime.now(),
+    );
   }
 
   /// Sauvegarde automatique du brouillon audio après chaque enregistrement.
+  /// Si un brouillon est actif (chargé dans le formulaire), il est mis à jour
+  /// au lieu d'en créer un doublon.
   Future<void> _autoSaveDraft(Uint8List bytes, String mimeType) async {
     final draftService = AudioDraftService();
+
+    // Mettre à jour le brouillon actif s'il existe (re-enregistrement).
+    if (_activeDraftId != null) {
+      final existing = await draftService.getDraft(_activeDraftId!);
+      if (existing != null) {
+        await draftService.updateDraft(_buildDraftFromCurrent(
+          id: existing.id,
+          bytes: bytes,
+          mimeType: mimeType,
+          createdAt: existing.createdAt,
+          base: existing,
+        ));
+        await _loadDraftsList();
+        return;
+      }
+    }
 
     // Vérifier la limite avant d'ajouter
     if (await draftService.isFull()) {
@@ -322,23 +384,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       return;
     }
 
-    final draft = AudioDraft(
+    final draft = _buildDraftFromCurrent(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
-      audioBytes: bytes,
+      bytes: bytes,
       mimeType: mimeType,
-      fileName: 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a',
-      courseId: _selectedCourse?.id,
-      courseName: _selectedCourse?.nom,
-      title: _titleController.text.trim(),
-      duration: _recordDuration,
-      professeurNom: _professorNameController.text.trim().isNotEmpty
-          ? _professorNameController.text.trim()
-          : _autoResolvedProfessorName,
-      professeurId: _autoResolvedProfessorId ?? _selectedProfesseur?.id,
     );
-
-    final price = double.tryParse(_priceController.text.trim());
-    if (price != null) draft.price = price;
 
     final added = await draftService.addDraft(draft);
     if (added) {
@@ -421,6 +471,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       );
 
       if (result == null || result.files.isEmpty) return;
+
+      // Nouvelle importation = nouvelle intention de brouillon.
+      _draftIntentionallyDiscarded = false;
 
       final pickedFile = result.files.first;
 
@@ -559,6 +612,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       SnackbarService.show('⚠️ Veuillez d\'abord sélectionner un cours', isError: true);
       return;
     }
+
+    // Nouvel enregistrement = nouvelle intention de brouillon.
+    _draftIntentionallyDiscarded = false;
 
     // Vérifier la limite de brouillons avant d'enregistrer
     if (await AudioDraftService().isFull()) {
@@ -818,33 +874,31 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       // Ajouter à la liste des enregistrements sauvegardés
       _addSavedRecording(savedRecording);
       
-      // Supprimer le brouillon local après envoi réussi
+      // Supprimer le brouillon local après envoi réussi — uniquement celui
+      // correspondant à l'audio envoyé. Jamais un autre brouillon sans
+      // action explicite de l'utilisateur.
       if (_activeDraftId != null) {
         await AudioDraftService().deleteDraft(_activeDraftId!);
         _activeDraftId = null;
-      } else {
-        // Fallback : supprimer le plus ancien brouillon sans fichier
-        final drafts = await AudioDraftService().listDrafts();
-        if (drafts.isNotEmpty) {
-          await AudioDraftService().deleteDraft(drafts.first.id);
-        }
       }
       await _loadDraftsList();
       print('🗑️ AudioDraft: brouillon supprimé après upload réussi');
 
-      // Réinitialiser l'enregistrement en cours
-      setState(() {
-        _recordedBytes = null;
-        _recordedMimeType = null;
-        _recordDuration = 0;
-        _recordingState = RecordingState.idle;
-        _selectedCourse = null;
-        _isPlaying = false;
-        _isFileUploaded = false;
-        _uploadedFileName = null;
-        _titleController.clear();
-        _priceController.text = _minimumPrice.toStringAsFixed(0);
-      });
+      // Réinitialiser l'enregistrement en cours (si l'écran est encore monté)
+      if (mounted) {
+        setState(() {
+          _recordedBytes = null;
+          _recordedMimeType = null;
+          _recordDuration = 0;
+          _recordingState = RecordingState.idle;
+          _selectedCourse = null;
+          _isPlaying = false;
+          _isFileUploaded = false;
+          _uploadedFileName = null;
+          _titleController.clear();
+          _priceController.text = _minimumPrice.toStringAsFixed(0);
+        });
+      }
 
       // Arrêter la lecture si en cours
       _stopPlayback();
@@ -864,6 +918,12 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     _titleController.dispose();
     _priceController.dispose();
     _professorNameController.dispose();
+    // Sauvegarde d'urgence si l'écran est démonté pendant un enregistrement
+    // (fire-and-forget : jamais de perte audio, même si le stop arrive après).
+    if (_audioRecorder.isRecording) {
+      final pendingPath = _audioRecorder.currentPath;
+      _emergencySaveOnExit(pendingPath);
+    }
     // Ne pas disposer le recorder car c'est un singleton - juste reset
     _audioRecorder.reset();
     _audioPlayer.dispose();
@@ -871,12 +931,114 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     super.dispose();
   }
 
+  /// Quitte proprement l'écran : stoppe un enregistrement en cours (ce qui
+  /// déclenche l'auto-sauvegarde du brouillon), attend la fin de la sauvegarde,
+  /// persiste les métadonnées courantes dans le brouillon actif, puis ferme.
+  Future<void> _handleExit() async {
+    if (_isExiting) return;
+    _isExiting = true;
+    final navigator = Navigator.of(context);
+
+    // 1. Stopper un enregistrement en cours → l'auto-sauvegarde se déclenche.
+    if (_audioRecorder.isRecording) {
+      await _audioRecorder.stopRecording();
+    }
+
+    // 2. Attendre la fin de l'auto-sauvegarde du brouillon.
+    if (_pendingDraftSave != null) {
+      await _pendingDraftSave;
+    }
+
+    // 3. Persister l'état courant du formulaire (titre, cours, prof, audio).
+    await _persistCurrentFormAsDraft();
+
+    if (!mounted) return;
+    navigator.pop();
+  }
+
+  /// Persiste l'état courant du formulaire dans le brouillon actif.
+  /// Si aucun brouillon n'est actif mais qu'un audio existe en mémoire
+  /// (fichier importé, enregistrement bloqué par la limite), il est
+  /// sauvegardé comme nouveau brouillon tant que la limite le permet.
+  Future<void> _persistCurrentFormAsDraft() async {
+    if (_isUploading) return;
+    if (_recordedBytes == null || _recordedBytes!.isEmpty) return;
+    // Brouillon actif supprimé explicitement : ne pas le recréer à la sortie.
+    if (_draftIntentionallyDiscarded) return;
+
+    final draftService = AudioDraftService();
+
+    if (_activeDraftId != null) {
+      final existing = await draftService.getDraft(_activeDraftId!);
+      if (existing != null) {
+        await draftService.updateDraft(_buildDraftFromCurrent(
+          id: existing.id,
+          bytes: _recordedBytes!,
+          mimeType: _recordedMimeType ?? 'audio/m4a',
+          createdAt: existing.createdAt,
+          base: existing,
+        ));
+      }
+      return;
+    }
+
+    // Aucun brouillon actif : sauvegarder l'audio (ex: fichier importé).
+    if (await draftService.isFull()) {
+      SnackbarService.show(
+        '⚠️ Limite de ${AudioDraftService.maxDrafts} brouillons atteinte. '
+        'L\'audio ne sera pas conservé.',
+        isError: true,
+      );
+      return;
+    }
+
+    final draft = _buildDraftFromCurrent(
+      id: DateTime.now().millisecondsSinceEpoch.toString(),
+      bytes: _recordedBytes!,
+      mimeType: _recordedMimeType ?? 'audio/m4a',
+    );
+
+    final added = await draftService.addDraft(draft);
+    if (added) {
+      _activeDraftId = draft.id;
+      await _loadDraftsList();
+    }
+  }
+
+  /// Sauvegarde d'urgence (écran déjà démonté pendant un enregistrement) :
+  /// stoppe le recorder, relit le fichier temp et crée le brouillon.
+  /// Ne dépend pas de `mounted` — les callbacks sont ignorés à ce stade.
+  Future<void> _emergencySaveOnExit(String? pendingPath) async {
+    try {
+      await _audioRecorder.stopRecording();
+      if (pendingPath == null) return;
+      final file = File(pendingPath);
+      if (!await file.exists()) return;
+      final bytes = await file.readAsBytes();
+      if (bytes.isEmpty) return;
+      final mime = pendingPath.endsWith('.wav')
+          ? 'audio/wav'
+          : pendingPath.endsWith('.m4a') ? 'audio/mp4' : 'audio/mpeg';
+      await _autoSaveDraft(bytes, mime);
+    } catch (e) {
+      print('⚠️ AudioDraft: sauvegarde d\'urgence échouée: $e');
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final topPadding = MediaQuery.of(context).padding.top;
 
-    return Scaffold(
+    // PopScope : toute sortie (flèche, bouton retour système, geste)
+    // passe par [_handleExit] pour ne jamais perdre un brouillon.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        _handleExit();
+      },
+      child: Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: SingleChildScrollView(
         child: Column(
@@ -898,7 +1060,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
               child: Row(
                 children: [
                   GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
+                    onTap: () => _handleExit(),
                     child: Container(
                       width: 40, height: 40,
                       decoration: BoxDecoration(
@@ -1235,6 +1397,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
           ],
         ),
       ),
+      ),
     );
   }
 
@@ -1419,6 +1582,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                 await AudioDraftService().deleteDraft(draft.id);
                 if (_activeDraftId == draft.id) {
                   _activeDraftId = null;
+                  // L'audio encore chargé dans le formulaire ne doit pas
+                  // être re-brouillonné automatiquement à la sortie.
+                  _draftIntentionallyDiscarded = true;
                 }
                 await _loadDraftsList();
                 if (mounted) setState(() {});

@@ -608,6 +608,14 @@ def request_otp_view(request):
     # Gère les formats: +243XXX, 243XXX, 0XXX, ou XXX (9 chiffres)
     phone = normalize_phone(phone)
 
+    # Rate limiting (TACHES.md) — appliqué AVANT la création d'un compte
+    # temporaire et l'envoi du SMS : cooldown 60s, 3/10min par numéro,
+    # 100/10min par IP, limite globale par seconde. Retourne 429 si bloqué.
+    from .rate_limiting import enforce_send_otp_limits
+    blocked = enforce_send_otp_limits(request, 'send_otp', phone)
+    if blocked:
+        return blocked
+
     try:
         # Chercher l'utilisateur par numéro de téléphone
         try:
@@ -747,6 +755,14 @@ def verify_otp_view(request):
     # Gère les formats: +243XXX, 243XXX, 0XXX, ou XXX (9 chiffres)
     phone = normalize_phone(phone)
 
+    # Blocage temporaire si ce numéro a accumulé trop de codes incorrects
+    # (TACHES.md : 5 échecs → 429 pendant 10 min). Vérification en lecture
+    # seule : le compteur n'augmente que sur un échec réel.
+    from .rate_limiting import enforce_verify_otp_limits
+    blocked = enforce_verify_otp_limits(request, 'verify_otp', phone)
+    if blocked:
+        return blocked
+
     try:
         # Chercher l'utilisateur par numéro de téléphone
         profile = UserProfile.objects.get(phone=phone)
@@ -781,13 +797,21 @@ def verify_otp_view(request):
                 'cp_onboarding_completed': profile.cp_onboarding_completed,
             }, status=status.HTTP_200_OK)
         else:
+            # Enregistrer l'échec pour le blocage temporaire (TACHES.md :
+            # 5 codes incorrects → 429 avec Retry-After pendant 10 min)
+            from .rate_limiting import record_verify_failure
+            record_verify_failure('verify_otp', phone)
+
             # Vérifier si trop de tentatives
-            if profile.otp_attempts >= 3:
+            if profile.otp_attempts >= settings.OTP_MAX_VERIFY_ATTEMPTS:
                 profile.reset_otp()
-                return Response(
-                    {'error': 'Trop de tentatives. Demandez un nouveau code.'},
+                resp = Response(
+                    {'error': 'Trop de tentatives. Demandez un nouveau code.',
+                     'retry_after': settings.OTP_VERIFY_BLOCK_SECONDS},
                     status=status.HTTP_429_TOO_MANY_REQUESTS
                 )
+                resp['Retry-After'] = str(settings.OTP_VERIFY_BLOCK_SECONDS)
+                return resp
             
             return Response(
                 {'error': 'Code OTP invalide ou expiré'},
@@ -902,6 +926,13 @@ def request_delete_otp_view(request):
         if not phone:
             return Response({'error': 'Aucun numéro de téléphone associé à votre compte'}, status=status.HTTP_400_BAD_REQUEST)
 
+        # Rate limiting (TACHES.md) — appliqué AVANT la génération du code
+        # et l'envoi du SMS (cooldown, limites par numéro/IP/endpoint).
+        from .rate_limiting import enforce_send_otp_limits
+        blocked = enforce_send_otp_limits(request, 'send_delete_otp', phone)
+        if blocked:
+            return blocked
+
         otp_code = profile.generate_otp()
         logger.info(f"Code OTP de suppression généré pour {phone}: {otp_code}")
 
@@ -986,11 +1017,26 @@ def delete_account_view(request):
             return Response({'error': 'Code OTP requis'}, status=status.HTTP_400_BAD_REQUEST)
 
         profile = UserProfile.objects.get(user=request.user)
+        phone = profile.phone
+
+        # Blocage temporaire si ce numéro a accumulé trop de codes incorrects
+        # (TACHES.md : 5 échecs → 429 pendant 10 min)
+        from .rate_limiting import enforce_verify_otp_limits, record_verify_failure
+        blocked = enforce_verify_otp_limits(request, 'verify_delete', phone or '')
+        if blocked:
+            return blocked
 
         if not profile.verify_otp(str(otp_code)):
-            if profile.otp_attempts >= 3:
+            record_verify_failure('verify_delete', phone or '')
+            if profile.otp_attempts >= settings.OTP_MAX_VERIFY_ATTEMPTS:
                 profile.reset_otp()
-                return Response({'error': 'Trop de tentatives. Demandez un nouveau code.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+                resp = Response(
+                    {'error': 'Trop de tentatives. Demandez un nouveau code.',
+                     'retry_after': settings.OTP_VERIFY_BLOCK_SECONDS},
+                    status=status.HTTP_429_TOO_MANY_REQUESTS
+                )
+                resp['Retry-After'] = str(settings.OTP_VERIFY_BLOCK_SECONDS)
+                return resp
             return Response({'error': 'Code OTP invalide ou expiré'}, status=status.HTTP_400_BAD_REQUEST)
 
         user = request.user

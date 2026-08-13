@@ -8,7 +8,6 @@ import 'package:resume_plus_clean/providers/tab_refresh_provider.dart';
 import 'package:resume_plus_clean/features/exercises/screens/exercise_subscription_screen.dart';
 import 'package:resume_plus_clean/features/exercises/screens/exercise_result_screen.dart';
 import 'package:resume_plus_clean/features/exercises/screens/quiz_result_screen.dart';
-import 'package:resume_plus_clean/features/exercises/screens/personalized_quiz_screen.dart';
 
 /// Tentative unifiée : agrège les tentatives de l'ancien système d'exercices
 /// et celles du quiz QCM personnalisé pour les afficher avec la même logique.
@@ -459,17 +458,8 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
             builder: (_) => QuizResultScreen(
               result: result,
               exercise: exercise,
-              onRetry: () {
-                Navigator.of(context).pop(); // ferme le résultat
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => PersonalizedQuizScreen(
-                      summaryId: attempt.summaryId,
-                      summaryTitle: attempt.summaryTitle,
-                    ),
-                  ),
-                );
-              },
+              // TACHE3 : plus de « Nouvel exercice / Régénérer » depuis
+              // l'écran des tentatives — uniquement le retour.
               onBack: () => Navigator.of(context).pop(),
             ),
           ),

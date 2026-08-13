@@ -474,6 +474,47 @@ CELERY_TASK_TRACK_STARTED = True
 CELERY_TASK_TIME_LIMIT = 3600  # 60 minutes max par tâche (audio longue durée)
 CELERY_TASK_SOFT_TIME_LIMIT = 3300  # Alerte à 55 minutes
 
+# ═══════════════════════════════════════════════════════════════════
+# RATE LIMITING OTP (TACHES.md) — anti force-brute et abus SMS
+# L'autorité est le BACKEND : ces limites s'appliquent avant l'envoi
+# du SMS et avant toute vérification de code.
+# ═══════════════════════════════════════════════════════════════════
+# Niveau 2 — cooldown entre deux OTP pour un même numéro
+OTP_COOLDOWN_SECONDS = 60
+# Niveau 1 — maximum d'OTP envoyés par numéro sur la fenêtre
+OTP_MAX_SENDS_PER_PHONE = 3
+OTP_PHONE_WINDOW_SECONDS = 600  # 10 minutes
+# Niveau 3 — maximum de requêtes par IP sur la fenêtre
+OTP_MAX_REQUESTS_PER_IP = 100
+OTP_IP_WINDOW_SECONDS = 600  # 10 minutes
+# Niveau 4 — limite globale de chaque endpoint OTP (par seconde)
+OTP_GLOBAL_MAX_PER_SECOND = 5
+# Vérification OTP — codes incorrects avant blocage temporaire
+OTP_MAX_VERIFY_ATTEMPTS = 5
+OTP_VERIFY_BLOCK_SECONDS = 600  # 10 minutes
+
+# Compteurs du rate limiting : Redis (même instance que Celery), avec
+# fallback LocMem si Redis est indisponible → le service ne casse jamais.
+# socket_connect_timeout court : si Redis tombe, chaque accès échoue en
+# ~0,5 s au lieu de plusieurs secondes (sinon chaque requête OTP deviendrait
+# très lente : 7 accès cache × timeout par défaut).
+CACHES = {
+    "default": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": CELERY_BROKER_URL,
+        "TIMEOUT": None,  # chaque clé porte son propre TTL
+        "OPTIONS": {
+            "CONNECTION_POOL_KWARGS": {
+                "socket_connect_timeout": 0.5,
+            },
+        },
+    },
+    "fallback": {
+        "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+        "LOCATION": "rate-limiting-fallback",
+    },
+}
+
 # =============================================
 # FIREBASE / FCM CONFIGURATION
 # =============================================

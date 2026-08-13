@@ -11,6 +11,23 @@ import 'package:resume_plus_clean/utils/logger.dart';
 import 'package:resume_plus_clean/exceptions/api_exception.dart';
 import 'package:resume_plus_clean/services/demo_data_service.dart';
 
+/// Page d'achats paginée (TACHE4 : affichage progressif des résumés achetés).
+class PurchasesPage {
+  final List<dynamic> items;
+  final int count;
+  final int page;
+  final int pageSize;
+
+  const PurchasesPage({
+    required this.items,
+    required this.count,
+    required this.page,
+    required this.pageSize,
+  });
+
+  bool get hasMore => page * pageSize < count;
+}
+
 class ApiService {
   final Dio _dio;
   final StorageService _storageService;
@@ -876,13 +893,29 @@ class ApiService {
 
   // ─── Achats et Paiements ────────────────────────────────────────────
 
-  Future<List<dynamic>> getPurchasedSummaries() async {
+  /// Page d'achats renvoyée par `/purchases/` (TACHE4 : pagination).
+  Future<PurchasesPage> getPurchasedSummaries({
+    int page = 1,
+    int pageSize = 10,
+    String? status,
+  }) async {
     try {
-      final response = await _dio.get('/purchases/');
+      final response = await _dio.get('/purchases/', queryParameters: {
+        'page': page,
+        'page_size': pageSize,
+        if (status != null) 'status': status,
+      });
       if (response.statusCode == 200) {
         dynamic data = response.data;
-        if (data is List) return data;
-        if (data is Map && data.containsKey('results')) return data['results'] as List;
+        if (data is Map) {
+          final results = (data['results'] as List?) ?? [];
+          final count = data['count'] as int? ?? results.length;
+          return PurchasesPage(items: results, count: count, page: page, pageSize: pageSize);
+        }
+        if (data is List) {
+          // Ancien format (liste brute) : considéré comme une page complète
+          return PurchasesPage(items: data, count: data.length, page: 1, pageSize: data.length);
+        }
         throw ApiException('Format de réponse inattendu.', type: ApiExceptionType.server);
       }
       throw ApiException('Impossible de charger les achats.',
@@ -893,10 +926,33 @@ class ApiService {
     }
   }
 
+  /// Charge TOUTES les pages d'achats (badges, compteurs…).
+  Future<List<dynamic>> getAllPurchases({String? status}) async {
+    final all = <dynamic>[];
+    var page = 1;
+    while (true) {
+      final result = await getPurchasedSummaries(page: page, pageSize: 50, status: status);
+      all.addAll(result.items);
+      if (!result.hasMore) break;
+      page++;
+    }
+    return all;
+  }
+
   Future<bool> hasPurchasedSummary(int summaryId) async {
     try {
-      final purchases = await getPurchasedSummaries();
-      return purchases.any((p) => p['summary'] == summaryId && p['status'] == 'completed');
+      // Filtre côté serveur (summary_id + status) : rapide même paginé
+      final response = await _dio.get('/purchases/', queryParameters: {
+        'summary_id': summaryId,
+        'status': 'completed',
+      });
+      if (response.statusCode != 200) return false;
+      final data = response.data;
+      if (data is Map) {
+        return ((data['results'] as List?) ?? []).isNotEmpty;
+      }
+      if (data is List) return data.isNotEmpty;
+      return false;
     } catch (e) {
       return false;
     }
@@ -1344,11 +1400,17 @@ class ApiService {
   //  EXERCICES PERSONNALISÉS (QCM uniques par utilisateur avec difficulté)
   // ═══════════════════════════════════════════════════════════════════════════════
 
-  /// Vérifie si un exercice personnalisé existe déjà pour ce résumé
-  Future<Map<String, dynamic>> checkPersonalizedExercise(int summaryId) async {
+  /// Vérifie si un exercice personnalisé existe déjà pour ce résumé.
+  /// [difficulty] (optionnel) : ne vérifie QUE ce niveau — c'est la règle
+  /// « Utilisateur + Résumé + Niveau = un exercice unique ».
+  Future<Map<String, dynamic>> checkPersonalizedExercise(
+    int summaryId, {
+    String? difficulty,
+  }) async {
     try {
       final response = await _dio.get(
         '/courses/summaries/$summaryId/personalized-exercise/check/',
+        queryParameters: difficulty != null ? {'difficulty': difficulty} : null,
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {

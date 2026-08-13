@@ -16,7 +16,9 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.resumeplus.jeycode"
     compileSdk = 36
-    ndkVersion = "25.1.8937393"
+    // NDK 25.1 était corrompu (téléchargement interrompu, dossier vide).
+    // NDK 23.0.7599858 déjà installé et complet — aucun code natif dans l'app.
+    ndkVersion = "23.0.7599858"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -31,10 +33,10 @@ android {
 
     defaultConfig {
         applicationId = "com.resumeplus.jeycode"
-        minSdk = 21
+        minSdkVersion = flutter.minSdkVersion
         targetSdk = 35
-        versionCode = 10
-        versionName = "1.0.4"
+        versionCode = 12
+        versionName = "1.0.6"
         multiDexEnabled true
     }
 

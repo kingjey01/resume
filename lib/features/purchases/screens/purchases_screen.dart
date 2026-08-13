@@ -37,7 +37,8 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
     // Rafraîchir les données à chaque fois qu'on arrive sur l'onglet Achats
     ref.listen<int>(purchasesRefreshProvider, (prev, next) {
       if (prev != next) {
-        ref.invalidate(purchasedSummariesProvider);
+        ref.read(purchasedSummariesProvider.notifier).refresh();
+        ref.read(purchaseHistoryProvider.notifier).refresh();
       }
     });
 
@@ -77,7 +78,10 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
                       ),
                     ),
                     IconButton(
-                      onPressed: () => ref.invalidate(purchasedSummariesProvider),
+                      onPressed: () {
+                        ref.read(purchasedSummariesProvider.notifier).refresh();
+                        ref.read(purchaseHistoryProvider.notifier).refresh();
+                      },
                       icon: const Icon(Icons.refresh_rounded, color: Colors.white),
                       tooltip: 'Rafraîchir',
                     ),
@@ -149,130 +153,131 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
   }
 
   Widget _buildPurchasedSummariesTab() {
-    final purchasedSummariesAsync = ref.watch(purchasedSummariesProvider);
+    final state = ref.watch(purchasedSummariesProvider);
 
     return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(purchasedSummariesProvider);
-      },
-      child: purchasedSummariesAsync.when(
-        data: (allPurchases) {
-          // 🧩11: only show completed summary purchases (exclude subscriptions)
-          final purchasedSummaries = allPurchases
-              .where((p) {
-                final status = _getPropertySafely(p, 'status', '');
-                final summary = p is Map ? p['summary'] : null;
-                return status == 'completed' && summary != null;
-              })
-              .toList();
-
-          if (purchasedSummaries.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.library_books_outlined,
-              title: _searchQuery.isNotEmpty
-                  ? 'Aucun résumé trouvé'
-                  : 'Aucun résumé acheté',
-              subtitle: _searchQuery.isNotEmpty
-                  ? 'Essayez avec d\'autres mots-clés'
-                  : 'Vos résumés achetés apparaîtront ici',
-            );
-          }
-
+      onRefresh: () => ref.read(purchasedSummariesProvider.notifier).refresh(),
+      child: _buildPaginatedList(
+        state: state,
+        emptyIcon: Icons.library_books_outlined,
+        emptyTitle: _searchQuery.isNotEmpty
+            ? 'Aucun résumé trouvé'
+            : 'Aucun résumé acheté',
+        emptySubtitle: _searchQuery.isNotEmpty
+            ? 'Essayez avec d\'autres mots-clés'
+            : 'Vos résumés achetés apparaîtront ici',
+        errorTitle: 'Erreur lors du chargement des résumés achetés',
+        // Le serveur filtre déjà status=completed ; ici on exclut les
+        // abonnements (service sans résumé) comme avant.
+        extraFilter: (p) => p is Map && p['summary'] != null,
+        searchText: (p) => _getPropertySafely(p, 'summary_title', ''),
+        itemBuilder: (purchase) {
           try {
-            final filteredPurchased = _filterPurchasedSummaries(purchasedSummaries);
-            
-            if (filteredPurchased.isEmpty) {
-              return _buildEmptyState(
-                icon: Icons.library_books_outlined,
-                title: 'Aucun résumé trouvé',
-                subtitle: 'Essayez avec d\'autres mots-clés',
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filteredPurchased.length,
-              itemBuilder: (context, index) {
-                try {
-                  final purchase = filteredPurchased[index];
-                  if (purchase == null) {
-                    return const SizedBox.shrink();
-                  }
-                  return PurchasedSummaryCard(purchase: purchase);
-                } catch (e) {
-                  print('Erreur lors de la construction de PurchasedSummaryCard: $e');
-                  return const SizedBox.shrink();
-                }
-              },
-            );
+            return PurchasedSummaryCard(purchase: purchase);
           } catch (e) {
-            print('Erreur dans _buildPurchasedSummariesTab: $e');
-            return _buildErrorState('Erreur lors du chargement des résumés achetés');
+            print('Erreur lors de la construction de PurchasedSummaryCard: $e');
+            return const SizedBox.shrink();
           }
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => _buildErrorState(error.toString()),
+        onLoadMore: () => ref.read(purchasedSummariesProvider.notifier).loadMore(),
       ),
     );
   }
 
   Widget _buildPaymentHistoryTab() {
-    final purchasedSummariesAsync = ref.watch(purchasedSummariesProvider);
+    final state = ref.watch(purchaseHistoryProvider);
 
     return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(purchasedSummariesProvider);
-      },
-      child: purchasedSummariesAsync.when(
-        data: (purchases) {
-          if (purchases.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.payment_outlined,
-              title: _searchQuery.isNotEmpty 
-                  ? 'Aucun paiement trouvé'
-                  : 'Aucun historique de paiement',
-              subtitle: _searchQuery.isNotEmpty
-                  ? 'Essayez avec d\'autres mots-clés'
-                  : 'Vos paiements apparaîtront ici',
-            );
-          }
-
+      onRefresh: () => ref.read(purchaseHistoryProvider.notifier).refresh(),
+      child: _buildPaginatedList(
+        state: state,
+        emptyIcon: Icons.payment_outlined,
+        emptyTitle: _searchQuery.isNotEmpty
+            ? 'Aucun paiement trouvé'
+            : 'Aucun historique de paiement',
+        emptySubtitle: _searchQuery.isNotEmpty
+            ? 'Essayez avec d\'autres mots-clés'
+            : 'Vos paiements apparaîtront ici',
+        errorTitle: 'Erreur lors du chargement de l\'historique',
+        extraFilter: (p) => true,
+        searchText: (p) {
+          final title = _getPropertySafely(p, 'summary_title', '');
+          final txn = _getPropertySafely(p, 'transaction_id', '');
+          return '$title $txn';
+        },
+        itemBuilder: (purchase) {
           try {
-            final filteredPurchases = _filterPaymentHistory(purchases);
-            
-            if (filteredPurchases.isEmpty) {
-              return _buildEmptyState(
-                icon: Icons.payment_outlined,
-                title: 'Aucun paiement trouvé',
-                subtitle: 'Essayez avec d\'autres mots-clés',
-              );
-            }
-
-            return ListView.builder(
-              padding: const EdgeInsets.all(16),
-              itemCount: filteredPurchases.length,
-              itemBuilder: (context, index) {
-                try {
-                  return _buildPaymentHistoryCard(filteredPurchases[index]);
-                } catch (e) {
-                  return Card(
-                    margin: const EdgeInsets.only(bottom: 12),
-                    child: Padding(
-                      padding: const EdgeInsets.all(16),
-                      child: Text('Erreur d\'affichage: $e'),
-                    ),
-                  );
-                }
-              },
-            );
+            return _buildPaymentHistoryCard(purchase);
           } catch (e) {
-            print('Erreur dans _buildPaymentHistoryTab: $e');
-            return _buildErrorState('Erreur lors du chargement de l\'historique');
+            return Card(
+              margin: const EdgeInsets.only(bottom: 12),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Text('Erreur d\'affichage: $e'),
+              ),
+            );
           }
         },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => _buildErrorState(error.toString()),
+        onLoadMore: () => ref.read(purchaseHistoryProvider.notifier).loadMore(),
       ),
+    );
+  }
+
+  /// Liste paginée partagée (TACHE4) : charge la page suivante automatiquement
+  /// quand le footer « Charger plus » devient visible au défilement.
+  Widget _buildPaginatedList({
+    required PurchasedSummariesState state,
+    required String emptyTitle,
+    required String emptySubtitle,
+    required IconData emptyIcon,
+    required String errorTitle,
+    required bool Function(dynamic) extraFilter,
+    required String Function(dynamic) searchText,
+    required Widget Function(dynamic) itemBuilder,
+    required VoidCallback onLoadMore,
+  }) {
+    if (state.isLoading && state.items.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (state.error != null && state.items.isEmpty) {
+      return _buildErrorState(errorTitle);
+    }
+
+    final query = _searchQuery.toLowerCase();
+    final items = state.items
+        .where(extraFilter)
+        .where((p) => searchText(p).toLowerCase().contains(query))
+        .toList();
+
+    if (items.isEmpty) {
+      return _buildEmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
+    }
+
+    // Un élément supplémentaire en fin de liste : le footer de chargement.
+    // Dès qu'il est construit (donc visible), on charge la page suivante.
+    return ListView.builder(
+      padding: const EdgeInsets.all(16),
+      itemCount: items.length + (state.hasMore ? 1 : 0),
+      itemBuilder: (context, index) {
+        if (index == items.length) {
+          WidgetsBinding.instance.addPostFrameCallback((_) => onLoadMore());
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Center(
+              child: state.isLoadingMore
+                  ? const SizedBox(
+                      width: 26, height: 26,
+                      child: CircularProgressIndicator(strokeWidth: 3),
+                    )
+                  : const Text(
+                      'Charger plus…',
+                      style: TextStyle(color: AppTheme.textLight, fontSize: 13),
+                    ),
+            ),
+          );
+        }
+        return itemBuilder(items[index]);
+      },
     );
   }
 
@@ -446,29 +451,6 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
     }
   }
 
-  List<dynamic> _filterPurchasedSummaries(List<dynamic> purchases) {
-    if (_searchQuery.isEmpty) return purchases;
-    
-    return purchases.where((purchase) {
-      final title = _getPropertySafely(purchase, 'summary_title', '').toLowerCase();
-      final query = _searchQuery.toLowerCase();
-      
-      return title.contains(query);
-    }).toList();
-  }
-
-  List<dynamic> _filterPaymentHistory(List<dynamic> purchases) {
-    if (_searchQuery.isEmpty) return purchases;
-    
-    return purchases.where((purchase) {
-      final title = _getPropertySafely(purchase, 'summary_title', '').toLowerCase();
-      final transactionId = _getPropertySafely(purchase, 'transaction_id', '').toLowerCase();
-      final query = _searchQuery.toLowerCase();
-      
-      return title.contains(query) || transactionId.contains(query);
-    }).toList();
-  }
-
   Color _getStatusColor(String status) {
     switch (status) {
       case 'completed':
@@ -582,7 +564,11 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
             Text(error, style: const TextStyle(color: AppTheme.textLight, fontSize: 13), textAlign: TextAlign.center),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: () => ref.invalidate(purchasedSummariesProvider),
+              // Les deux onglets rafraîchissent les deux listes : simple et sûr
+              onPressed: () {
+                ref.read(purchasedSummariesProvider.notifier).refresh();
+                ref.read(purchaseHistoryProvider.notifier).refresh();
+              },
               child: const Text('Réessayer'),
             ),
           ],
