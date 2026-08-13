@@ -9,11 +9,13 @@ import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
 class PersonalizedQuizScreen extends ConsumerStatefulWidget {
   final int summaryId;
   final String summaryTitle;
+  final String? difficulty;
 
   const PersonalizedQuizScreen({
     super.key,
     required this.summaryId,
     required this.summaryTitle,
+    this.difficulty,
   });
 
   @override
@@ -26,9 +28,11 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
   @override
   void initState() {
     super.initState();
-    // Charger l'exercice existant ou vérifier
+    // Charger l'exercice existant ou vérifier — en ciblant le niveau choisi
+    // (sinon l'app rechargerait un autre niveau : « le premier est conservé »)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(personalizedExerciseProvider.notifier).checkExistingExercise(widget.summaryId);
+      ref.read(personalizedExerciseProvider.notifier)
+          .checkExistingExercise(widget.summaryId, difficulty: widget.difficulty);
     });
   }
 
@@ -504,17 +508,13 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
-      // push (et non pushReplacement) pour conserver l'écran quiz qui écoute le provider
+      // push (et non pushReplacement) pour conserver l'écran quiz qui écoute le provider.
+      // TACHE3 : plus de bouton « Nouvel exercice / Régénérer » — uniquement le retour.
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (_) => QuizResultScreen(
             result: result,
             exercise: exercise,
-            onRetry: () {
-              _resultNavigated = false;
-              Navigator.of(context).pop(); // ferme l'écran de résultat
-              ref.read(personalizedExerciseProvider.notifier).prepareRegeneration();
-            },
             onBack: () {
               _resultNavigated = false;
               Navigator.of(context).pop(); // ferme l'écran de résultat
@@ -561,7 +561,8 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
             const SizedBox(height: 24),
             ElevatedButton.icon(
               onPressed: () {
-                ref.read(personalizedExerciseProvider.notifier).checkExistingExercise(widget.summaryId);
+                ref.read(personalizedExerciseProvider.notifier)
+                    .checkExistingExercise(widget.summaryId, difficulty: widget.difficulty);
               },
               icon: const Icon(Icons.refresh_rounded),
               label: const Text('Réessayer'),

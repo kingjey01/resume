@@ -98,6 +98,10 @@ class TechBlockWidget extends StatelessWidget {
       case 'latex':
       case 'formula':
       case 'math':
+      case 'equation':
+      case 'mathematics':
+      case 'maths':
+      case 'formule':
         return Icons.functions_rounded;
       case 'command':
       case 'bash':
@@ -152,6 +156,10 @@ class TechBlockWidget extends StatelessWidget {
       case 'latex':
       case 'formula':
       case 'math':
+      case 'equation':
+      case 'mathematics':
+      case 'maths':
+      case 'formule':
         return 'FORMULE';
       case 'algorithm':
         return 'ALGORITHME';

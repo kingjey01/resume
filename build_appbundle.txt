@@ -1,0 +1,45 @@
+Running Gradle task 'bundleRelease'...                          
+Warning: Flutter support for your project's Gradle version (8.7.0) will soon be dropped. Please upgrade your Gradle version to a version of at least 8.14.0 soon.
+Alternatively, use the flag "--android-skip-build-dependency-validation" to bypass this check.
+
+Potential fix: Your project's gradle version is typically defined in the gradle wrapper file. By default, this can be found at C:\Users\HP\Documents\resume_plus_clean\android/gradle/wrapper/gradle-wrapper.properties. 
+For more information, see https://docs.gradle.org/current/userguide/gradle_wrapper.html.
+
+
+FAILURE: Build failed with an exception.
+
+* Where:
+Build file 'C:\Users\HP\Documents\resume_plus_clean\android\app\build.gradle' line: 5
+
+* What went wrong:
+An exception occurred applying plugin request [id: 'dev.flutter.flutter-gradle-plugin']
+> Failed to apply plugin 'dev.flutter.flutter-gradle-plugin'.
+   > Error: Your project's Android Gradle Plugin version (Android Gradle Plugin version 8.5.1) is lower than Flutter's minimum supported version of Android Gradle Plugin version 8.6.0. Please upgrade your Android Gradle Plugin version. 
+     Alternatively, use the flag "--android-skip-build-dependency-validation" to bypass this check.
+
+     Potential fix: Your project's AGP version is typically defined in the plugins block of the `settings.gradle` file (C:\Users\HP\Documents\resume_plus_clean\android/settings.gradle), by a plugin with the id of com.android.application. 
+     If you don't see a plugins block, your project was likely created with an older template version. In this case it is most likely defined in the top-level build.gradle file (C:\Users\HP\Documents\resume_plus_clean\android/build.gradle) by the following line in the dependencies block of the buildscript: "classpath 'com.android.tools.build:gradle:<version>'".
+
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
+BUILD FAILED in 19m 26s
+Running Gradle task 'bundleRelease'...                           1301,2s
+
+┌─ Flutter Fix ────────────────────────────────────────────────────────────────────────┐
+│ [!] Starting AGP 9+, only the new DSL interface will be read.                        │
+│ This results in a build failure when applying the Flutter Gradle plugin at           │
+│ C:\Users\HP\Documents\resume_plus_clean\android\app\build.gradle.                    │
+│                                                                                      │
+│ To resolve this update flutter or opt out of `android.newDsl`.                       │
+│ For instructions on how to opt out, see:                                             │
+│ https://developer.android.com/build/releases/agp-9-0-0-release-notes                 │
+│                                                                                      │
+│ If you are not upgrading to AGP 9+, run `flutter analyze --suggestions` to check for │
+│ incompatible dependencies.                                                           │
+└──────────────────────────────────────────────────────────────────────────────────────┘
+Gradle task bundleRelease failed with exit code 1

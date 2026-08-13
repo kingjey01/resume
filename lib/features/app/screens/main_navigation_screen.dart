@@ -239,7 +239,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // Invalider les providers de données pour garantir des données fraîches après login
     Future.microtask(() {
       ref.invalidate(summariesProvider);
-      ref.invalidate(purchasedSummariesProvider);
+      ref.read(purchasedSummariesProvider.notifier).refresh();
       ref.read(purchaseBadgeCountProvider.notifier).loadBadgeCount();
       ref.read(validatedSummariesBadgeProvider.notifier).refreshBadge();
       ref.read(createdSummariesBadgeProvider.notifier).refreshBadge();

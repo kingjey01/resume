@@ -148,7 +148,7 @@ class AppTheme {
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: cardBg,
         elevation: 0,
         shape: RoundedRectangleBorder(
@@ -238,7 +238,7 @@ class AppTheme {
           return const IconThemeData(color: textLight, size: 24);
         }),
       ),
-      tabBarTheme: TabBarTheme(
+      tabBarTheme: TabBarThemeData(
         labelColor: primaryBlue,
         unselectedLabelColor: textLight,
         indicatorColor: primaryBlue,
@@ -360,7 +360,7 @@ class AppTheme {
         ),
         iconTheme: const IconThemeData(color: Colors.white),
       ),
-      cardTheme: CardTheme(
+      cardTheme: CardThemeData(
         color: const Color(0xFF1A1D2E),
         elevation: 0,
         shape: RoundedRectangleBorder(

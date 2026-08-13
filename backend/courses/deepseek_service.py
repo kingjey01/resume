@@ -471,11 +471,11 @@ REGLES STRICTES A SUIVRE:
 16. INTERDICTION ABSOLUE: ne jamais utiliser \"Concept A\", \"Concept B\", \"Option A\",
     \"Option B\" ou tout placeholder generique.
 17. Chaque option doit etre un texte reel, precis et pertinent base sur le contenu du resume.
-18. Pour les cours de programmation, certaines questions peuvent contenir un extrait de code si cela aide à tester la compréhension.
-19. Ne mets jamais les extraits de code directement dans le texte de la question avec des blocs Markdown.
-20. Si une question contient du code, utilise les champs "code_language" et "code_block".
-21. Si une question ne contient pas de code, mets "code_language": null et "code_block": null.
-22. Le code doit être court, simple et basé uniquement sur le résumé.
+18. Certaines questions peuvent contenir un extrait de code, une formule mathématique, une expression mathématique ou une notation particulière si cela aide a tester la comprehension (cours de programmation, maths, physique, chimie, economie, etc.).
+19. Ne mets jamais les extraits de code ou les formules directement dans le texte de la question avec des blocs Markdown ou des symboles $.
+20. Si une question contient du code, une formule ou une expression particuliere, utilise les champs "code_language" et "code_block".
+21. Si une question ne contient ni code ni formule, mets "code_language": null et "code_block": null.
+22. Le contenu (code, formule ou expression) doit etre court, simple et base uniquement sur le resume.
 
 STYLE DES QUESTIONS:
 
@@ -497,12 +497,18 @@ STYLE DES EXPLICATIONS:
 * L'explication doit etre utile meme si l'etudiant a choisi la mauvaise reponse.
 
 
-IMPORTANT POUR LE CODE:
-- Le champ "code_block" doit contenir uniquement le code brut.
+IMPORTANT POUR LE CONTENU TECHNIQUE (CODE / FORMULE / EXPRESSION):
+- Le champ "code_block" doit contenir uniquement le contenu brut (code, formule ou expression), sans Markdown.
+- Pour une formule ou une expression mathematique, mets "code_language": "latex", "formula" ou "math" et le contenu SANS les symboles $ ou $$.
+- Pour un algorithme ou un pseudo-code, mets "code_language": "algorithm" ou "pseudocode".
+- Pour une commande terminal, mets "code_language": "command" ou "bash".
+- Pour du code de programmation, mets le langage adapte ("python", "javascript", "sql", "java", etc.).
 - Ne pas utiliser ```python dans le JSON.
-- Utilise \\n pour les retours à la ligne dans le code.
-- Exemple:
+- Utilise \\n pour les retours a la ligne dans le contenu.
+- Exemple code:
   "code_block": "x = 5\\nprint(x + 2)"
+- Exemple formule:
+  "code_block": "f(x) = ax^2 + bx + c"
 
 
 FORMAT DE SORTIE OBLIGATOIRE:
@@ -519,13 +525,13 @@ Le JSON doit être un tableau JSON valide.
 La valeur de "correct_answer" doit être uniquement "A", "B", "C" ou "D".
 Chaque objet doit contenir exactement les clés suivantes:
 "question", "code_language", "code_block", "options", "correct_answer", "explanation".
-Si la question ne contient pas de code:
+Si la question ne contient ni code ni formule:
 - "code_language": null
 - "code_block": null
 
-Si la question contient du code:
-- "code_language": "python" ou le langage adapté
-- "code_block": "code brut sans Markdown"
+Si la question contient du code, une formule ou une expression particuliere:
+- "code_language": le langage adapte, ou "latex"/"formula"/"math" pour une formule, ou "algorithm"/"pseudocode", ou "command"
+- "code_block": contenu brut sans Markdown (sans $ pour les formules)
 
 Ne mets jamais ```python ou ```json dans le JSON.
 Ne retourne jamais un objet contenant "questions".

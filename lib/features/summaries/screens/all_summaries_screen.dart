@@ -5,7 +5,6 @@ import 'package:resume_plus_clean/features/home/providers/summary_provider.dart'
 import 'package:resume_plus_clean/providers/tab_refresh_provider.dart';
 import 'package:resume_plus_clean/features/home/widgets/summary_card.dart';
 import 'package:resume_plus_clean/features/summaries/providers/purchased_summaries_provider.dart';
-import 'package:resume_plus_clean/features/summaries/widgets/purchased_summary_card.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/widgets/api_error_view.dart';
 
@@ -44,7 +43,7 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
     ref.listen<int>(summariesRefreshProvider, (prev, next) {
       if (prev != next) {
         ref.invalidate(summariesProvider);
-        ref.invalidate(purchasedSummariesProvider);
+        ref.read(purchasedSummariesProvider.notifier).refresh();
       }
     });
 
@@ -87,7 +86,7 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
                     IconButton(
                       onPressed: () {
                         ref.invalidate(summariesProvider);
-                        ref.invalidate(purchasedSummariesProvider);
+                        ref.read(purchasedSummariesProvider.notifier).refresh();
                       },
                       icon: const Icon(Icons.refresh_rounded, color: Colors.white),
                       tooltip: 'Rafraîchir',
@@ -623,58 +622,6 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
         ),
       ),
     );
-  }
-
-  Widget _buildPurchasedSummariesTab() {
-    final purchasedSummariesAsync = ref.watch(purchasedSummariesProvider);
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(purchasedSummariesProvider);
-      },
-      child: purchasedSummariesAsync.when(
-        data: (purchasedSummaries) {
-          final filteredPurchased = _filterPurchasedSummaries(purchasedSummaries);
-          
-          if (filteredPurchased.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.shopping_bag_outlined,
-              title: _searchQuery.isNotEmpty 
-                  ? 'Aucun achat trouvé'
-                  : 'Aucun résumé acheté',
-              subtitle: _searchQuery.isNotEmpty
-                  ? 'Essayez avec d\'autres mots-clés'
-                  : 'Vos résumés achetés apparaîtront ici',
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: filteredPurchased.length,
-            itemBuilder: (context, index) {
-              final purchase = filteredPurchased[index];
-              return PurchasedSummaryCard(purchase: purchase);
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => ApiErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(purchasedSummariesProvider),
-        ),
-      ),
-    );
-  }
-
-  List<dynamic> _filterPurchasedSummaries(List<dynamic> purchases) {
-    if (_searchQuery.isEmpty) return purchases;
-    
-    return purchases.where((purchase) {
-      final title = purchase.summaryTitle?.toLowerCase() ?? '';
-      final query = _searchQuery.toLowerCase();
-      
-      return title.contains(query);
-    }).toList();
   }
 
   @override

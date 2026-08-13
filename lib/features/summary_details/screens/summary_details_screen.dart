@@ -163,7 +163,10 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     }
   }
 
-  /// Génère un exercice QCM personnalisé avec la difficulté choisie
+  /// Génère un exercice QCM personnalisé avec la difficulté choisie.
+  /// Règle TACHE3 : Utilisateur + Résumé + Niveau = un exercice unique.
+  /// 1. Vérifier l'exercice de CE niveau → s'il existe, le réutiliser.
+  /// 2. S'il n'existe pas → le créer. Jamais de régénération automatique.
   Future<void> _generatePersonalizedExercise(String difficulty) async {
     if (!mounted) return;
     setState(() {
@@ -173,12 +176,24 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     });
 
     try {
-      final checkData = await _apiService.checkPersonalizedExercise(widget.summary.id);
+      // Vérifier UNIQUEMENT ce niveau (et non n'importe quel exercice du résumé)
+      final checkData = await _apiService.checkPersonalizedExercise(
+        widget.summary.id,
+        difficulty: difficulty,
+      );
       final exists = checkData['exists'] as bool? ?? false;
       final existingStatus = checkData['status'] as String? ?? '';
+      final existingExerciseId = checkData['exercise_id'] as int?;
 
       if (exists && existingStatus == 'completed') {
-        if (mounted) _navigateToPersonalizedQuiz();
+        // Exercice de ce niveau déjà prêt → réutiliser, ne rien régénérer
+        if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty);
+        return;
+      }
+
+      if (exists && existingStatus == 'generating' && existingExerciseId != null) {
+        // Génération de ce niveau déjà en cours → suivre cette génération
+        _pollPersonalizedExercise(existingExerciseId, difficulty: difficulty);
         return;
       }
 
@@ -190,7 +205,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
       final data = await _apiService.generatePersonalizedExercise(
         summaryId: widget.summary.id,
         difficulty: difficulty,
-        regenerate: exists,
+        regenerate: false, // jamais de régénération automatique (règle TACHE3)
       );
 
       final exerciseId = data['exercise_id'] as int?;
@@ -201,9 +216,9 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
       }
 
       if (status == 'completed') {
-        if (mounted) _navigateToPersonalizedQuiz();
+        if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty);
       } else {
-        _pollPersonalizedExercise(exerciseId);
+        _pollPersonalizedExercise(exerciseId, difficulty: difficulty);
       }
     } catch (e) {
       if (mounted) {
@@ -217,7 +232,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   }
 
   /// Polling pour suivre la progression de la génération
-  void _pollPersonalizedExercise(int exerciseId) {
+  void _pollPersonalizedExercise(int exerciseId, {String? difficulty}) {
     const maxAttempts = 30;
     int attempt = 0;
 
@@ -231,7 +246,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
         final s = data['status'] as String? ?? '';
 
         if (s == 'completed') {
-          if (mounted) _navigateToPersonalizedQuiz();
+          if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty);
           return false;
         } else if (s == 'failed' || attempt >= maxAttempts) {
           if (mounted) {
@@ -278,7 +293,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   }
 
   /// Navigation vers l'écran du quiz personnalisé
-  void _navigateToPersonalizedQuiz() {
+  void _navigateToPersonalizedQuiz({String? difficulty}) {
     setState(() {
       _isGeneratingExercise = false;
       _exerciseGenerationProgress = 1.0;
@@ -290,6 +305,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
         builder: (_) => PersonalizedQuizScreen(
           summaryId: widget.summary.id,
           summaryTitle: widget.summary.title,
+          difficulty: difficulty,
         ),
       ),
     ).then((_) {
@@ -490,7 +506,12 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     // 🔒 PROTECTION CONTRE LES CAPTURES D'ÉCRAN
     if (!kIsWeb && Platform.isAndroid) {
       try {
-        await SystemChannels.platform.invokeMethod('SystemChrome.setEnabledSystemUIOverlays', []);
+        // API moderne : masquer les overlays système (statut + navigation)
+        // setEnabledSystemUIOverlays est obsolète et supprimée des moteurs récents.
+        await SystemChrome.setEnabledSystemUIMode(
+          SystemUiMode.immersiveSticky,
+          overlays: [],
+        );
         // Bloquer les captures d'écran
         await SystemChannels.platform.invokeMethod('SystemChrome.setApplicationSwitcherDescription', {
           'label': 'Résumé sécurisé',

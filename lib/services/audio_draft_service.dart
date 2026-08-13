@@ -171,13 +171,34 @@ class AudioDraftService {
     return null;
   }
 
-  // ─── CRUD : Mettre à jour les métadonnées ───────────────────────
+  // ─── CRUD : Mettre à jour ───────────────────────────────────────
 
-  /// Met à jour les métadonnées d'un brouillon existant.
+  /// Met à jour un brouillon existant (métadonnées + éventuel nouveau
+  /// fichier audio). Si [updated.audioBytes] est fourni, le fichier audio
+  /// est réécrit sur disque (l'ancien est supprimé si l'extension change).
   Future<void> updateDraft(AudioDraft updated) async {
     final drafts = await listDrafts();
     final index = drafts.indexWhere((d) => d.id == updated.id);
     if (index == -1) return;
+
+    // Réécrire le fichier audio si de nouveaux bytes sont fournis.
+    if (updated.audioBytes != null) {
+      final oldFile = drafts[index].audioFilePath;
+      final newPath = await _writeAudioFile(
+        updated.audioBytes!,
+        '${updated.id}.${_extensionFromMime(updated.mimeType ?? 'audio/m4a')}',
+      );
+      updated.audioFilePath = newPath;
+
+      if (oldFile != null && oldFile != newPath) {
+        try {
+          final old = File(oldFile);
+          if (await old.exists()) await old.delete();
+        } catch (e) {
+          print('⚠️ AudioDraft: erreur suppression ancien fichier ${updated.id}: $e');
+        }
+      }
+    }
 
     drafts[index] = updated;
     await _persistList(drafts);

@@ -1,6 +1,9 @@
 """
-Utilitaires partagés du module users (normalisation téléphone, mode test OTP).
+Utilitaires partagés du module users (normalisation téléphone, mode test OTP,
+rate limiting, hash OTP).
 """
+import hashlib
+
 from django.conf import settings
 
 
@@ -49,3 +52,23 @@ def is_test_phone(phone):
     normalized = normalize_phone(phone)
     test_numbers = [normalize_phone(p) for p in settings.OTP_TEST_PHONE_NUMBERS]
     return normalized in test_numbers
+
+
+def get_client_ip(request):
+    """
+    IP réelle du client (gère le proxy via X-Forwarded-For).
+    Utilisée par le rate limiting OTP.
+    """
+    x_forwarded_for = request.META.get('HTTP_X_FORWARDED_FOR')
+    if x_forwarded_for:
+        return x_forwarded_for.split(',')[0].strip()
+    return request.META.get('REMOTE_ADDR')
+
+
+def hash_otp(code):
+    """
+    Hash d'un code OTP — seul le hash est stocké en base, jamais le code
+    en clair (TACHES.md). Le code clair n'existe qu'en mémoire le temps de
+    l'envoi du SMS / de la réponse du mode test.
+    """
+    return hashlib.sha256(str(code).encode('utf-8')).hexdigest()

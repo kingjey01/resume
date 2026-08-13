@@ -14,7 +14,6 @@ from rest_framework.response import Response
 from .models import Summary, UserPersonalizedExercise, UserPersonalizedAttempt
 from .personalized_exercise_generator import generate_personalized_exercise
 from .permissions import HasActiveSubscription
-from payments.models import Service, Abonnement
 
 logger = logging.getLogger(__name__)
 
@@ -61,9 +60,12 @@ def generate_personalized_exercise_view(request, summary_id):
                 'code': 'subscription_required'
             }, status=status.HTTP_403_FORBIDDEN)
 
-        # Chercher exercice existant
+        # Chercher l'exercice existant POUR CE NIVEAU uniquement.
+        # Depuis la restructuration (1 exercice par user, résumé ET niveau),
+        # les questions Faciles, Moyennes et Difficiles sont isolées dans des
+        # exercices distincts — comme dans l'ancien système standard.
         existing = UserPersonalizedExercise.objects.filter(
-            user=user, summary=summary
+            user=user, summary=summary, difficulty=difficulty
         ).first()
 
         if existing and not regenerate:
@@ -87,10 +89,9 @@ def generate_personalized_exercise_view(request, summary_id):
                     'message': 'Génération en cours...'
                 }, status=status.HTTP_202_ACCEPTED)
 
-            elif existing.status == 'failed':
-                # Relancer la génération
+            elif existing.status in ('failed', 'pending'):
+                # Relancer la génération (jamais créer un doublon du même niveau)
                 existing.status = 'generating'
-                existing.difficulty = difficulty
                 existing.seed = random.randint(1, 1000000)
                 existing.save()
                 _launch_generation(existing, user.id, summary_id, difficulty, existing.seed)
@@ -101,28 +102,28 @@ def generate_personalized_exercise_view(request, summary_id):
                     'message': 'Nouvelle génération lancée après échec'
                 }, status=status.HTTP_202_ACCEPTED)
 
-        # Créer nouveau ou régénérer
+        # Régénération demandée : relancer UNIQUEMENT l'exercice de ce niveau
         if existing and regenerate:
-            # Régénération : mettre à jour l'existant
             existing.status = 'generating'
-            existing.difficulty = difficulty
             existing.seed = random.randint(1, 1000000)  # Nouveau seed pour variation
             existing.regenerated_count += 1
             existing.save()
             exercise = existing
-            logger.info(f"🔄 Régénération exercice perso #{exercise.id} pour user={user.id}")
+            logger.info(
+                f"🔄 Régénération exercice perso #{exercise.id} pour user={user.id} "
+                f"(difficulty={difficulty}, regenerate=True)"
+            )
         else:
-            # Nouveau
+            # Nouvel exercice pour ce niveau (les autres niveaux restent intacts)
             seed = random.randint(1, 1000000)
             exercise = UserPersonalizedExercise.objects.create(
                 user=user,
                 summary=summary,
                 difficulty=difficulty,
                 seed=seed,
-                status='generating',
-                questions=[]
+                status='generating'
             )
-            logger.info(f"🆕 Nouvel exercice perso créé #{exercise.id} pour user={user.id}")
+            logger.info(f"🆕 Nouvel exercice perso créé #{exercise.id} (difficulty={difficulty}) pour user={user.id}")
 
         # Lancer génération en background
         _launch_generation(exercise, user.id, summary_id, difficulty, exercise.seed)
@@ -207,15 +208,15 @@ def get_personalized_exercise_view(request, exercise_id):
             }, status=status.HTTP_200_OK)
 
         if exercise.status == 'completed':
-            # Préparer les questions (sans réponses correctes)
+            # Préparer les questions (sans réponses correctes) depuis les lignes
             questions_data = []
-            for idx, q in enumerate(exercise.questions):
+            for idx, q in enumerate(exercise.questions.all().order_by('order')):
                 questions_data.append({
                     'index': idx,
-                    'question_text': q.get('question_text') or q.get('question', ''),
-                    'options': q.get('options', {}),
-                    'code_language': q.get('code_language'),
-                    'code_block': q.get('code_block'),
+                    'question_text': q.question_text,
+                    'options': q.options,
+                    'code_language': q.code_language,
+                    'code_block': q.code_block,
                 })
 
             return Response({
@@ -298,12 +299,13 @@ def submit_personalized_exercise_view(request, exercise_id):
             answers=answers
         )
 
-        # Calculer les résultats
-        score = attempt.calculate_results()
+        # Calculer le score — les résultats sont reconstruits depuis les lignes
+        # de questions (la tentative ne stocke plus les questions)
+        attempt.calculate_results()
 
         # Formater la réponse
         results_formatted = []
-        for r in attempt.results_detail:
+        for r in attempt.build_results():
             results_formatted.append({
                 'question_index': r['question_index'],
                 'question_text': r['question_text'],
@@ -318,12 +320,12 @@ def submit_personalized_exercise_view(request, exercise_id):
 
         return Response({
             'attempt_id': attempt.id,
-            'score': score,
+            'score': attempt.score,
             'correct_answers': attempt.correct_answers_count,
-            'total_questions': len(exercise.questions),
+            'total_questions': exercise.questions_count,
             'time_spent_seconds': attempt.time_spent_seconds,
             'results': results_formatted,
-            'message': _get_score_message(score)
+            'message': _get_score_message(attempt.score)
         }, status=status.HTTP_200_OK)
 
     except UserPersonalizedExercise.DoesNotExist:
@@ -388,7 +390,7 @@ def get_personalized_attempts_view(request):
                 'difficulty_label': _get_difficulty_label(attempt.personalized_exercise.difficulty),
                 'score': attempt.score,
                 'correct_answers': attempt.correct_answers_count,
-                'total_questions': len(attempt.personalized_exercise.questions),
+                'total_questions': attempt.personalized_exercise.questions_count,
                 'time_spent_seconds': attempt.time_spent_seconds,
                 'started_at': attempt.started_at.isoformat(),
                 'completed_at': attempt.completed_at.isoformat() if attempt.completed_at else None,
@@ -433,11 +435,11 @@ def get_personalized_attempt_detail_view(request, attempt_id):
             },
             'score': attempt.score,
             'correct_answers': attempt.correct_answers_count,
-            'total_questions': len(exercise.questions),
+            'total_questions': exercise.questions_count,
             'time_spent_seconds': attempt.time_spent_seconds,
             'started_at': attempt.started_at.isoformat(),
             'completed_at': attempt.completed_at.isoformat() if attempt.completed_at else None,
-            'results': attempt.results_detail
+            'results': attempt.build_results()
         }, status=status.HTTP_200_OK)
 
     except UserPersonalizedAttempt.DoesNotExist:
@@ -463,14 +465,24 @@ def check_personalized_exercise_exists(request, summary_id):
     """
     Vérifie si l'utilisateur a déjà un exercice personnalisé pour ce résumé.
     Utile avant d'afficher le bouton "Générer" ou "Continuer".
+
+    Query param optionnel: difficulty (easy|medium|hard)
+    — si fourni, ne vérifie que ce niveau ; sinon, retourne l'exercice le
+      plus récemment consulté (pour "Continuer" sur le dernier niveau utilisé).
     """
     try:
         summary = get_object_or_404(Summary, id=summary_id, is_validated=True)
 
-        exercise = UserPersonalizedExercise.objects.filter(
+        difficulty = request.query_params.get('difficulty')
+        exercises = UserPersonalizedExercise.objects.filter(
             user=request.user,
             summary=summary
-        ).first()
+        )
+        if difficulty:
+            exercises = exercises.filter(difficulty=difficulty)
+
+        # Dernier exercice consulté (ou le plus récent si jamais consulté)
+        exercise = exercises.order_by('-last_accessed_at', '-created_at').first()
 
         if exercise:
             return Response({

@@ -274,6 +274,9 @@ class PurchasedSummaryCard extends StatelessWidget {
         authorName: '',
         createdAt: DateTime.now(),
         isPurchased: true,
+        // TACHE4 : un résumé acheté est forcément validé — sans ce flag,
+        // l'écran de consultation cache les cartes QCM (étudiants et CPI).
+        isValidated: true,
       );
     } catch (e) {
       return null;

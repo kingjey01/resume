@@ -14,8 +14,8 @@ import json
 import random
 import re
 import logging
-from typing import List, Dict, Any, Optional, Tuple
-from .models import Summary, UserPersonalizedExercise
+from typing import List, Dict, Optional, Tuple
+from .models import Summary, UserPersonalizedExercise, UserPersonalizedQuestion
 from .deepseek_service import deepseek_service
 
 logger = logging.getLogger(__name__)
@@ -79,8 +79,7 @@ class PersonalizedExerciseGenerator:
                     summary=summary,
                     difficulty=difficulty,
                     seed=seed,
-                    status='generating',
-                    questions=[]
+                    status='generating'
                 )
 
             # Générer les questions via IA
@@ -92,7 +91,23 @@ class PersonalizedExerciseGenerator:
             )
 
             if questions_data:
-                exercise.questions = questions_data
+                # Structure 3 tables (comme le standard) : chaque question est
+                # une ligne séparée rattachée à l'exercice. En régénération,
+                # on remplace les lignes existantes par les nouvelles.
+                exercise.questions.all().delete()
+                UserPersonalizedQuestion.objects.bulk_create([
+                    UserPersonalizedQuestion(
+                        personalized_exercise=exercise,
+                        question_text=q.get('question_text') or q.get('question', ''),
+                        options=q.get('options', {}),
+                        correct_answer=q.get('correct_answer', 'A'),
+                        explanation=q.get('explanation', ''),
+                        code_language=q.get('code_language'),
+                        code_block=q.get('code_block'),
+                        order=idx,
+                    )
+                    for idx, q in enumerate(questions_data)
+                ])
                 exercise.status = 'completed'
                 exercise.generated_by_ai = generated_by_ai
                 exercise.save()
@@ -135,7 +150,8 @@ class PersonalizedExerciseGenerator:
 
         # Vérifier si DeepSeek est configuré
         if not deepseek_service.is_configured():
-            logger.warning("DeepSeek non configuré - fallback local")
+            reason = 'DeepSeek non configuré (clé API absente)'
+            logger.warning(f"⚠️ [QCM Perso Génération] {reason} → fallback local utilisé (origin=fallback_local, difficulty={difficulty}, seed={seed})")
             return self._generate_mock_questions(resume_text, difficulty, seed), False
 
         try:
@@ -151,16 +167,20 @@ class PersonalizedExerciseGenerator:
             if result.get('success'):
                 questions = self._parse_response(result['content'])
                 if questions and len(questions) >= 5:  # Minimum 5 questions valides
+                    logger.info(f"✅ [QCM Perso Génération] {len(questions)} questions issues de DEEPSEEK (origin=deepseek, difficulty={difficulty}, seed={seed})")
                     return questions[:8], True  # Maximum 8 questions
                 else:
-                    logger.warning("Parsing échoué ou moins de 5 questions - fallback")
+                    reason = 'parsing JSON échoué' if not questions else f'seulement {len(questions)} questions valides (< 5)'
+                    logger.warning(f"⚠️ [QCM Perso Génération] DeepSeek a répondu mais {reason} → fallback local utilisé (origin=fallback_local, difficulty={difficulty}, seed={seed})")
                     return self._generate_mock_questions(resume_text, difficulty, seed), False
             else:
-                logger.warning(f"DeepSeek échoué: {result.get('error')} - fallback")
+                reason = result.get('error', 'erreur inconnue')
+                logger.warning(f"⚠️ [QCM Perso Génération] ÉCHEC DeepSeek: {reason} → fallback local utilisé (origin=fallback_local, difficulty={difficulty}, seed={seed})")
                 return self._generate_mock_questions(resume_text, difficulty, seed), False
 
         except Exception as e:
-            logger.error(f"Erreur appel DeepSeek: {e}")
+            reason = f'{type(e).__name__}: {str(e)}'
+            logger.error(f"❌ [QCM Perso Génération] EXCEPTION appel DeepSeek: {reason} → fallback local utilisé (origin=fallback_local, difficulty={difficulty}, seed={seed})")
             return self._generate_mock_questions(resume_text, difficulty, seed), False
 
     def _parse_response(self, content: str) -> Optional[List[Dict]]:
@@ -289,6 +309,10 @@ class PersonalizedExerciseGenerator:
 
         # Extraits de code réels (blocs ```langage ... ```)
         code_blocks = re.findall(r'```(\w+)?\s*\n([\s\S]*?)```', resume_text)
+        # TACHE2 (formules) : extraire aussi les formules LaTeX $$...$$ du résumé.
+        # Elles deviennent des blocs techniques de langage "latex" → zone grisée côté Flutter.
+        latex_blocks = [('latex', c.strip()) for c in re.findall(r'\$\$(.*?)\$\$', resume_text, re.DOTALL)]
+        code_blocks = code_blocks + latex_blocks
 
         random.shuffle(sentences)
 
@@ -340,6 +364,7 @@ class PersonalizedExerciseGenerator:
                 if q and q not in questions:
                     questions.append(q)
 
+        logger.info(f"📄 [QCM Perso Fallback] {len(questions)} questions construites depuis le contenu réel (difficulty={difficulty}, seed={seed})")
         return questions[:8]
 
     def _pick_real_options(self, target, terms, count=4):
@@ -481,11 +506,16 @@ class PersonalizedExerciseGenerator:
 
     def _build_code_question(self, code_block, terms):
         """
-        Question sur un extrait de code réel du résumé : on interroge sur une
-        instruction réellement présente dans l'extrait, avec des distracteurs
-        réels (autres instructions du code ou termes du résumé).
+        Question sur un extrait technique réel du résumé (code ou formule LaTeX) :
+        on interroge sur un élément réellement présent dans l'extrait, avec des
+        distracteurs réels (autres éléments de l'extrait ou termes du résumé).
+
+        TACHE2 : renvoie code_language/code_block pour que la zone grisée
+        s'affiche côté Flutter (comme le générateur standard). Le contenu brut
+        est donc retiré du question_text (affiché dans la zone grisée).
         """
         language, code = code_block
+        is_formula = language and language.lower() in ('latex', 'formula', 'math')
         tokens = list(dict.fromkeys(re.findall(r'[a-zA-Z_]\w*', code)))
         tokens = [t for t in tokens if len(t) > 1][:8]
         if not tokens:
@@ -500,11 +530,22 @@ class PersonalizedExerciseGenerator:
         )
         random.shuffle(options_list)
         correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
+        if is_formula:
+            return {
+                "question_text": "Quelle expression est utilisée dans cette formule tirée du résumé ?",
+                "options": dict(zip('ABCD', options_list)),
+                "correct_answer": correct_letter,
+                "explanation": f"L'expression « {target} » apparaît dans la formule tirée du résumé.",
+                "code_language": "latex",
+                "code_block": code,
+            }
         return {
-            "question_text": f"Voici un extrait de code tiré du résumé :\n{code}\nQuelle instruction est utilisée dans cet extrait ?",
+            "question_text": "Quelle instruction est utilisée dans cet extrait de code tiré du résumé ?",
             "options": dict(zip('ABCD', options_list)),
             "correct_answer": correct_letter,
             "explanation": f"L'instruction « {target} » apparaît dans l'extrait de code du résumé.",
+            "code_language": language or None,
+            "code_block": code,
         }
 
 

@@ -1,3 +1,4 @@
+
 """
 Exports Excel et CSV des statistiques agrégées de Résumé+.
 

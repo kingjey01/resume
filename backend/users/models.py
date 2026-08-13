@@ -40,7 +40,9 @@ class UserProfile(models.Model):
     reset_token_expires = models.DateTimeField(blank=True, null=True)
     
     # Champs pour l'authentification OTP
-    otp_code = models.CharField(max_length=6, blank=True, null=True)
+    # otp_code contient le HASH du code (jamais le code en clair, TACHES.md).
+    # Longueur : hash sha256 hex (64 caractères).
+    otp_code = models.CharField(max_length=64, blank=True, null=True)
     otp_expires = models.DateTimeField(blank=True, null=True)
     otp_verified = models.BooleanField(default=False)
     otp_attempts = models.IntegerField(default=0)
@@ -72,32 +74,40 @@ class UserProfile(models.Model):
         return self.groupe in ['CP', 'ADMIN']
     
     def generate_otp(self):
-        """Génère un code OTP aléatoire et définit l'expiration"""
+        """Génère un code OTP aléatoire et définit l'expiration.
+
+        Le code CLAIR est retourné (pour l'envoi SMS / le mode test) mais
+        seul son HASH est stocké en base (TACHES.md : pas d'OTP en clair).
+        """
         import random
         from django.utils import timezone
         from datetime import timedelta
-        
+        from .utils import hash_otp
+
         # Générer un code OTP aléatoire à 4 chiffres
-        self.otp_code = str(random.randint(1000, 9999))
+        code = str(random.randint(1000, 9999))
+        self.otp_code = hash_otp(code)
         self.otp_expires = timezone.now() + timedelta(minutes=10)
         self.otp_verified = False
         self.otp_attempts = 0
         self.save()
-        return self.otp_code
-    
+        return code
+
     def verify_otp(self, code):
-        """Vérifie le code OTP"""
+        """Vérifie le code OTP (comparaison par hash, usage unique)"""
+        import hmac
         from django.utils import timezone
-        
+        from .utils import hash_otp
+
         if not self.otp_code or not self.otp_expires:
             return False
-        
+
         if timezone.now() > self.otp_expires:
             return False
-        
-        if self.otp_attempts >= 3:
+
+        if self.otp_attempts >= settings.OTP_MAX_VERIFY_ATTEMPTS:
             return False
-        
+
         # Accepter le vrai code OTP. Le code de test "1234" n'est accepté que :
         #  - en mode DEBUG (développement), OU
         #  - en mode de test Google Play (OTP_TEST_MODE) pour les numéros
@@ -106,7 +116,7 @@ class UserProfile(models.Model):
         accepts_test_code = code == "1234" and (
             settings.DEBUG or is_test_phone(self.phone)
         )
-        if self.otp_code == code or accepts_test_code:
+        if accepts_test_code or hmac.compare_digest(self.otp_code, hash_otp(code)):
             self.otp_verified = True
             self.otp_code = None
             self.otp_expires = None

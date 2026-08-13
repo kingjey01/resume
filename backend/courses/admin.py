@@ -181,4 +181,49 @@ class ProfesseurAdmin(admin.ModelAdmin):
         return super().get_queryset(request).select_related('user', 'universite').prefetch_related('filieres')
 
 
+@admin.register(UserPersonalizedExercise)
+class UserPersonalizedExerciseAdmin(admin.ModelAdmin):
+    list_display = ['user', 'summary', 'difficulty', 'status', 'generated_by_ai',
+                    'questions_count', 'regenerated_count', 'created_at']
+    list_filter = ['difficulty', 'status', 'generated_by_ai', 'created_at']
+    search_fields = ['user__username', 'summary__titre']
+    # Le JSON des questions est en lecture seule pour éviter toute corruption
+    readonly_fields = ['questions', 'seed', 'regenerated_count', 'generated_by_ai',
+                       'created_at', 'updated_at', 'last_accessed_at']
+    # date_hierarchy désactivé (même raison que Summary : erreur de timezone)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'summary')
+
+
+@admin.register(UserPersonalizedQuestion)
+class UserPersonalizedQuestionAdmin(admin.ModelAdmin):
+    list_display = ['personalized_exercise', 'question_text_short', 'correct_answer', 'order', 'created_at']
+    list_filter = ['correct_answer', 'personalized_exercise__status', 'created_at']
+    search_fields = ['question_text', 'personalized_exercise__summary__titre']
+    readonly_fields = ['created_at']
+    ordering = ['personalized_exercise', 'order']
+
+    def question_text_short(self, obj):
+        return obj.question_text[:50] + "..." if len(obj.question_text) > 50 else obj.question_text
+    question_text_short.short_description = "Question"
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('personalized_exercise', 'personalized_exercise__summary')
+
+
+@admin.register(UserPersonalizedAttempt)
+class UserPersonalizedAttemptAdmin(admin.ModelAdmin):
+    list_display = ['user', 'personalized_exercise', 'score', 'correct_answers_count',
+                    'time_spent_seconds', 'started_at', 'completed_at']
+    list_filter = ['score', 'completed_at']
+    search_fields = ['user__username', 'personalized_exercise__summary__titre']
+    # JSON calculés en lecture seule
+    readonly_fields = ['answers', 'score', 'correct_answers_count',
+                       'started_at', 'completed_at', 'time_spent_seconds']
+    # date_hierarchy désactivé (même raison que Summary : erreur de timezone)
+
+    def get_queryset(self, request):
+        return super().get_queryset(request).select_related('user', 'personalized_exercise', 'personalized_exercise__summary')
+
 

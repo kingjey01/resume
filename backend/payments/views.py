@@ -1,6 +1,7 @@
 from rest_framework import generics, permissions, status
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
 from django.utils import timezone
@@ -25,8 +26,41 @@ class PurchaseListCreateView(generics.ListCreateAPIView):
         return PurchaseSerializer
     
     def list(self, request, *args, **kwargs):
-        """Simple list method without filters or pagination"""
+        """Liste paginée des achats de l'utilisateur (TACHE4).
+
+        Paramètres :
+        - `page` : numéro de page (défaut 1)
+        - `page_size` : taille de page (défaut 10, max 100)
+        - `status` / `payment_method` : filtres (ex. status=completed)
+        - `summary_id` : ne renvoie que l'achat de ce résumé (check d'accès rapide)
+
+        Réponse : `{count, next, previous, results}` (format DRF paginé).
+        """
         purchases = Purchase.objects.filter(user=request.user).order_by('-created_at')
+
+        summary_id = request.query_params.get('summary_id')
+        if summary_id:
+            purchases = purchases.filter(summary_id=summary_id)
+        status_filter = request.query_params.get('status')
+        if status_filter:
+            purchases = purchases.filter(status=status_filter)
+        payment_method = request.query_params.get('payment_method')
+        if payment_method:
+            purchases = purchases.filter(payment_method=payment_method)
+
+        paginator = PageNumberPagination()
+        try:
+            page_size = int(request.query_params.get('page_size', 10))
+        except (TypeError, ValueError):
+            page_size = 10
+        paginator.page_size = max(1, min(page_size, 100))
+
+        page = paginator.paginate_queryset(purchases, request, view=self)
+        if page is not None:
+            serializer = PurchaseSerializer(page, many=True)
+            return paginator.get_paginated_response(serializer.data)
+
+        # Sans pagination (page non numérique) : fallback liste complète
         serializer = PurchaseSerializer(purchases, many=True)
         return Response(serializer.data)
 

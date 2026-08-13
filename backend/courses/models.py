@@ -546,12 +546,6 @@ class UserPersonalizedExercise(models.Model):
         help_text="Niveau de difficulté sélectionné"
     )
 
-    # Questions stockées en JSON (isolation totale)
-    questions = models.JSONField(
-        default=list,
-        help_text="Liste des 8 questions QCM au format JSON unique pour cet utilisateur"
-    )
-
     # Gestion de la régénération
     seed = models.IntegerField(
         help_text="Seed aléatoire utilisée pour la génération (permet variation)"
@@ -576,9 +570,13 @@ class UserPersonalizedExercise(models.Model):
         verbose_name = "Exercice Personnalisé Utilisateur"
         verbose_name_plural = "Exercices Personnalisés Utilisateurs"
         ordering = ['-created_at']
-        unique_together = ['user', 'summary']  # 1 exercice perso par user par résumé
+        # 1 exercice perso par user, par résumé ET par niveau de difficulté.
+        # Comme dans l'ancien système standard (Exercise + difficulty), chaque
+        # niveau possède son propre exercice : une tentative Facile ne peut
+        # jamais pointer vers les questions Moyennes ou Difficiles.
+        unique_together = ['user', 'summary', 'difficulty']
         indexes = [
-            models.Index(fields=['user', 'summary']),
+            models.Index(fields=['user', 'summary', 'difficulty']),
             models.Index(fields=['status']),
             models.Index(fields=['difficulty']),
         ]
@@ -588,7 +586,7 @@ class UserPersonalizedExercise(models.Model):
 
     @property
     def questions_count(self):
-        return len(self.questions) if self.questions else 0
+        return self.questions.count()
 
     def mark_accessed(self):
         """Met à jour la date du dernier accès"""
@@ -596,10 +594,56 @@ class UserPersonalizedExercise(models.Model):
         self.save(update_fields=['last_accessed_at'])
 
 
+class UserPersonalizedQuestion(models.Model):
+    """
+    Question d'un exercice personnalisé — ligne SÉPARÉE rattachée à l'exercice,
+    exactement comme ExerciseQuestion dans le système standard.
+    Chaque questionnaire contient ses réponses, son explication, code_language
+    et code_block, et appartient à un exercice précis → à son niveau.
+    """
+    personalized_exercise = models.ForeignKey(
+        UserPersonalizedExercise, on_delete=models.CASCADE,
+        related_name='questions',
+        help_text="Exercice personnalisé auquel appartient cette question"
+    )
+    question_text = models.TextField()
+    options = models.JSONField(
+        default=dict,
+        help_text="Options au format {'A': ..., 'B': ..., 'C': ..., 'D': ...}"
+    )
+    correct_answer = models.CharField(
+        max_length=1, choices=[('A', 'A'), ('B', 'B'), ('C', 'C'), ('D', 'D')]
+    )
+    explanation = models.TextField(
+        blank=True, null=True,
+        help_text="Explication de la bonne réponse"
+    )
+    code_language = models.CharField(
+        max_length=50, blank=True, null=True,
+        help_text="Langage ou type du contenu technique (python, latex, sql, formula, algorithm, etc.)"
+    )
+    code_block = models.TextField(
+        blank=True, null=True,
+        help_text="Contenu technique (code source, formule, algorithme, commande, pseudo-code)"
+    )
+    order = models.IntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    def __str__(self):
+        return f"Question {self.order} - {self.personalized_exercise}"
+
+    class Meta:
+        verbose_name = "Question d'exercice personnalisé"
+        verbose_name_plural = "Questions d'exercices personnalisés"
+        ordering = ['personalized_exercise', 'order']
+
+
 class UserPersonalizedAttempt(models.Model):
     """
     Tentative d'un utilisateur sur son exercice personnalisé.
-    Equivalent à ExerciseAttempt mais pour les QCM personnalisés.
+    Equivalent à ExerciseAttempt mais pour les QCM personnalisés :
+    la tentative ne contient PAS les questions — elles sont relues depuis la
+    table UserPersonalizedQuestion (structure 3 tables du système standard).
     """
     personalized_exercise = models.ForeignKey(
         UserPersonalizedExercise, on_delete=models.CASCADE,
@@ -612,17 +656,12 @@ class UserPersonalizedAttempt(models.Model):
         help_text="Utilisateur qui a tenté (redondant mais pratique)"
     )
 
-    # Réponses au format {question_index: "A/B/C/D"}
+    # Réponses au format {question_index: "A/B/C/D"} (index = ordre de la question)
     answers = models.JSONField(
         default=dict,
         help_text="Réponses de l'utilisateur {index_question: 'A/B/C/D'}"
     )
 
-    # Résultats détaillés calculés
-    results_detail = models.JSONField(
-        default=list,
-        help_text="Détail de chaque question avec correction"
-    )
     score = models.FloatField(
         default=0.0,
         help_text="Score en pourcentage (0-100)"
@@ -648,45 +687,54 @@ class UserPersonalizedAttempt(models.Model):
     def __str__(self):
         return f"{self.user.username} - {self.personalized_exercise.summary.titre} ({self.score}%)"
 
+    def build_results(self):
+        """
+        Reconstruit le détail des résultats depuis les lignes de questions
+        (UserPersonalizedQuestion) — la tentative ne stocke plus les questions.
+        """
+        results = []
+        for idx, question in enumerate(
+            self.personalized_exercise.questions.all().order_by('order')
+        ):
+            user_answer = self.answers.get(str(idx), '')
+            results.append({
+                'question_index': idx,
+                'question_text': question.question_text,
+                'user_answer': user_answer,
+                'correct_answer': question.correct_answer,
+                'is_correct': user_answer.upper() == question.correct_answer.upper(),
+                'explanation': question.explanation or '',
+                'options': question.options,
+                'code_language': question.code_language,
+                'code_block': question.code_block,
+            })
+        return results
+
     def calculate_results(self):
         """
-        Calcule le score et génère les résultats détaillés.
-        Compare les réponses utilisateur avec les questions stockées.
+        Calcule le score en comparant les réponses avec les lignes de questions
+        (équivalent du calculate_score du système standard).
+        Retourne la liste des résultats détaillés (construits à la volée).
         """
-        if not self.answers or not self.personalized_exercise.questions:
+        questions = list(
+            self.personalized_exercise.questions.all().order_by('order')
+        )
+
+        if not self.answers or not questions:
             self.score = 0.0
             self.correct_answers_count = 0
             self.save()
-            return
+            return self.build_results()
 
-        questions = self.personalized_exercise.questions
-        results = []
         correct_count = 0
-
         for idx, question in enumerate(questions):
             user_answer = self.answers.get(str(idx), '')
-            correct_answer = question.get('correct_answer', '')
-            is_correct = user_answer.upper() == correct_answer.upper()
-
-            if is_correct:
+            if user_answer.upper() == question.correct_answer.upper():
                 correct_count += 1
-
-            results.append({
-                'question_index': idx,
-                'question_text': question.get('question_text') or question.get('question', ''),
-                'user_answer': user_answer,
-                'correct_answer': correct_answer,
-                'is_correct': is_correct,
-                'explanation': question.get('explanation', ''),
-                'options': question.get('options', {}),
-                'code_language': question.get('code_language'),
-                'code_block': question.get('code_block'),
-            })
 
         total = len(questions)
         self.score = (correct_count / total * 100) if total > 0 else 0.0
         self.correct_answers_count = correct_count
-        self.results_detail = results
         self.completed_at = timezone.now()
 
         # Calculer temps passé
@@ -695,4 +743,4 @@ class UserPersonalizedAttempt(models.Model):
             self.time_spent_seconds = int(delta.total_seconds())
 
         self.save()
-        return self.score
+        return self.build_results()

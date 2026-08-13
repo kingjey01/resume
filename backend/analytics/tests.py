@@ -63,7 +63,7 @@ class StatisticsApiTests(TestCase):
 
         self.personalized = UserPersonalizedExercise.objects.create(
             user=self.etudiant, summary=self.summary_new, seed=42,
-            status='completed', questions=[])
+            status='completed')
         UserPersonalizedExercise.objects.filter(pk=self.personalized.pk).update(
             created_at=_days_ago(1))
 
