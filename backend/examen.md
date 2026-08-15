@@ -37,3 +37,30 @@ Codes de version :
 Android 15 prend en charge les appareils dont les tailles de page de mémoire sont de 16 ko, ce qui peut améliorer les performances de votre appli. Nous vous recommandons de recompiler votre appli lorsque vous migrez vers Android 15, et de la tester dans un environnement 16 ko afin d'éviter les problèmes pour les utilisateurs.
 
 NB: suis ces instructions et améliore l'application selon, ces recommandation
+
+
+====nouveau examen
+L'appli doit cibler Android 16 (niveau d'API 36) ou une version ultérieure
+Pour offrir une expérience sécurisée aux utilisateurs, Google Play exige que toutes les applis répondent aux exigences du niveau d'API cible.
+À compter du 31 août 2026, si votre appli ne cible pas un niveau d'API disponible depuis moins d'un an après la dernière version d'Android, vous ne serez plus en mesure de mettre à jour votre appli.
+
+
+Dépannage
+Votre niveau d'API cible non conforme le plus élevé est Android 15 (niveau d'API 35).
+
+
+Pour pouvoir continuer à mettre à jour votre appli :
+
+Mettez-la à jour afin qu'elle cible Android 16 (niveau d'API 36) ou une version ultérieure.
+Publiez une nouvelle version de votre appli en production. Vous pouvez d'abord tester votre appli à l'aide de tests internes, fermés ou ouverts.
+Accéder à la vue d'ensemble des versions
+
+Une fois cette étape terminée, nous vous enverrons une notification pour confirmer que votre appli a bien été mise à jour et qu'elle n'est plus affectée par ce problème.
+
+
+Cette info est-elle utile ?
+
+-Erreur
+Cette version ne prend plus en charge 1 971 appareils qui étaient compatibles avec votre version précédente. Si vous continuez, votre appli ne sera pas disponible pour les nouveaux utilisateurs sur ces appareils non pris en charge, et les mises à jour ne seront pas disponibles pour les utilisateurs qui ont déjà installé votre appli sur ces appareils. Consultez les modifications apportées à vos appareils pris en charge pour voir quels appareils sont concernés.
+
+

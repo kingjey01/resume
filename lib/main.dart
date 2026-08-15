@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/features/splash/screens/splash_screen.dart';
@@ -35,18 +34,9 @@ void main() async {
     print('⚠️ Firebase init error (non bloquant): $e');
   }
 
-  // 📱 Forcer le mode portrait uniquement
+  // Les restrictions d'orientation ont été retirées (exigence Google Play
+  // Android 16 / grands écrans) : l'app s'adapte à toutes les orientations.
   if (!kIsWeb) {
-    try {
-      await SystemChrome.setPreferredOrientations([
-        DeviceOrientation.portraitUp,
-        DeviceOrientation.portraitDown,
-      ]);
-      print('📱 Mode portrait forcé');
-    } catch (e) {
-      print('⚠️ Erreur lors du forçage du portrait: $e');
-    }
-
     // 🔒 Initialiser la protection contre les captures d'écran globalement
     try {
       await ScreenSecurityService.enableGlobalScreenSecurity();

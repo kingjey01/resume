@@ -1,20 +1,26 @@
-ndle
-Warning: Flutter support for your project's Gradle version (8.7.0) will soon be dropped. Please upgrade your Gradle version to a version of at least 8.14.0 soon.
+:\Users\JeyCode\Documents\resume_plus_clean>flutter build appbundle --release
+Warning: Flutter support for your project's Gradle version (8.14.3) will soon be dropped. Please upgrade your Gradle version to a version of at least 9.1.0 soon.
 Alternatively, use the flag "--android-skip-build-dependency-validation" to bypass this check.
 
-Potential fix: Your project's gradle version is typically defined in the gradle wrapper file. By default, this can be found at C:\Users\HP\Documents\resume_plus_clean\android/gradle/wrapper/gradle-wrapper.properties.
+Potential fix: Your project's gradle version is typically defined in the gradle wrapper file. By default, this can be found at C:\Users\JeyCode\Documents\resume_plus_clean\android/gradle/wrapper/gradle-wrapper.properties.
 For more information, see https://docs.gradle.org/current/userguide/gradle_wrapper.html.
 
-Warning: Flutter support for your project's Android Gradle Plugin version (Android Gradle Plugin version 8.6.0) will soon be dropped. Please upgrade your Android Gradle Plugin version to a version of at least Android Gradle Plugin version 8.11.1 soon.
+Warning: Flutter support for your project's Android Gradle Plugin version (Android Gradle Plugin version 8.11.1) will soon be dropped. Please upgrade your Android Gradle Plugin version to a version of at least Android Gradle Plugin version 9.0.1 soon.
 Alternatively, use the flag "--android-skip-build-dependency-validation" to bypass this check.
 
-Potential fix: Your project's AGP version is typically defined in the plugins block of the `settings.gradle` file (C:\Users\HP\Documents\resume_plus_clean\android/settings.gradle), by a plugin with the id of com.android.application.
-If you don't see a plugins block, your project was likely created with an older template version. In this case it is most likely defined in the top-level build.gradle file (C:\Users\HP\Documents\resume_plus_clean\android/build.gradle) by the following line in the dependencies block of the buildscript: "classpath 'com.android.tools.build:gradle:<version>'".
+Potential fix: Your project's AGP version is typically defined in the plugins block of the `settings.gradle` file (C:\Users\JeyCode\Documents\resume_plus_clean\android/settings.gradle), by a plugin with the id of com.android.application.
+If you don't see a plugins block, your project was likely created with an older template version. In this case it is most likely defined in the top-level build.gradle file (C:\Users\JeyCode\Documents\resume_plus_clean\android/build.gradle) by the following line in the dependencies block of the buildscript: "classpath 'com.android.tools.build:gradle:<version>'".
 
-Warning: Flutter support for your project's Kotlin version (2.0.0) will soon be dropped. Please upgrade your Kotlin version to a version of at least 2.2.20 soon.
+Warning: Flutter support for your project's Kotlin version (2.2.20) will soon be dropped. Please upgrade your Kotlin version to a version of at least 2.3.20 soon.
 Alternatively, use the flag "--android-skip-build-dependency-validation" to bypass this check.
 
-Potential fix: Your project's KGP version is typically defined in the plugins block of the `settings.gradle` file (C:\Users\HP\Documents\resume_plus_clean\android/settings.gradle), by a plugin with the id of org.jetbrains.kotlin.android.
-If you don't see a plugins block, your project was likely created with an older template version, in which case it is most likely defined in the top-level build.gradle file (C:\Users\HP\Documents\resume_plus_clean\android/build.gradle) by the ext.kotlin_version property.
+Potential fix: Your project's KGP version is typically defined in the plugins block of the `settings.gradle` file (C:\Users\JeyCode\Documents\resume_plus_clean\android/settings.gradle), by a plugin with the id of org.jetbrains.kotlin.android.
+If you don't see a plugins block, your project was likely created with an older template version, in which case it is most likely defined in the top-level build.gradle file (C:\Users\JeyCode\Documents\resume_plus_clean\android/build.gradle) by the ext.kotlin_version property.
 
-Running Gradle task 'bundleRelease'...                                 |
+WARNING: The SDK Manager CLI tool (sdkmanager) is deprecated. Use Android CLI instead.
+The 'android' binary can also be found in the cmdline-tools directory, and 'android sdk' is the replacement for 'sdkmanager'.
+To learn more about the Android CLI and how to use it, see the documentation (https://d.android.com/tools/agents/android-cli)
+
+Loading package information...
+Loading local repository...
+[                                       ] 3% Loading local repository...
