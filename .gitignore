@@ -80,3 +80,4 @@ backend/firebase-admin-sdk.json
 
 # Captures d'écran / documents personnels (hors du repo)
 interface_image/
+.aider*
