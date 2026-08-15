@@ -34,9 +34,9 @@ android {
     defaultConfig {
         applicationId = "com.resumeplus.jeycode"
         minSdkVersion = flutter.minSdkVersion
-        targetSdk = 35
-        versionCode = 12
-        versionName = "1.0.6"
+        targetSdk = 36
+        versionCode = 13
+        versionName = "1.0.7"
         multiDexEnabled true
     }
 
@@ -70,6 +70,15 @@ android {
             include 'armeabi-v7a', 'arm64-v8a'
             // Also build a universal APK that bundles all ABIs for easy sideloading
             universalApk true
+        }
+    }
+
+    // Alignement natif 16 ko (exigence Google Play Android 15/16) :
+    // les bibliothèques .so sont stockées NON compressées et alignées,
+    // compatibles avec les appareils à pages mémoire de 16 ko.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = false
         }
     }
 }
