@@ -1504,6 +1504,13 @@ class ApiService {
           statusCode: 403,
         );
       }
+      if (data?['code'] == 'purchase_required') {
+        return ApiException(
+          "Vous devez d'abord acheter ce résumé pour accéder au QCM",
+          type: ApiExceptionType.forbidden,
+          statusCode: 403,
+        );
+      }
     }
     return ApiException(
       e.message ?? 'Une erreur est survenue',

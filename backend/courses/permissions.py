@@ -80,6 +80,31 @@ class CanAccessSummary(permissions.BasePermission):
         return has_purchased
 
 
+def user_can_access_summary(user, summary):
+    """
+    Même logique que CanAccessSummary.has_object_permission :
+    accès gratuit (CP/ADMIN) OU résumé gratuit OU achat 'completed'.
+    Réutilisé par les endpoints QCM pour interdire le lancement d'un
+    QCM sur un résumé non acheté (tache_bug_etudiant.md, point 2).
+    """
+    if not user or not user.is_authenticated:
+        return False
+    if not hasattr(user, 'profile'):
+        return False
+    # CP et ADMIN ont accès gratuit à tous les résumés
+    if user.profile.has_free_access():
+        return True
+    if summary.is_free:
+        return True
+    # Étudiant : uniquement si le résumé a été acheté (paiement 'completed')
+    from payments.models import Purchase
+    return Purchase.objects.filter(
+        user=user,
+        summary=summary,
+        status='completed'
+    ).exists()
+
+
 class IsAdminOrReadOnly(permissions.BasePermission):
     """
     Permission pour les opérations d'administration

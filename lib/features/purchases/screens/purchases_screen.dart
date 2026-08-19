@@ -17,16 +17,41 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
   late TabController _tabController;
   String _searchQuery = '';
 
+  // Contrôleurs de scroll pour la pagination au seuil (au lieu de charger
+  // toutes les pages dès que le footer devient visible).
+  final ScrollController _summaryScrollController = ScrollController();
+  final ScrollController _historyScrollController = ScrollController();
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 2, vsync: this);
+    _summaryScrollController.addListener(_onSummaryScroll);
+    _historyScrollController.addListener(_onHistoryScroll);
   }
 
   @override
   void dispose() {
+    _summaryScrollController.dispose();
+    _historyScrollController.dispose();
     _tabController.dispose();
     super.dispose();
+  }
+
+  /// Charge la page suivante quand on approche du bas de la liste des achats.
+  void _onSummaryScroll() {
+    if (_summaryScrollController.position.pixels >=
+        _summaryScrollController.position.maxScrollExtent - 200) {
+      ref.read(purchasedSummariesProvider.notifier).loadMore();
+    }
+  }
+
+  /// Charge la page suivante quand on approche du bas de l'historique.
+  void _onHistoryScroll() {
+    if (_historyScrollController.position.pixels >=
+        _historyScrollController.position.maxScrollExtent - 200) {
+      ref.read(purchaseHistoryProvider.notifier).loadMore();
+    }
   }
 
   @override
@@ -179,7 +204,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
             return const SizedBox.shrink();
           }
         },
-        onLoadMore: () => ref.read(purchasedSummariesProvider.notifier).loadMore(),
+        scrollController: _summaryScrollController,
       ),
     );
   }
@@ -218,7 +243,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
             );
           }
         },
-        onLoadMore: () => ref.read(purchaseHistoryProvider.notifier).loadMore(),
+        scrollController: _historyScrollController,
       ),
     );
   }
@@ -234,7 +259,7 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
     required bool Function(dynamic) extraFilter,
     required String Function(dynamic) searchText,
     required Widget Function(dynamic) itemBuilder,
-    required VoidCallback onLoadMore,
+    ScrollController? scrollController,
   }) {
     if (state.isLoading && state.items.isEmpty) {
       return const Center(child: CircularProgressIndicator());
@@ -253,14 +278,16 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
       return _buildEmptyState(icon: emptyIcon, title: emptyTitle, subtitle: emptySubtitle);
     }
 
-    // Un élément supplémentaire en fin de liste : le footer de chargement.
-    // Dès qu'il est construit (donc visible), on charge la page suivante.
+    // Un élément supplémentaire en fin de liste : footer indicateur visuel.
+    // Le chargement de la page suivante est déclenché par le seuil de scroll
+    // (maxScrollExtent - 200) — jamais dès que le footer devient visible,
+    // ce qui provoquait une cascade de chargement de toutes les pages.
     return ListView.builder(
+      controller: scrollController,
       padding: const EdgeInsets.all(16),
       itemCount: items.length + (state.hasMore ? 1 : 0),
       itemBuilder: (context, index) {
         if (index == items.length) {
-          WidgetsBinding.instance.addPostFrameCallback((_) => onLoadMore());
           return Padding(
             padding: const EdgeInsets.symmetric(vertical: 18),
             child: Center(
