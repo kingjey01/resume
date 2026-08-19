@@ -13,7 +13,7 @@ from rest_framework.response import Response
 
 from .models import Summary, UserPersonalizedExercise, UserPersonalizedAttempt
 from .personalized_exercise_generator import generate_personalized_exercise
-from .permissions import HasActiveSubscription
+from .permissions import HasActiveSubscription, user_can_access_summary
 
 logger = logging.getLogger(__name__)
 
@@ -51,6 +51,14 @@ def generate_personalized_exercise_view(request, summary_id):
         # Vérifier résumé
         summary = get_object_or_404(Summary, id=summary_id, is_validated=True)
         user = request.user
+
+        # Un QCM ne peut être lancé que sur un résumé acheté (ou gratuit/CP)
+        if not user_can_access_summary(user, summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
 
         # Vérifier abonnement exercices
         if not has_exercise_subscription(user):
@@ -188,6 +196,14 @@ def get_personalized_exercise_view(request, exercise_id):
             user=request.user
         )
 
+        # L'accès au QCM est conditionné à l'achat du résumé concerné
+        if not user_can_access_summary(request.user, exercise.summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # Mettre à jour la date d'accès
         exercise.mark_accessed()
 
@@ -283,6 +299,14 @@ def submit_personalized_exercise_view(request, exercise_id):
             user=request.user,
             status='completed'
         )
+
+        # L'accès au QCM est conditionné à l'achat du résumé concerné
+        if not user_can_access_summary(request.user, exercise.summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
 
         answers = request.data.get('answers', {})
 
@@ -472,6 +496,14 @@ def check_personalized_exercise_exists(request, summary_id):
     """
     try:
         summary = get_object_or_404(Summary, id=summary_id, is_validated=True)
+
+        # Un QCM ne peut être consulté que sur un résumé acheté (ou gratuit/CP)
+        if not user_can_access_summary(request.user, summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
 
         difficulty = request.query_params.get('difficulty')
         exercises = UserPersonalizedExercise.objects.filter(

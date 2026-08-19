@@ -127,6 +127,15 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     try {
       final isPurchased = await _apiService.hasPurchasedSummary(widget.summary.id);
       if (!mounted) return;
+
+      // Achat détecté tardivement (état local obsolète) : le cadenas va
+      // disparaître, on doit charger immédiatement le contenu complet pour
+      // ne jamais afficher l'aperçu tronqué (150 car.) dans la branche
+      // déverrouillée.
+      if (isPurchased && !_isActuallyPurchased) {
+        _fetchFullSummary();
+      }
+
       setState(() {
         _isActuallyPurchased = isPurchased;
       });
@@ -155,8 +164,23 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   double _exerciseGenerationProgress = 0.0;
   String _exerciseGenerationStatus = 'Préparation...';
 
+  /// Message explicite quand le QCM est inaccessible (résumé non acheté).
+  void _showPurchaseRequiredMessage() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text("Vous devez d'abord acheter ce résumé pour accéder au QCM"),
+        backgroundColor: AppTheme.error,
+      ),
+    );
+  }
+
   /// Affiche le modal de sélection de difficulté
   Future<void> _showDifficultySelector() async {
+    // Garde-fou : jamais de QCM sur un résumé non acheté (tache_bug_etudiant.md, point 2)
+    if (!_hasAccess) {
+      _showPurchaseRequiredMessage();
+      return;
+    }
     final difficulty = await context.showDifficultySelector();
     if (difficulty != null && mounted) {
       _generatePersonalizedExercise(difficulty);
@@ -169,6 +193,11 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   /// 2. S'il n'existe pas → le créer. Jamais de régénération automatique.
   Future<void> _generatePersonalizedExercise(String difficulty) async {
     if (!mounted) return;
+    // Garde-fou : jamais de QCM sur un résumé non acheté (tache_bug_etudiant.md, point 2)
+    if (!_hasAccess) {
+      _showPurchaseRequiredMessage();
+      return;
+    }
     setState(() {
       _isGeneratingExercise = true;
       _exerciseGenerationProgress = 0.1;

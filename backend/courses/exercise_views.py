@@ -9,7 +9,7 @@ from django.contrib.auth.models import User
 from .models import Summary, Exercise, ExerciseQuestion, ExerciseAttempt
 from payments.models import Service, Abonnement
 from .exercise_generator import generate_exercises_for_summary
-from .permissions import HasActiveSubscription
+from .permissions import HasActiveSubscription, user_can_access_summary
 from django.utils import timezone
 import logging
 import threading
@@ -31,7 +31,15 @@ def generate_exercise_view(request, summary_id):
         
         # Vérifier que le résumé existe et est validé
         summary = get_object_or_404(Summary, id=summary_id, is_validated=True)
-        
+
+        # Un QCM ne peut être lancé que sur un résumé acheté (ou gratuit/CP)
+        if not user_can_access_summary(request.user, summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # Vérifier l'abonnement exercice spécifique
         if not has_exercise_subscription(request.user):
             return Response({
@@ -131,6 +139,14 @@ def get_exercise_view(request, exercise_id):
         if exercise.created_by is not None and exercise.created_by != request.user:
             return Response({'error': 'Exercice introuvable'}, status=status.HTTP_404_NOT_FOUND)
 
+        # L'accès au QCM est conditionné à l'achat du résumé concerné
+        if not user_can_access_summary(request.user, exercise.summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
+
         # Si encore en génération, retourner juste le statut (pour le polling Flutter)
         if exercise.status != 'completed':
             return Response({
@@ -195,6 +211,14 @@ def submit_exercise_view(request, exercise_id):
         # S'assurer que l'exercice appartient à cet utilisateur
         if exercise.created_by is not None and exercise.created_by != request.user:
             return Response({'error': 'Exercice introuvable'}, status=status.HTTP_404_NOT_FOUND)
+
+        # L'accès au QCM est conditionné à l'achat du résumé concerné
+        if not user_can_access_summary(request.user, exercise.summary):
+            return Response({
+                'error': "Vous devez d'abord acheter ce résumé",
+                'purchase_required': True,
+                'code': 'purchase_required',
+            }, status=status.HTTP_403_FORBIDDEN)
 
         answers = request.data.get('answers', {})
         

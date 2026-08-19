@@ -83,7 +83,7 @@ from courses.personalized_exercise_views import (
     get_personalized_attempt_detail_view,
 )
 from users.models import UserProfile
-from payments.models import Service, Abonnement
+from payments.models import Service, Abonnement, Purchase
 from django.utils import timezone
 from datetime import timedelta
 
@@ -114,6 +114,12 @@ Abonnement.objects.create(
     user=user, service=service, status='active',
     date_debut=timezone.now() - timedelta(days=1),
     date_fin=timezone.now() + timedelta(days=30),
+)
+# Achat 'completed' requis par le nouveau contrôle d'accès QCM
+# (un résumé payant ne génère un QCM que s'il a été acheté)
+Purchase.objects.create(
+    user=user, summary=s, amount='5.00',
+    payment_method='mobile_money', status='completed',
 )
 
 factory = APIRequestFactory()

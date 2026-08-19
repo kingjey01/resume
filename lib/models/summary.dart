@@ -47,7 +47,7 @@ class Summary {
       imageUrl: json['image_url'] ?? json['pdf_file'] ?? '', // Utiliser pdf_file ou chaîne vide
       content: json['texte_resume'] ?? 'Contenu non disponible',
       price: _parseDouble(json['prix']),
-      isFree: json['is_free'] ?? true,
+      isFree: json['is_free'] ?? false,
       authorName: json['author_name'] ?? 'Auteur inconnu',
       professorName: _parseProfessorName(json),
       createdAt: _parseDateTime(json['created_at']),

@@ -161,6 +161,50 @@ class _AiContentViewState extends State<AiContentView> {
       if (buffer.trim().isNotEmpty) _pages.add(buffer.trim());
     }
 
+    // ── Méthode 3 : découpage par lignes simples ────────────────
+    // Contenu sans '##' ni '\n\n' (ex. une liste ou des **pseudo-titres**).
+    if (_pages.length < 2 && content.length > _charsPerPage) {
+      final lines = content.split('\n');
+      if (lines.length > 1) {
+        _pages.clear();
+        String buffer = '';
+        for (final line in lines) {
+          if (buffer.length + line.length > _charsPerPage && buffer.isNotEmpty) {
+            _pages.add(buffer.trim());
+            buffer = '$line\n';
+          } else {
+            buffer += '$line\n';
+          }
+        }
+        if (buffer.trim().isNotEmpty) _pages.add(buffer.trim());
+      }
+    }
+
+    // ── Méthode 4 : découpage par mots (un seul paragraphe géant) ─
+    if (_pages.length < 2 && content.length > _charsPerPage) {
+      _pages.clear();
+      String buffer = '';
+      for (final word in content.split(' ')) {
+        if (buffer.length + word.length > _charsPerPage && buffer.isNotEmpty) {
+          _pages.add(buffer.trim());
+          buffer = '$word ';
+        } else {
+          buffer += '$word ';
+        }
+      }
+      if (buffer.trim().isNotEmpty) _pages.add(buffer.trim());
+    }
+
+    // ── Dernier filet : découpage brut par caractères ────────────
+    // Garantit qu'aucun contenu long ne reste sur une seule page géante.
+    if (_pages.length < 2 && content.length > _charsPerPage) {
+      _pages.clear();
+      for (int i = 0; i < content.length; i += _charsPerPage) {
+        final end = i + _charsPerPage > content.length ? content.length : i + _charsPerPage;
+        _pages.add(content.substring(i, end));
+      }
+    }
+
     // ── Fallback final : tout en une seule page ─────────────────
     if (_pages.isEmpty) _pages.add(content);
 
