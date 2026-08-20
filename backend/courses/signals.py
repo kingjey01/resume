@@ -87,10 +87,16 @@ def on_summary_created(sender, instance, created, **kwargs):
     Signal déclenché à la création d'un résumé MANUEL (author_type='cp'),
     qui n'a pas de session à statut (donc pas de transition « Résumé disponible »).
 
-    TACHE2 : les résumés générés depuis un audio (author_type='ai') sont
-    désormais notifiés par le signal de statut de session (on_session_summarized),
-    lié au vrai passage à « Résumé disponible » — ce signal ne les gère plus,
-    pour éviter le double déclenchement.
+    Les résumés manuels sont AUTO-VALIDÉS à la sauvegarde (Summary.save →
+    is_validated=True). À la création on fait donc :
+      1. confirmation au CP créateur (résumé créé) ;
+      2. diffusion « résumé disponible » aux étudiants de la promotion,
+         comme le ferait une validation (validate_summary_view).
+
+    Les résumés générés depuis un audio (author_type='ai') sont notifiés par le
+    signal de statut de session (on_session_summarized), lié au vrai passage à
+    « Résumé disponible » — ce signal ne les gère plus, pour éviter le double
+    déclenchement.
     """
     if not created:
         return
@@ -104,23 +110,36 @@ def on_summary_created(sender, instance, created, **kwargs):
         f"auteur={getattr(author, 'username', 'None')}"
     )
 
-    if author:
-        try:
-            from notifications.tasks import notify_summary_created, notify_summary_to_validate
-            logger.info(f"🔔 [Signal] Notification push planifiée pour l'auteur {author.username}")
+    try:
+        from notifications.tasks import notify_summary_created, create_and_send_notification
+
+        # 1. Confirmation au CP créateur (le résumé est déjà auto-validé, pas « en attente »)
+        if author:
+            logger.info(f"🔔 [Signal] Confirmation planifiée pour l'auteur {author.username}")
             notify_summary_created.apply_async(
                 kwargs={'summary_id': instance.id, 'author_user_id': author.id},
                 countdown=1
             )
-            # Notifier l'auteur CP que son résumé est en attente de validation
-            logger.info(f"🔔 [Signal] Notification validation planifiée pour l'auteur CP — summary_id={instance.id}")
-            notify_summary_to_validate.apply_async(
-                kwargs={'summary_id': instance.id, 'author_user_id': author.id},
-                countdown=2
+        else:
+            logger.warning(
+                f"⚠️ [Signal] Résumé {instance.id} sans auteur — confirmation CP ignorée"
             )
-        except Exception as err:
-            logger.warning(f"⚠️ [Signal] Erreur planification notifications : {err}")
-    else:
-        logger.warning(
-            f"⚠️ [Signal] Résumé {instance.id} sans auteur — notification push ignorée"
+
+        # 2. Résumé manuel auto-validé → notifier immédiatement les étudiants de la
+        #    promotion « résumé disponible » (même flux que validate_summary_view)
+        course = instance.course
+        create_and_send_notification.apply_async(kwargs={
+            'title': '📚 Nouveau résumé disponible',
+            'body': f'Le résumé « {instance.titre} » du cours {course.nom} est maintenant disponible.',
+            'notification_type': 'summary_validated',
+            'universite_id': course.universites.values_list('id', flat=True).first(),
+            'filiere_id': course.filieres.values_list('id', flat=True).first(),
+            'promotion_id': course.promotions.values_list('id', flat=True).first(),
+            'summary_id': instance.id,
+            'course_id': course.id,
+        }, countdown=2)
+        logger.info(
+            f"🔔 [Signal] Diffusion étudiants planifiée pour le résumé manuel — summary_id={instance.id}"
         )
+    except Exception as err:
+        logger.warning(f"⚠️ [Signal] Erreur planification notifications : {err}")

@@ -89,8 +89,12 @@ def main():
         un = UserNotification.objects.filter(notification=notif)
         log(f'    → UserNotification: {un.count()} pour {user.username}')
         results.append(('destinataire = CP auteur', un.filter(user=user).exists()))
-        results.append(('notification indique que le résumé est disponible',
-                        'disponible' in notif.title.lower() or 'disponible' in notif.body.lower()))
+        # Le résumé IA n'est PAS encore validé → le CP est invité à le valider,
+        # le message « disponible » aux étudiants n'arrive qu'à la validation.
+        results.append(('notification indique que le résumé est en attente de validation',
+                        'validation' in notif.title.lower()
+                        or 'attente' in notif.title.lower()
+                        or 'attente' in notif.body.lower()))
         results.append(('sender = auteur (CP)', notif.sender == user))
 
     # 4. Anti-doublon : re-save du même statut → aucune nouvelle notification
@@ -117,6 +121,14 @@ def main():
     manual_notifs = AppNotification.objects.filter(summary_id=summary_manual.id)
     log(f'[5] Résumé manuel (cp): {manual_notifs.count()} notification(s)')
     results.append(('résumé manuel toujours notifié', manual_notifs.count() >= 1))
+    # Résumé manuel auto-validé (Summary.save) :
+    #   - confirmation CP « summary_created »
+    #   - diffusion étudiants « summary_validated » (résumé disponible)
+    # Pas de message « en attente de validation » pour un résumé déjà validé.
+    results.append(('confirmation CP de type summary_created',
+                    manual_notifs.filter(notification_type='summary_created').exists()))
+    results.append(('diffusion étudiants de type summary_validated',
+                    manual_notifs.filter(notification_type='summary_validated').exists()))
 
     # 7. Envoi : la tâche send_fcm_notification s'est exécutée (eager)
     #    — en local sans Firebase elle logge et retourne sans erreur

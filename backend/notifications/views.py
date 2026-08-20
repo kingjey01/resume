@@ -110,7 +110,7 @@ def list_notifications(request):
       - page (int, default 1)
       - page_size (int, default 20, max 50)
       - search (str)
-      - type (str, notification_type filter)
+      - type (str, notification_type filter, supports comma-separated values, e.g. "summary_validated,summary_created")
       - unread_only (bool)
     """
     page = max(1, int(request.query_params.get('page', 1)))
@@ -136,7 +136,10 @@ def list_notifications(request):
         )
 
     if notif_type:
-        qs = qs.filter(notification__notification_type=notif_type)
+        # Support multi-types séparés par des virgules (ex: "summary_validated,summary_created")
+        # pour permettre un filtre unique « Résumés » côté app qui regroupe plusieurs types.
+        types = [t.strip() for t in notif_type.split(',') if t.strip()]
+        qs = qs.filter(notification__notification_type__in=types)
 
     total = qs.count()
     start = (page - 1) * page_size

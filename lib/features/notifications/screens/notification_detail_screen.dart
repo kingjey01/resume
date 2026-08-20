@@ -285,6 +285,7 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     switch (type) {
       case 'summary_validated':
       case 'new_summary':
+      case 'summary_created':
         return Icons.menu_book_rounded;
       case 'new_exercise':
         return Icons.quiz_rounded;
@@ -303,6 +304,8 @@ class _NotificationDetailScreenState extends State<NotificationDetailScreen> {
     switch (type) {
       case 'summary_validated':
         return 'Résumé validé';
+      case 'summary_created':
+        return 'Résumé à valider';
       case 'new_summary':
         return 'Nouveau résumé';
       case 'new_exercise':
