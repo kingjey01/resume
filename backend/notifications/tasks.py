@@ -338,74 +338,18 @@ def notify_summary_created(self, summary_id: int, author_user_id: int):
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
-def notify_summary_to_validate(self, summary_id: int, author_user_id: int = None):
-    """
-    Notify the CP author that their summary has been created and is waiting
-    for validation. This triggers the validation badge in their app.
-    """
-    logger.info(f'🔔 [Task] notify_summary_to_validate DÉMARRÉ — summary_id={summary_id}, author={author_user_id}')
-    try:
-        from django.contrib.auth.models import User
-        from courses.models import Summary
-        from .models import AppNotification, UserNotification
-
-        try:
-            summary = Summary.objects.select_related('course').get(id=summary_id)
-            course = summary.course
-        except Summary.DoesNotExist:
-            logger.warning(f'⚠️ [Task] notify_summary_to_validate: Résumé {summary_id} introuvable')
-            return {'sent': 0, 'reason': 'summary_not_found'}
-
-        # Target: the CP author who created the summary
-        if not author_user_id:
-            if summary.author_user:
-                author_user_id = summary.author_user.id
-            else:
-                logger.warning(f'⚠️ [Task] notify_summary_to_validate: aucun auteur pour résumé {summary_id}')
-                return {'sent': 0, 'reason': 'no_author'}
-
-        try:
-            author = User.objects.get(id=author_user_id)
-        except User.DoesNotExist:
-            logger.warning(f'⚠️ [Task] notify_summary_to_validate: auteur {author_user_id} introuvable')
-            return {'sent': 0, 'reason': 'author_not_found'}
-
-        title = '📝 Résumé en attente de validation'
-        body = f'Votre résumé « {summary.titre} » (cours: {course.nom}) est prêt et attend votre validation.'
-
-        notif = AppNotification.objects.create(
-            title=title,
-            body=body,
-            notification_type='promo',
-            summary_id=summary_id,
-            course_id=course.id,
-        )
-
-        un, _ = UserNotification.objects.get_or_create(
-            user=author,
-            notification=notif,
-        )
-
-        logger.info(f'🔔 [Task] Notification validation créée pour {author.username} — notif_id={notif.id}, un_id={un.id}')
-
-        # Send FCM push to the author only
-        send_fcm_notification.apply_async(args=[[un.id]], countdown=1)
-
-        return {'notification_id': notif.id, 'user_id': author.id, 'summary_id': summary_id}
-
-    except Exception as exc:
-        logger.error(f'❌ [Task] notify_summary_to_validate échoué: {exc}')
-        raise self.retry(exc=exc)
-
-
-@shared_task(bind=True, max_retries=2, default_retry_delay=10)
 def notify_summary_available(self, summary_id: int, author_user_id: int):
     """
-    TACHE2 : notifie le CP qui a soumis l'audio que son résumé est disponible.
+    TACHE2 : notifie le CP qui a soumis l'audio que son résumé IA est généré
+    et EN ATTENTE DE VALIDATION.
 
     Déclenchée par le signal de statut de session (courses.signals.on_session_summarized) :
     le déclenchement est lié au CHANGEMENT RÉEL de statut vers « Résumé disponible »,
     et non à la création du résumé ou à une action manuelle.
+
+    Le résumé IA n'est pas encore validé : on informe donc le CP qu'il doit le
+    valider. Le message « résumé disponible » vers les étudiants n'est envoyé
+    qu'à la validation (validate_summary_view → create_and_send_notification).
 
     Logs de la chaîne complète :
       - statut → « Résumé disponible »          (signal on_session_summarized)
@@ -467,10 +411,12 @@ def notify_summary_available(self, summary_id: int, author_user_id: int):
                 'reused': True,
             }
 
-        # 3. Création de la notification pour le CP auteur de l'audio
+        # 3. Création de la notification pour le CP auteur de l'audio :
+        #    le résumé IA est généré mais PAS encore validé → « en attente de validation ».
+        #    Le message « résumé disponible » aux étudiants n'arrive qu'à la validation.
         notif = AppNotification.objects.create(
-            title='✅ Résumé disponible',
-            body=f'Votre résumé « {summary.titre} » (cours: {summary.course.nom}) est disponible.',
+            title='📝 Résumé en attente de validation',
+            body=f'Votre résumé « {summary.titre} » (cours: {summary.course.nom}) a été créé et attend votre validation.',
             notification_type='summary_created',
             summary_id=summary.id,
             course_id=summary.course.id,

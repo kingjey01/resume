@@ -19,9 +19,14 @@ class _NotificationsScreenState extends ConsumerState<NotificationsScreen> {
   final ScrollController _scrollController = ScrollController();
   Timer? _debounce;
 
+  // Tous les types « résumé » sont regroupés sous UN seul filtre,
+  // sinon deux chips identiques « Résumés » apparaissent dans la barre de filtres.
+  // Le backend (list_notifications) accepte plusieurs types séparés par des virgules.
+  static const String _summaryTypesFilter = 'summary_validated,summary_created,new_summary';
+
   static const _typeLabels = {
     '': 'Tout',
-    'summary_validated': 'Résumés',
+    _summaryTypesFilter: 'Résumés',
     'new_exercise': 'Exercices',
     'payment': 'Paiements',
     'system': 'Système',
@@ -458,6 +463,7 @@ class _NotificationTile extends StatelessWidget {
     switch (type) {
       case 'summary_validated':
       case 'new_summary':
+      case 'summary_created':
         return Icons.menu_book_rounded;
       case 'new_exercise':
         return Icons.quiz_rounded;
@@ -476,6 +482,7 @@ class _NotificationTile extends StatelessWidget {
     switch (type) {
       case 'summary_validated':
       case 'new_summary':
+      case 'summary_created':
         return AppTheme.primaryBlue;
       case 'new_exercise':
         return const Color(0xFF8B5CF6);
