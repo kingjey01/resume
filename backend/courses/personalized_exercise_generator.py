@@ -34,6 +34,13 @@ STOP_WORDS = {
     'dont', 'dans', 'selon', 'afin', 'environ', 'notamment', 'ainsi',
 }
 
+# Titres de sections purement structurels des résumés (pas des notions) :
+# inutilisables comme terme cible d'une question de sens.
+STRUCTURAL_TITLES = {
+    'introduction', 'introduction simple', 'idée principale', 'idée principale du cours',
+    'petit résumé final', 'petit résumé', 'résumé final', 'mini-glossaire', 'conclusion',
+}
+
 
 class PersonalizedExerciseGenerator:
     """Générateur d'exercices QCM personnalisés avec gestion de la difficulté."""
@@ -264,6 +271,25 @@ class PersonalizedExerciseGenerator:
                 logger.warning(f"Question artificielle détectée: '{question['question_text']}' — question rejetée")
                 return False
 
+        # Questions génériques « à trous » ou « laquelle de ces affirmations »
+        # (règles du prompt : vraies questions de compréhension uniquement).
+        # NB : « Complétez le code/la formule » reste autorisé (complétion technique réelle).
+        generic_stems = [
+            'complétez cette phrase', 'complétez la phrase', 'complète la phrase',
+            'complétez cette idée', 'complétez l\'idée', 'complétez la définition',
+            'complétez cette définition', 'complétez cette notion', 'complétez cette expression',
+            'complétez avec la valeur', 'complétez le mot', 'complétez le terme',
+            'complétez le bon mot', 'remplissez le trou', 'le mot manquant',
+            'laquelle de ces affirmations', 'quelle de ces affirmations',
+            'parmi ces affirmations', 'parmi les affirmations',
+            'laquelle de ces propositions', 'parmi les propositions',
+            'quelle affirmation est', 'quelle est la bonne affirmation',
+        ]
+        for g in generic_stems:
+            if g in question_text:
+                logger.warning(f"Question générique détectée: '{question['question_text']}' — question rejetée")
+                return False
+
         return True
 
     # ═══════════════════════════════════════════════════════════════════════════
@@ -281,9 +307,11 @@ class PersonalizedExerciseGenerator:
     ) -> List[Dict]:
         """
         Génère des questions fallback UNIQUEMENT à partir du contenu réel du
-        résumé : phrases complétées avec de vrais termes, affirmations exactes
-        avec des faits altérés (distracteurs réels), valeurs numériques réelles,
-        extraits de code réels. Variation selon la difficulté et le seed.
+        résumé. Aucune question générique « à trous » (Complétez cette phrase…)
+        ni « Laquelle de ces affirmations… » : les questions portent sur le sens
+        réel des notions (définitions, idées à retenir, importance) et sur les
+        extraits techniques réels (code / formules LaTeX). Variation selon la
+        difficulté et le seed.
         """
         questions = []
 
@@ -294,18 +322,17 @@ class PersonalizedExerciseGenerator:
         random.seed(seed)
 
         # ── Extraction des éléments réels du résumé ────────────────────────────
+        # Structure markdown du résumé (## Notion : titre + sous-parties pédagogiques)
+        sections = self._extract_sections(resume_text)
+
         # Phrases significatives
         sentences = [s.strip() for s in re.split(r'[.!?\n]+', resume_text) if 40 < len(s.strip()) < 250]
 
-        # Termes réels (mots longs non triviaux) — utilisés comme options réelles
+        # Termes réels (mots longs non triviaux)
         words = re.findall(r'\b[a-zA-ZÀ-ÿ]{5,}\b', resume_text.lower())
         terms = list(dict.fromkeys(w for w in words if w not in STOP_WORDS))
-
-        # Nombres réels présents dans le résumé
-        numbers = re.findall(
-            r'\b\d+(?:[.,]\d+)?\s*(?:%|€|\$|FCFA|ans|jours|mois|heures|min|s|km|m|cm|g|kg|Mo|Go|Hz|V)\b|\b\d+(?:[.,]\d+)?\b',
-            resume_text
-        )
+        # Termes "nom plausibles" (précédés d'un article) pour les questions de repérage
+        noun_terms = [t for t in terms if self._looks_like_noun(t, resume_text)] or terms
 
         # Extraits de code réels (blocs ```langage ... ```)
         code_blocks = re.findall(r'```(\w+)?\s*\n([\s\S]*?)```', resume_text)
@@ -314,195 +341,290 @@ class PersonalizedExerciseGenerator:
         latex_blocks = [('latex', c.strip()) for c in re.findall(r'\$\$(.*?)\$\$', resume_text, re.DOTALL)]
         code_blocks = code_blocks + latex_blocks
 
-        random.shuffle(sentences)
+        # Définitions réelles (sections structurées + mini-glossaire + phrases « X est … »)
+        defs = self._collect_real_definitions(resume_text, sections, sentences)
 
-        # Ordre des types de questions selon la difficulté
+        # Dédoublonnage PAR TEXTE de question : l'ordre des options variant à chaque
+        # essai, deux questions identiques peuvent différer (impossible d'utiliser
+        # l'égalité des dicts). Deux questions au même énoncé sont écartées.
+        seen_texts = set()
+
+        def add_unique(q):
+            if not q:
+                return False
+            key = (q.get('question_text') or q.get('question', '')).strip().lower()
+            if key in seen_texts:
+                return False
+            seen_texts.add(key)
+            questions.append(q)
+            return True
+
+        # 1. Question sur un extrait technique réel (code / formule) — au plus 1
+        if code_blocks:
+            add_unique(self._build_code_question(code_blocks[0], terms))
+
+        # 2. Questions réelles de compréhension, ordonnées selon la difficulté
         builders_by_difficulty = {
-            'easy': ['definition', 'completion', 'statement', 'number', 'code'],
-            'medium': ['completion', 'statement', 'definition', 'number', 'code'],
-            'hard': ['statement', 'definition', 'completion', 'code', 'number'],
+            'easy': ['meaning', 'retenir', 'importance'],
+            'medium': ['meaning', 'retenir', 'importance'],
+            'hard': ['meaning', 'retenir', 'importance'],
         }
         builder_order = builders_by_difficulty.get(difficulty, builders_by_difficulty['medium'])
 
         # Au maximum 2 questions par type pour garantir un mélange varié
         builder_counts = {}
         for builder_key in builder_order:
-            for sentence in sentences:
+            for _ in range(6):
                 if len(questions) >= 8:
                     break
                 if builder_counts.get(builder_key, 0) >= 2:
                     break
                 q = None
-                if builder_key == 'definition':
-                    q = self._build_definition_question(sentence, terms)
-                elif builder_key == 'completion':
-                    q = self._build_completion_question(sentence, terms)
-                elif builder_key == 'statement':
-                    q = self._build_statement_question(sentence, terms)
-                if q:
-                    questions.append(q)
+                if builder_key == 'meaning':
+                    q = self._build_meaning_question(defs)
+                elif builder_key == 'retenir':
+                    q = self._build_retenir_question(sections)
+                elif builder_key == 'importance':
+                    q = self._build_importance_question(sections)
+                if add_unique(q):
                     builder_counts[builder_key] = builder_counts.get(builder_key, 0) + 1
 
-        # Question sur une valeur numérique réelle (si le résumé en contient)
-        if len(numbers) >= 4 and len(questions) < 6:
-            q = self._build_number_question(numbers, sentences)
-            if q:
-                questions.append(q)
-
-        # Question sur un extrait de code réel (si le résumé en contient)
-        if code_blocks and len(questions) < 7:
-            q = self._build_code_question(code_blocks[0], terms)
-            if q:
-                questions.append(q)
-
-        # Compléter si nécessaire avec d'autres phrases du résumé (jamais inventées)
+        # 3. Compléter si nécessaire (jamais de questions inventées) : d'abord de
+        #    vraies questions de sens, puis « quelle phrase parle de X ? »
         if len(questions) < 8:
-            for sentence in sentences:
+            for _ in range(10):
                 if len(questions) >= 8:
                     break
-                q = self._build_completion_question(sentence, terms)
-                if q and q not in questions:
-                    questions.append(q)
+                add_unique(self._build_meaning_question(defs))
+                if len(questions) < 8:
+                    add_unique(self._build_about_question(sentences, noun_terms))
 
         logger.info(f"📄 [QCM Perso Fallback] {len(questions)} questions construites depuis le contenu réel (difficulty={difficulty}, seed={seed})")
         return questions[:8]
 
-    def _pick_real_options(self, target, terms, count=4):
-        """Construit les options avec le terme réel cible + d'autres termes réels du résumé."""
-        distractors = [t for t in terms if t.lower() != target.lower()]
-        if len(distractors) < count - 1:
-            return None
-        options_list = [target] + random.sample(distractors, count - 1)
-        random.shuffle(options_list)
-        return options_list
-
-    def _build_definition_question(self, sentence, terms):
+    def _extract_sections(self, resume_text):
         """
-        Question de définition : « ___ est ... » avec un terme réel du résumé,
-        distracteurs = autres termes réels du résumé.
+        Parse la structure markdown d'un résumé : sections `## Titre` avec leurs
+        sous-parties pédagogiques réelles (**Définition simple**, **À retenir**,
+        **Pourquoi c'est important** ...). Retourne [{title, definition, retenir, why}].
         """
-        if not terms:
-            return None
-        # Chercher un motif de définition réel : « X est ... », « X désigne ... », etc.
-        match = re.search(
-            r'\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]{2,})\s+(?:est|sont|représente|représentent|désigne|désignent|signifie|correspond à)\s+',
-            sentence
-        )
-        if not match:
-            return None
-        target = match.group(1)
-        if target.lower() in STOP_WORDS or target.lower() not in [t.lower() for t in terms]:
-            return None
-        blanked = sentence.replace(target, '___', 1)
-        options_list = self._pick_real_options(target, terms, count=4)
-        if not options_list:
-            return None
-        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
-        return {
-            "question_text": f"Complétez la définition tirée du résumé : « {blanked} »",
-            "options": dict(zip('ABCD', options_list)),
-            "correct_answer": correct_letter,
-            "explanation": f"Le terme « {target} » est défini ainsi dans le résumé : « {sentence} »",
-        }
-
-    def _build_completion_question(self, sentence, terms):
-        """
-        Question de complétion : une phrase réelle du résumé avec un mot réel
-        masqué, distracteurs = d'autres termes réels du résumé.
-        """
-        if not terms:
-            return None
-        candidates = [w for w in sentence.split() if len(w) > 4 and w.lower() not in STOP_WORDS]
-        if not candidates:
-            return None
-        target = random.choice(candidates)
-        options_list = self._pick_real_options(target, terms, count=4)
-        if not options_list:
-            return None
-        blanked = sentence.replace(target, '___', 1)
-        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
-        return {
-            "question_text": f"Complétez la phrase extraite du résumé : « {blanked} »",
-            "options": dict(zip('ABCD', options_list)),
-            "correct_answer": correct_letter,
-            "explanation": f"La phrase du résumé contient bien le mot « {target} » : « {sentence} »",
-        }
-
-    def _mutate_sentence(self, sentence, terms):
-        """
-        Altère une phrase réelle en remplaçant un de ses mots importants par un
-        autre terme réel du résumé → affirmations fausses mais crédibles.
-        """
-        words = sentence.split()
-        candidates = [w for w in words if len(w) > 5 and w.lower() not in STOP_WORDS]
-        random.shuffle(candidates)
-        for target in candidates:
-            replacements = [t for t in terms if t.lower() != target.lower() and t not in words]
-            if not replacements:
+        sections = []
+        current = None
+        for raw in resume_text.splitlines():
+            line = raw.strip()
+            if not line:
                 continue
-            replacement = random.choice(replacements)
-            return sentence.replace(target, replacement, 1)
-        return None
+            m = re.match(r'^#{1,4}\s+(.+)$', line)
+            if m:
+                if current is not None:
+                    sections.append(current)
+                current = {'title': m.group(1).strip(), 'definition': None, 'retenir': None, 'why': None}
+                continue
+            if current is None:
+                continue
+            lm = re.match(r'^[-*>\s]*\*\*(.+?)\*\*\s*:\s*(.+)$', line)
+            if lm:
+                label = lm.group(1).strip().lower()
+                content = lm.group(2).strip()
+                if 'définition' in label or 'definition' in label:
+                    current['definition'] = current['definition'] or content
+                elif 'retenir' in label:
+                    current['retenir'] = current['retenir'] or content
+                elif 'important' in label:
+                    current['why'] = current['why'] or content
+        if current is not None:
+            sections.append(current)
+        return [s for s in sections if s['title']]
 
-    def _build_statement_question(self, sentence, terms):
+    def _clean_notation_title(self, title):
+        """Nettoie un titre de section : « Notion 1 : l'héritage » → « l'héritage »."""
+        t = re.sub(r'^Notion\s*\d+\s*:\s*', '', title, flags=re.I).strip()
+        return t.strip('*').strip()
+
+    def _looks_like_noun(self, term, resume_text):
         """
-        Question d'affirmation : la bonne réponse est une phrase RÉELLE du résumé,
-        les distracteurs sont cette même phrase avec un fait altéré par un autre
-        terme réel du résumé (jamais d'affirmation générique).
+        Heuristique simple : un terme ressemble à un nom s'il apparaît précédé
+        d'un déterminant (le, la, les, un, une, des, du, de la, l', d'...).
+        Évite de capturer des adjectifs isolés (« magiques sont… », « réelle »).
+        NB : l'apostrophe est collée au terme (« l'héritage ») — pas d'espace.
         """
-        if not terms:
-            return None
-        distractors = []
-        for _ in range(6):
-            mutated = self._mutate_sentence(sentence, terms)
-            if mutated and mutated != sentence and mutated not in distractors:
-                distractors.append(mutated)
-            if len(distractors) >= 3:
+        pattern = re.compile(
+            r'(?i)\b(?:le |la |les |un |une |des |du |de la |de l\'|l\'|d\')' + re.escape(term) + r'\b'
+        )
+        return bool(pattern.search(resume_text))
+
+    def _collect_real_definitions(self, resume_text, sections, sentences):
+        """
+        Collecte des paires (terme, définition) RÉELLEMENT présentes dans le
+        résumé : sections structurées (« Définition simple »), mini-glossaire
+        (« - **terme** : définition ») et phrases définitionnelles (« X est … »).
+        """
+        defs = []
+        seen = set()
+
+        def add(term, definition):
+            term = term.strip().strip('*').strip()
+            definition = definition.strip()
+            if not term or not definition or len(definition) < 10:
+                return
+            if term.lower() in STOP_WORDS:
+                return
+            if len(term) > 48:  # un terme-cible trop long ferait une question illisible
+                return
+            key = (term.lower(), definition[:40].lower())
+            if key in seen:
+                return
+            seen.add(key)
+            defs.append((term, definition))
+
+        # 1) Notions structurées : section → « Définition simple »
+        for sec in sections:
+            title = self._clean_notation_title(sec['title'])
+            if any(s in title.lower() for s in STRUCTURAL_TITLES):
+                continue
+            if sec.get('definition'):
+                add(title, sec['definition'])
+
+        # 2) Mini-glossaire / « - **terme** : définition »
+        skip_labels = {
+            'définition simple', 'definition simple', 'explication facile', 'analogie',
+            'exemple concret', "pourquoi c'est important", 'pourquoi c’est important',
+            'à retenir', 'a retenir', 'pourquoi c est important',
+        }
+        for m in re.finditer(r'[-*>\s]*\*\*([A-Za-zÀ-ÿ][\w\s\-]{1,40}?)\*\*\s*:\s*(.+)', resume_text):
+            label = m.group(1).strip().lower()
+            if label in skip_labels or 'définition' in label or 'definition' in label:
+                continue
+            add(m.group(1).strip(), m.group(2).strip())
+
+        # 3) Phrases définitionnelles réelles : « X est ... », « X désigne ... »,
+        #    « X permet ... », « X sert à ... » — X doit ressembler à un nom
+        #    (précédé d'un article) pour ne pas capturer un adjectif de liste
+        #    (« ... et les méthodes magiques sont ... »).
+        for sent in sentences:
+            for m in re.finditer(
+                r'\b([A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-]{2,})\s+(?:est|sont|représente|représentent|désigne|désignent|signifie|correspond|permet|sert)\s+',
+                sent
+            ):
+                term = m.group(1)
+                if not self._looks_like_noun(term, resume_text):
+                    continue
+                add(term, sent)
                 break
+        return defs
+
+    def _build_meaning_question(self, defs):
+        """
+        Vraie question de sens : « D'après le résumé, que signifie X ? »
+        avec de réelles définitions du résumé en options (jamais de phrase à trous).
+        """
+        if not defs or len(defs) < 4:
+            return None
+        target_term, target_def = random.choice(defs)
+        distractors = [d for (t, d) in defs if t.lower() != target_term.lower()]
+        distractors = list(dict.fromkeys(distractors))
         if len(distractors) < 3:
             return None
-        options_list = [sentence] + distractors
+        options_list = [target_def] + random.sample(distractors, 3)
         random.shuffle(options_list)
-        correct_letter = [k for k, v in zip('ABCD', options_list) if v == sentence][0]
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target_def][0]
+        # Adapter le verbe à la définition réelle : « X permet/sert … » → « que permet X ? »
+        if re.search(r'\bpermet\b|\bsert\b', target_def.lower()):
+            stem = f"Selon le résumé, que permet « {target_term} » ?"
+        else:
+            stem = f"D'après le résumé, que signifie « {target_term} » ?"
         return {
-            "question_text": "Laquelle de ces affirmations correspond au contenu du résumé ?",
+            "question_text": stem,
             "options": dict(zip('ABCD', options_list)),
             "correct_answer": correct_letter,
-            "explanation": f"Cette affirmation est directement tirée du résumé : « {sentence} »",
+            "explanation": f"Dans le résumé, « {target_term} » est présenté ainsi : « {target_def} »",
         }
 
-    def _build_number_question(self, numbers, sentences):
+    def _build_about_question(self, sentences, terms):
         """
-        Question sur une valeur numérique réelle du résumé : la phrase avec la
-        valeur masquée, options = de vraies valeurs présentes dans le résumé.
+        Question de repérage (secours pour les résumés non structurés) :
+        « D'après le résumé, quelle phrase parle de X ? ». La bonne réponse est
+        une phrase RÉELLE du résumé qui mentionne X, les distracteurs sont
+        d'autres phrases réelles du résumé (jamais inventées).
         """
-        distinct_numbers = list(dict.fromkeys(numbers))
-        if len(distinct_numbers) < 4:
+        if len(sentences) < 4 or not terms:
             return None
-        # Trouver une phrase contenant un des nombres
-        for sentence in sentences:
-            num_match = re.search(
-                r'\b\d+(?:[.,]\d+)?\s*(?:%|€|\$|FCFA|ans|jours|mois|heures|min|s|km|m|cm|g|kg|Mo|Go|Hz|V)?\b',
-                sentence
-            )
-            if not num_match:
+        random.shuffle(sentences)
+        sample_terms = random.sample(terms, min(len(terms), 8))
+        for term in sample_terms:
+            candidates = [s for s in sentences if term.lower() in s.lower()]
+            others = [s for s in sentences if term.lower() not in s.lower()]
+            if not candidates or len(others) < 3:
                 continue
-            target = num_match.group(0).strip()
-            if target not in distinct_numbers:
-                continue
-            blanked = sentence.replace(target, '___', 1)
-            options_list = random.sample(distinct_numbers, 4)
-            if target not in options_list:
-                options_list[random.randint(0, 3)] = target
+            target = random.choice(candidates)
+            options_list = [target] + random.sample(others, 3)
             random.shuffle(options_list)
             correct_letter = [k for k, v in zip('ABCD', options_list) if v == target][0]
             return {
-                "question_text": f"Complétez avec la valeur réellement indiquée dans le résumé : « {blanked} »",
+                "question_text": f"D'après le résumé, quelle phrase parle de « {term} » ?",
                 "options": dict(zip('ABCD', options_list)),
                 "correct_answer": correct_letter,
-                "explanation": f"Le résumé indique bien la valeur « {target} » : « {sentence} »",
+                "explanation": f"Dans le résumé, « {term} » apparaît dans cette phrase : « {target} »",
             }
         return None
+
+    def _build_retenir_question(self, sections):
+        """
+        Vraie question de synthèse : « Quelle idée faut-il retenir à propos de X ? »
+        avec de vraies phrases « À retenir » du résumé en options.
+        """
+        retenirs = []
+        for sec in sections:
+            title = self._clean_notation_title(sec['title'])
+            if any(s in title.lower() for s in STRUCTURAL_TITLES):
+                continue
+            if sec.get('retenir') and len(sec['retenir']) >= 8:
+                retenirs.append((title, sec['retenir']))
+        if len(retenirs) < 4:
+            return None
+        target_title, target_text = random.choice(retenirs)
+        distractors = [r for (t, r) in retenirs if t.lower() != target_title.lower()]
+        distractors = list(dict.fromkeys(distractors))
+        if len(distractors) < 3:
+            return None
+        options_list = [target_text] + random.sample(distractors, 3)
+        random.shuffle(options_list)
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target_text][0]
+        return {
+            "question_text": f"Quelle est l'idée essentielle à retenir à propos de « {target_title} » selon le résumé ?",
+            "options": dict(zip('ABCD', options_list)),
+            "correct_answer": correct_letter,
+            "explanation": f"Le résumé indique à retenir à propos de « {target_title} » : « {target_text} »",
+        }
+
+    def _build_importance_question(self, sections):
+        """
+        Vraie question de compréhension : « Pourquoi X est-il important ? »
+        avec de vraies raisons données dans le résumé (« Pourquoi c'est important »).
+        """
+        whys = []
+        for sec in sections:
+            title = self._clean_notation_title(sec['title'])
+            if any(s in title.lower() for s in STRUCTURAL_TITLES):
+                continue
+            if sec.get('why') and len(sec['why']) >= 8:
+                whys.append((title, sec['why']))
+        if len(whys) < 4:
+            return None
+        target_title, target_text = random.choice(whys)
+        distractors = [w for (t, w) in whys if t.lower() != target_title.lower()]
+        distractors = list(dict.fromkeys(distractors))
+        if len(distractors) < 3:
+            return None
+        options_list = [target_text] + random.sample(distractors, 3)
+        random.shuffle(options_list)
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target_text][0]
+        return {
+            "question_text": f"Selon le résumé, pourquoi « {target_title} » est-il important ?",
+            "options": dict(zip('ABCD', options_list)),
+            "correct_answer": correct_letter,
+            "explanation": f"Le résumé explique l'importance de « {target_title} » ainsi : « {target_text} »",
+        }
 
     def _build_code_question(self, code_block, terms):
         """

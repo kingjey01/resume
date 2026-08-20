@@ -476,6 +476,21 @@ REGLES STRICTES A SUIVRE:
 20. Si une question contient du code, une formule ou une expression particuliere, utilise les champs "code_language" et "code_block".
 21. Si une question ne contient ni code ni formule, mets "code_language": null et "code_block": null.
 22. Le contenu (code, formule ou expression) doit etre court, simple et base uniquement sur le resume.
+23. INTERDICTION ABSOLUE des questions generiques a trous ou a affirmation :
+    - Ne jamais formuler une question comme « Completez cette phrase : ... »,
+      « Completez la phrase extraite du resume : ... », « Completez la definition : ... »
+      ou toute question a trous utilisant « ___ » ou un mot masque dans une phrase.
+    - Ne jamais formuler « Laquelle de ces affirmations est vraie ? »,
+      « Laquelle de ces affirmations correspond au contenu ? » ou toute question
+      « parmi ces affirmations / propositions ».
+24. Les questions doivent etre de VRAIES questions de comprehension portant sur le contenu :
+    - « Que signifie X ? », « Quel est le role de X ? », « A quoi sert X ? »,
+    - « Pourquoi X ? », « Quelle est la difference entre X et Y ? »,
+    - « Quelle valeur / quel resultat le resume indique-t-il pour X ? », etc.
+    Chaque question doit demander un fait, une definition, un role, une cause,
+    une consequence ou un raisonnement explicitement present dans le resume.
+    Une bonne question ne se repond pas en devinant un mot manquant : il faut
+    avoir compris la notion.
 
 STYLE DES QUESTIONS:
 
