@@ -1380,14 +1380,21 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
             
             // Contrôles d'enregistrement (masqués si fichier uploadé)
             if (!_isFileUploaded) _buildRecordingControls(),
-            
+
             const SizedBox(height: 16),
-            
+
+            // Brouillons locaux — TOUJOURS visibles, même sans enregistrement
+            // en cours, pour permettre de reprendre ou supprimer un brouillon
+            // existant après avoir quitté et rouvert l'écran (tache6).
+            if (_localDrafts.isNotEmpty) _buildDraftsPanel(),
+
+            if (_localDrafts.isNotEmpty) const SizedBox(height: 16),
+
             // Contrôles de session
             if (_recordedBytes != null) _buildSessionControls(),
-            
+
             const SizedBox(height: 16),
-            
+
             // Section des enregistrements sauvegardés
             if (_savedRecordings.isNotEmpty) _buildSavedRecordingsSection(),
             ],
@@ -1706,10 +1713,6 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                     Text('Durée: ${_formatDuration(_recordDuration)}', style: const TextStyle(color: AppTheme.textLight, fontSize: 13)),
                   ],
                 ),
-                const SizedBox(height: 8),
-
-                // Panneau des brouillons locaux
-                _buildDraftsPanel(),
                 const SizedBox(height: 8),
 
                 Wrap(
