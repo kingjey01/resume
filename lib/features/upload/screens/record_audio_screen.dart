@@ -55,6 +55,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   Professeur? _selectedProfesseur;
   List<Professeur> _professeurs = [];
   bool _isLoadingProfesseurs = false;
+  // Erreur transitoire au chargement : non bloquante (le champ professeur est
+  // en saisie libre), on propose juste un « Réessayer » discret dans l'UI.
+  bool _professeursLoadFailed = false;
   
   // Auto-résolution du professeur via Dispense (Objectif 7)
   String? _autoResolvedProfessorName;
@@ -200,6 +203,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     const maxRetries = 3;
     setState(() {
       _isLoadingProfesseurs = true;
+      _professeursLoadFailed = false;
     });
 
     try {
@@ -210,6 +214,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       setState(() {
         _professeurs = professeursData.map((json) => Professeur.fromJson(json)).toList();
         _isLoadingProfesseurs = false;
+        _professeursLoadFailed = false;
       });
     } on DioException catch (e) {
       print('❌ [Flutter] DioException chargement professeurs: ${e.type} | ${e.message} | status: ${e.response?.statusCode}');
@@ -223,8 +228,23 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         return _loadProfesseurs(retryCount: retryCount + 1);
       }
 
-      // Message utilisateur clair sans DioException brut
       final statusCode = e.response?.statusCode;
+      // Erreur réseau transitoire (connexion, timeout) : NON bloquante — le
+      // champ professeur reste utilisable en saisie libre. On affiche juste un
+      // « Réessayer » discret dans l'UI au lieu d'une alerte alarmante.
+      final isNetworkError = e.type == DioExceptionType.connectionError ||
+          e.type == DioExceptionType.connectionTimeout ||
+          e.type == DioExceptionType.sendTimeout ||
+          e.type == DioExceptionType.receiveTimeout ||
+          e.type == DioExceptionType.unknown;
+
+      setState(() => _professeursLoadFailed = true);
+
+      if (isNetworkError || statusCode == null) {
+        return;
+      }
+
+      // Erreur serveur réelle → message clair
       String userMessage;
       if (statusCode == 500) {
         userMessage = 'Le serveur rencontre un problème temporaire. Veuillez réessayer plus tard.';
@@ -233,13 +253,14 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       } else if (statusCode == 404) {
         userMessage = 'Service indisponible.';
       } else {
-        userMessage = 'Impossible de charger la liste des professeurs. Vérifiez votre connexion.';
+        userMessage = 'Impossible de charger la liste des professeurs.';
       }
       SnackbarService.show(userMessage, isError: true);
     } catch (e) {
       print('❌ [Flutter] Erreur inattendue chargement professeurs: $e');
       setState(() {
         _isLoadingProfesseurs = false;
+        _professeursLoadFailed = true;
       });
       SnackbarService.show('Impossible de charger la liste des professeurs.', isError: true);
     }
@@ -1203,7 +1224,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                     ],
                   ),
                 )
-              else
+              else ...[
                 // Cas 2 : Aucune dispense → champ libre
                 TextFormField(
                   controller: _professorNameController,
@@ -1217,6 +1238,28 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                     filled: true,
                   ),
                 ),
+                // Échec transitoire du chargement des professeurs : non bloquant,
+                // un simple « Réessayer » est proposé.
+                if (_professeursLoadFailed) ...[
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.cloud_off_rounded, size: 14, color: AppTheme.textLight),
+                      const SizedBox(width: 6),
+                      Expanded(
+                        child: Text(
+                          'Suggestions de professeurs indisponibles.',
+                          style: TextStyle(fontSize: 11, color: AppTheme.textLight),
+                        ),
+                      ),
+                      TextButton(
+                        onPressed: _isLoadingProfesseurs ? null : _loadProfesseurs,
+                        child: const Text('Réessayer', style: TextStyle(fontSize: 11)),
+                      ),
+                    ],
+                  ),
+                ],
+              ],
               
               const SizedBox(height: 24),
 
