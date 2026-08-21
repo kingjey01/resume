@@ -279,6 +279,15 @@ class ApiService {
         final newAccessToken = response.data['access'];
         _currentAccessToken = newAccessToken;
         await _storageService.saveAccessToken(newAccessToken);
+        // Rotation du refresh token : le backend (ROTATE_REFRESH_TOKENS +
+        // BLACKLIST_AFTER_ROTATION) renvoie un NOUVEAU refresh token et
+        // blackliste l'ancien. Sans sauvegarde, le refresh token en storage
+        // devient obsolète → le prochain refresh échoue (session perdue).
+        final newRefreshToken = response.data['refresh'];
+        if (newRefreshToken != null && newRefreshToken.toString().isNotEmpty) {
+          _currentRefreshToken = newRefreshToken;
+          await _storageService.saveRefreshToken(newRefreshToken.toString());
+        }
         _refreshCompleter!.complete(newAccessToken);
         return newAccessToken;
       } else {

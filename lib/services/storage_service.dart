@@ -214,6 +214,16 @@ class StorageService {
     await writeToken(token);
   }
 
+  Future<void> saveRefreshToken(String token) async {
+    _memoryRefreshToken = token;
+    if (kIsWeb) {
+      final prefs = _injectedPrefs ?? await SharedPreferences.getInstance();
+      await prefs.setString(_refreshTokenKey, token);
+    } else {
+      await _storage.write(key: _refreshTokenKey, value: token);
+    }
+  }
+
   Future<void> saveTokens(String accessToken, String refreshToken) async {
     await writeTokens(accessToken: accessToken, refreshToken: refreshToken);
   }
