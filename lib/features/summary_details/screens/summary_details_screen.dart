@@ -1279,6 +1279,8 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
             ExerciseGenerationProgress(
               progress: _exerciseGenerationProgress,
               status: _exerciseGenerationStatus,
+              // La carte parente est un dégradé bleu foncé → texte blanc + barre verte
+              onDark: true,
               onCancel: () {
                 setState(() {
                   _isGeneratingExercise = false;
