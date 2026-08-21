@@ -9,6 +9,9 @@ class ExerciseGenerationProgress extends StatelessWidget {
   final String? errorMessage;
   final VoidCallback? onRetry;
   final VoidCallback? onCancel;
+  /// Afficher sur fond sombre (carte dégradé bleu foncé) : texte BLANC et
+  /// barre de progression VERTE pour rester lisibles.
+  final bool onDark;
 
   const ExerciseGenerationProgress({
     super.key,
@@ -17,6 +20,7 @@ class ExerciseGenerationProgress extends StatelessWidget {
     this.errorMessage,
     this.onRetry,
     this.onCancel,
+    this.onDark = false,
   });
 
   @override
@@ -30,14 +34,16 @@ class ExerciseGenerationProgress extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
-          colors: [
-            AppTheme.primaryBlue.withOpacity(0.1),
-            AppTheme.primaryBlueLight.withOpacity(0.05),
-          ],
+          colors: onDark
+              ? [Colors.white.withOpacity(0.12), Colors.white.withOpacity(0.06)]
+              : [
+                  AppTheme.primaryBlue.withOpacity(0.1),
+                  AppTheme.primaryBlueLight.withOpacity(0.05),
+                ],
         ),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: AppTheme.primaryBlue.withOpacity(0.2),
+          color: onDark ? Colors.white.withOpacity(0.25) : AppTheme.primaryBlue.withOpacity(0.2),
           width: 1,
         ),
       ),
@@ -53,7 +59,7 @@ class ExerciseGenerationProgress extends StatelessWidget {
             _getTitle(),
             style: theme.textTheme.titleMedium?.copyWith(
               fontWeight: FontWeight.bold,
-              color: errorMessage != null ? AppTheme.error : AppTheme.primaryBlueDark,
+              color: errorMessage != null ? AppTheme.error : (onDark ? Colors.white : AppTheme.primaryBlueDark),
             ),
             textAlign: TextAlign.center,
           ),
@@ -63,7 +69,7 @@ class ExerciseGenerationProgress extends StatelessWidget {
           Text(
             errorMessage ?? status,
             style: theme.textTheme.bodyMedium?.copyWith(
-              color: errorMessage != null ? AppTheme.error : Colors.grey[600],
+              color: errorMessage != null ? AppTheme.error : (onDark ? Colors.white.withOpacity(0.85) : Colors.grey[600]),
             ),
             textAlign: TextAlign.center,
           ),
@@ -79,7 +85,7 @@ class ExerciseGenerationProgress extends StatelessWidget {
               '${(progress * 100).toInt()}%',
               style: theme.textTheme.bodyMedium?.copyWith(
                 fontWeight: FontWeight.w600,
-                color: AppTheme.primaryBlue,
+                color: onDark ? Colors.white : AppTheme.primaryBlue,
               ),
             ),
           ],
@@ -130,9 +136,10 @@ class ExerciseGenerationProgress extends StatelessWidget {
       child: LinearProgressIndicator(
         value: progress,
         minHeight: 8,
-        backgroundColor: Colors.grey[200],
+        backgroundColor: onDark ? Colors.white.withOpacity(0.25) : Colors.grey[200],
+        // Barre VERTE sur fond sombre pour une meilleure visibilité
         valueColor: AlwaysStoppedAnimation<Color>(
-          AppTheme.primaryBlue,
+          onDark ? AppTheme.success : AppTheme.primaryBlue,
         ),
       ),
     );
@@ -159,7 +166,7 @@ class ExerciseGenerationProgress extends StatelessWidget {
             onPressed: onCancel,
             child: Text(
               'Annuler',
-              style: TextStyle(color: Colors.grey[600]),
+              style: TextStyle(color: onDark ? Colors.white70 : Colors.grey[600]),
             ),
           ),
       ],
