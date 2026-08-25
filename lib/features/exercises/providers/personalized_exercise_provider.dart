@@ -280,6 +280,19 @@ class PersonalizedExerciseNotifier extends StateNotifier<PersonalizedExerciseSta
   }
 
   // ═══════════════════════════════════════════════════════════════════════════════
+  //  5bis. CHARGEMENT DIRECT (après génération réussie)
+  // ═══════════════════════════════════════════════════════════════════════════════
+
+  /// Charge directement un exercice déjà généré, SANS passer par la sélection
+  /// de difficulté. Utilisé après une génération réussie pour afficher
+  /// immédiatement les questions (évite de re-vérifier et de retomber sur le
+  /// sélecteur de niveau).
+  Future<void> loadGeneratedExercise(int exerciseId) {
+    state = state.copyWith(status: ExerciseGenerationStatus.checking, isLoading: true);
+    return _loadExercise(exerciseId);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════════
   //  6. QUIZ - NAVIGATION ET RÉPONSES
   // ═══════════════════════════════════════════════════════════════════════════════
 

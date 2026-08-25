@@ -10,12 +10,17 @@ class PersonalizedQuizScreen extends ConsumerStatefulWidget {
   final int summaryId;
   final String summaryTitle;
   final String? difficulty;
+  /// Exercice fraîchement généré : si fourni, on charge SES questions
+  /// directement (sans re-vérifier), pour ne pas retomber sur le sélecteur
+  /// de niveau après une génération réussie.
+  final int? exerciseId;
 
   const PersonalizedQuizScreen({
     super.key,
     required this.summaryId,
     required this.summaryTitle,
     this.difficulty,
+    this.exerciseId,
   });
 
   @override
@@ -31,8 +36,14 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
     // Charger l'exercice existant ou vérifier — en ciblant le niveau choisi
     // (sinon l'app rechargerait un autre niveau : « le premier est conservé »)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(personalizedExerciseProvider.notifier)
-          .checkExistingExercise(widget.summaryId, difficulty: widget.difficulty);
+      final notifier = ref.read(personalizedExerciseProvider.notifier);
+      if (widget.exerciseId != null) {
+        // Exercice généré → charger SES questions directement (pas de re-check)
+        notifier.loadGeneratedExercise(widget.exerciseId!);
+      } else {
+        // Ouvert sans exercice fourni → vérifier l'existant
+        notifier.checkExistingExercise(widget.summaryId, difficulty: widget.difficulty);
+      }
     });
   }
 

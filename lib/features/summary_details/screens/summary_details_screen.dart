@@ -216,7 +216,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
 
       if (exists && existingStatus == 'completed') {
         // Exercice de ce niveau déjà prêt → réutiliser, ne rien régénérer
-        if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty);
+        if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty, exerciseId: existingExerciseId);
         return;
       }
 
@@ -245,7 +245,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
       }
 
       if (status == 'completed') {
-        if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty);
+        if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty, exerciseId: exerciseId);
       } else {
         _pollPersonalizedExercise(exerciseId, difficulty: difficulty);
       }
@@ -275,7 +275,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
         final s = data['status'] as String? ?? '';
 
         if (s == 'completed') {
-          if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty);
+          if (mounted) _navigateToPersonalizedQuiz(difficulty: difficulty, exerciseId: exerciseId);
           return false;
         } else if (s == 'failed' || attempt >= maxAttempts) {
           if (mounted) {
@@ -322,7 +322,9 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   }
 
   /// Navigation vers l'écran du quiz personnalisé
-  void _navigateToPersonalizedQuiz({String? difficulty}) {
+  /// [exerciseId] : exercice déjà prêt → le quiz charge SES questions
+  /// directement (ne repasse pas par la sélection de difficulté).
+  void _navigateToPersonalizedQuiz({String? difficulty, int? exerciseId}) {
     setState(() {
       _isGeneratingExercise = false;
       _exerciseGenerationProgress = 1.0;
@@ -335,6 +337,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
           summaryId: widget.summary.id,
           summaryTitle: widget.summary.title,
           difficulty: difficulty,
+          exerciseId: exerciseId,
         ),
       ),
     ).then((_) {
