@@ -23,9 +23,19 @@ class QuizResultScreen extends StatelessWidget {
     final score = result.score;
     final isSuccess = score >= 60;
 
-    return Scaffold(
-      backgroundColor: theme.scaffoldBackgroundColor,
-      body: SafeArea(
+    // Le retour système (bouton Android) doit se comporter exactement comme
+    // le bouton « Retour au résumé » : fermer l'écran de résultats PUIS l'écran
+    // du quiz. Sans cela, un simple pop révélerait le quiz figé sur un spinner
+    // (état « completed » non réinitialisé) → écran noir / blocage.
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, result) {
+        if (didPop) return;
+        onBack();
+      },
+      child: Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
+        body: SafeArea(
         child: CustomScrollView(
           slivers: [
             // Header avec score
@@ -89,6 +99,7 @@ class QuizResultScreen extends StatelessWidget {
             // Espace en bas
             const SliverToBoxAdapter(child: SizedBox(height: 40)),
           ],
+        ),
         ),
       ),
     );
