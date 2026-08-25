@@ -15,6 +15,14 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
+import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart' hide apiServiceProvider;
+import 'package:resume_plus_clean/features/home/providers/summary_provider.dart';
+import 'package:resume_plus_clean/features/notifications/providers/notification_provider.dart';
+import 'package:resume_plus_clean/features/summaries/providers/purchased_summaries_provider.dart' hide apiServiceProvider;
+import 'package:resume_plus_clean/providers/purchase_badge_provider.dart';
+import 'package:resume_plus_clean/features/subscriptions/providers/subscription_provider.dart';
+import 'package:resume_plus_clean/features/subscriptions/providers/service_provider.dart';
+import 'package:resume_plus_clean/features/exercises/providers/personalized_exercise_provider.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -55,6 +63,35 @@ class MyApp extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final themeMode = ref.watch(themeModeProvider);
+
+    // Isolation des données entre utilisateurs : quand l'utilisateur
+    // authentifié change (login, logout, changement de compte sur le même
+    // téléphone), on invalide TOUS les providers dépendants de l'utilisateur
+    // pour que l'utilisateur suivant ne voie JAMAIS les données du précédent.
+    ref.listen(authProvider, (prev, next) {
+      final prevId = prev?.value?.id;
+      final nextId = next.value?.id;
+      if (prevId != nextId) {
+        debugPrint('🔄 [Root] Utilisateur changé ($prevId → $nextId) — invalidation des données');
+        // Vider la session API en mémoire (token + caches universités/filières)
+        ref.read(apiServiceProvider).clearSession();
+        ref.invalidate(summariesProvider);
+        ref.invalidate(validatedSummariesBadgeProvider);
+        ref.invalidate(createdSummariesBadgeProvider);
+        ref.invalidate(unreadCountProvider);
+        ref.invalidate(notificationsProvider);
+        ref.invalidate(purchasedSummariesProvider);
+        ref.invalidate(purchaseHistoryProvider);
+        ref.invalidate(purchaseBadgeCountProvider);
+        ref.invalidate(subscriptionsProvider);
+        ref.invalidate(servicesProvider);
+        ref.invalidate(personalizedExerciseProvider);
+        ref.invalidate(personalizedExerciseAttemptsProvider);
+        ref.read(searchQueryProvider.notifier).state = '';
+        // Incrémenter le compteur de session pour les écrans existants
+        ref.read(userSessionVersionProvider.notifier).state++;
+      }
+    });
 
     return MaterialApp(
       title: 'Résumé+',

@@ -38,7 +38,7 @@ class AuthRepository {
   }
 
   /// Déconnecte l'utilisateur et supprime les tokens
-  /// 
+  ///
   /// Ne lance jamais d'exception
   Future<void> logout() async {
     try {
@@ -48,6 +48,9 @@ class AuthRepository {
     } finally {
       // On s'assure que les tokens sont bien supprimés localement
       await _storageService.deleteTokens();
+      // Vider les caches persistants de l'utilisateur (profil, achats,
+      // recherches) pour que l'utilisateur suivant ne voie PAS ses données.
+      await _storageService.clearAllCache();
     }
   }
 
