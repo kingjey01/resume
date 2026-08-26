@@ -2,7 +2,7 @@ name: resume_plus_clean
 description: "Une application pour résumer des cours - Version propre."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.1.1+17
+version: 1.1.2+18
 
 environment:
   sdk: '>=3.0.0 <4.0.0'

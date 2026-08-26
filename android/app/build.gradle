@@ -16,9 +16,11 @@ if (keystorePropertiesFile.exists()) {
 android {
     namespace = "com.resumeplus.jeycode"
     compileSdk = 36
-    // NDK 25.1 était corrompu (téléchargement interrompu, dossier vide).
-    // NDK 23.0.7599858 déjà installé et complet — aucun code natif dans l'app.
-    ndkVersion = "23.0.7599858"
+    // Les plugins natifs (audioplayers, record, firebase, file_picker…) exigent
+    // NDK 27+ pour produire des bibliothèques .so compatibles. NDK 23 produisait
+    // des .so incompatibles → échec d'installation (« application non installée »).
+    // Gradle télécharge automatiquement le NDK 27 s'il n'est pas présent.
+    ndkVersion = "27.0.12077973"
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_11
@@ -35,8 +37,8 @@ android {
         applicationId = "com.resumeplus.jeycode"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = 36
-        versionCode = 17
-        versionName = "1.1.1"
+        versionCode = 18
+        versionName = "1.1.2"
         multiDexEnabled true
     }
 
