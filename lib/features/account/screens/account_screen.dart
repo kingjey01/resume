@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/models/summary.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:resume_plus_clean/features/splash/screens/splash_screen.dart';
+import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 
-class AccountScreen extends StatefulWidget {
+class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
 
   @override
-  State<AccountScreen> createState() => _AccountScreenState();
+  ConsumerState<AccountScreen> createState() => _AccountScreenState();
 }
 
-class _AccountScreenState extends State<AccountScreen> {
+class _AccountScreenState extends ConsumerState<AccountScreen> {
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
   Map<String, dynamic>? _userProfile;
@@ -56,7 +58,12 @@ class _AccountScreenState extends State<AccountScreen> {
 
   Future<void> _logout() async {
     try {
-      await _apiService.logout();
+      // Passer par auth_provider.logout() : vide la session API, les tokens,
+      // les caches persistants ET met à jour authProvider (→ invalidation des
+      // données utilisateur, indispensable à l'isolation entre comptes).
+      // L'ancien appel direct à _apiService.logout() laissait authProvider
+      // figé sur l'ancien utilisateur → ses données restaient affichées.
+      await ref.read(authProvider.notifier).logout();
       if (mounted) {
         Navigator.of(context).pushAndRemoveUntil(
           MaterialPageRoute(builder: (_) => const SplashScreen()),
