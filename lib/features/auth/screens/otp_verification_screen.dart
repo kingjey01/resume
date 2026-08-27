@@ -1,16 +1,18 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/services/otp_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
 import 'package:resume_plus_clean/features/onboarding/cp_onboarding_flow.dart';
+import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:dio/dio.dart';
 import 'dart:async';
 
-class OtpVerificationScreen extends StatefulWidget {
+class OtpVerificationScreen extends ConsumerStatefulWidget {
   final String phoneNumber;
   final String? debugCode;
 
@@ -27,10 +29,10 @@ class OtpVerificationScreen extends StatefulWidget {
   });
 
   @override
-  State<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
+  ConsumerState<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
 }
 
-class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
+class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
   final List<TextEditingController> _controllers = List.generate(4, (_) => TextEditingController());
   final List<FocusNode> _focusNodes = List.generate(4, (_) => FocusNode());
   bool _isLoading = false;
@@ -148,7 +150,13 @@ class _OtpVerificationScreenState extends State<OtpVerificationScreen> {
           result['access_token'],
           result['refresh_token'],
         );
-        
+
+        // Mettre à jour l'état d'authentification (authProvider) : c'est LA
+        // source de vérité qui déclenche l'invalidation des données utilisateur
+        // (isolation entre comptes). Sans cette mise à jour, l'app gardait
+        // l'utilisateur précédent et ses données restaient affichées.
+        await ref.read(authProvider.notifier).refreshUser();
+
         // Enregistrer le token FCM maintenant que l'utilisateur est authentifié
         if (!kIsWeb) {
           try {
