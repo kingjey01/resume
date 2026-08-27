@@ -62,19 +62,20 @@ def on_session_summarized(sender, instance, **kwargs):
     if not author:
         logger.warning(
             f"⚠️ [Signal] Résumé {summary.id} (session {instance.id}) sans auteur — "
-            f"notification CP ignorée"
+            f"fallback : notification adressée aux CP du cours"
         )
-        return
 
     try:
         from notifications.tasks import notify_summary_available
         logger.info(
             f"🚀 [Signal] Tâche de notification déclenchée — "
             f"notify_summary_available summary_id={summary.id}, "
-            f"auteur={author.username} (id={author.id})"
+            f"auteur={getattr(author, 'username', 'inconnu')} (id={author.id if author else 'None'})"
         )
+        # author_user_id peut être None : la tâche notifie alors les CP du cours
+        # (le résumé devient disponible → il faut TOUJOURS prévenir quelqu'un).
         notify_summary_available.apply_async(
-            kwargs={'summary_id': summary.id, 'author_user_id': author.id},
+            kwargs={'summary_id': summary.id, 'author_user_id': author.id if author else None},
             countdown=1,
         )
     except Exception as err:
