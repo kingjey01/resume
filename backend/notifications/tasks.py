@@ -338,7 +338,7 @@ def notify_summary_created(self, summary_id: int, author_user_id: int):
 
 
 @shared_task(bind=True, max_retries=2, default_retry_delay=10)
-def notify_summary_available(self, summary_id: int, author_user_id: int):
+def notify_summary_available(self, summary_id: int, author_user_id: int = None):
     """
     TACHE2 : notifie le CP qui a soumis l'audio que son résumé IA est généré
     et EN ATTENTE DE VALIDATION.
@@ -350,6 +350,14 @@ def notify_summary_available(self, summary_id: int, author_user_id: int):
     Le résumé IA n'est pas encore validé : on informe donc le CP qu'il doit le
     valider. Le message « résumé disponible » vers les étudiants n'est envoyé
     qu'à la validation (validate_summary_view → create_and_send_notification).
+
+    Destinataires :
+      - l'auteur du résumé (author_user_id) s'il est connu ;
+      - sinon, fallback : les CP/ADMIN de la promotion du cours, pour garantir
+        qu'une notification est TOUJOURS déclenchée (résumé disponible).
+
+    Anti-doublon : si une notification existe déjà pour ce résumé, elle est
+    réutilisée (retry Celery, re-save du statut).
 
     Logs de la chaîne complète :
       - statut → « Résumé disponible »          (signal on_session_summarized)
@@ -375,15 +383,34 @@ def notify_summary_available(self, summary_id: int, author_user_id: int):
             logger.warning(f'⚠️ [Task] notify_summary_available: Résumé {summary_id} introuvable')
             return {'sent': 0, 'reason': 'summary_not_found'}
 
-        try:
-            author = User.objects.get(id=author_user_id)
-        except User.DoesNotExist:
-            logger.warning(f'⚠️ [Task] notify_summary_available: auteur {author_user_id} introuvable')
-            return {'sent': 0, 'reason': 'author_not_found'}
+        # Destinataires : l'auteur du résumé si connu ; sinon les CP/ADMIN de la
+        # promotion du cours (fallback pour garantir qu'une notification est
+        # TOUJOURS déclenchée quand le résumé devient disponible).
+        target_users = []
+        if author_user_id:
+            try:
+                target_users = [User.objects.get(id=author_user_id)]
+            except User.DoesNotExist:
+                logger.warning(f'⚠️ [Task] notify_summary_available: auteur {author_user_id} introuvable')
+
+        if not target_users:
+            from users.models import UserProfile
+            profile_qs = UserProfile.objects.filter(
+                user__is_active=True,
+                groupe__in=['CP', 'ADMIN'],
+            ).select_related('user')
+            uni = summary.course.universites.first() if summary.course_id else None
+            if uni:
+                profile_qs = profile_qs.filter(universite_id=uni.id)
+            target_users = [p.user for p in profile_qs]
+
+        if not target_users:
+            logger.warning(f'⚠️ [Task] notify_summary_available: aucun destinataire pour le résumé {summary_id}')
+            return {'sent': 0, 'reason': 'no_recipient'}
 
         logger.info(
             f'🔔 [Task] Résumé « {summary.titre} » (cours: {summary.course.nom}) — '
-            f'auteur: {author.username} (id={author.id})'
+            f'{len(target_users)} destinataire(s)'
         )
 
         # 2. Anti-doublon : si une notification « résumé disponible » existe déjà
@@ -394,25 +421,28 @@ def notify_summary_available(self, summary_id: int, author_user_id: int):
         ).first()
 
         if existing:
-            un, _ = UserNotification.objects.get_or_create(
-                user=author,
-                notification=existing,
-            )
+            un_ids = []
+            for author in target_users:
+                un, _ = UserNotification.objects.get_or_create(
+                    user=author,
+                    notification=existing,
+                )
+                un_ids.append(un.id)
             logger.info(
                 f'🔔 [Task] Notification existante réutilisée: id={existing.id} '
-                f'— envoi relancé (user_notification_id={un.id})'
+                f'— envoi relancé ({len(un_ids)} destinataire(s))'
             )
-            send_fcm_notification.apply_async(args=[[un.id]], countdown=1)
-            logger.info(f'📨 [Task] Tâche d\'envoi FCM planifiée — user_notification_id={un.id}')
+            send_fcm_notification.apply_async(args=[un_ids], countdown=1)
+            logger.info(f'📨 [Task] Tâche d\'envoi FCM planifiée — {len(un_ids)} destinataire(s)')
             return {
                 'notification_id': existing.id,
-                'user_id': author.id,
+                'user_id': target_users[0].id,
                 'summary_id': summary_id,
                 'reused': True,
             }
 
-        # 3. Création de la notification pour le CP auteur de l'audio :
-        #    le résumé IA est généré mais PAS encore validé → « en attente de validation ».
+        # 3. Création de la notification « en attente de validation » :
+        #    le résumé IA est généré mais PAS encore validé.
         #    Le message « résumé disponible » aux étudiants n'arrive qu'à la validation.
         notif = AppNotification.objects.create(
             title='📝 Résumé en attente de validation',
@@ -420,24 +450,27 @@ def notify_summary_available(self, summary_id: int, author_user_id: int):
             notification_type='summary_created',
             summary_id=summary.id,
             course_id=summary.course.id,
-            sender=author,
+            sender=target_users[0] if len(target_users) == 1 else None,
         )
         logger.info(
             f'🔔 [Task] Notification créée: id={notif.id} type=summary_created '
             f'(summary_id={summary.id})'
         )
 
-        un, _ = UserNotification.objects.get_or_create(
-            user=author,
-            notification=notif,
-        )
-        logger.info(f'🔔 [Task] Destinataire ciblé: {author.username} — user_notification_id={un.id}')
+        un_ids = []
+        for author in target_users:
+            un, _ = UserNotification.objects.get_or_create(
+                user=author,
+                notification=notif,
+            )
+            un_ids.append(un.id)
+        logger.info(f'🔔 [Task] {len(un_ids)} destinataire(s) ciblé(s) — ids={un_ids}')
 
         # 4. Déclencher la tâche d'envoi FCM
-        send_fcm_notification.apply_async(args=[[un.id]], countdown=1)
-        logger.info(f'📨 [Task] Tâche d\'envoi FCM planifiée — user_notification_id={un.id}')
+        send_fcm_notification.apply_async(args=[un_ids], countdown=1)
+        logger.info(f'📨 [Task] Tâche d\'envoi FCM planifiée — {len(un_ids)} destinataire(s)')
 
-        return {'notification_id': notif.id, 'user_id': author.id, 'summary_id': summary_id}
+        return {'notification_id': notif.id, 'user_id': target_users[0].id, 'summary_id': summary_id}
 
     except Exception as exc:
         logger.error(f'❌ [Task] notify_summary_available échoué: {exc}')
