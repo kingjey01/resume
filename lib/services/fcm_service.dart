@@ -203,6 +203,12 @@ class FcmService {
     final notification = message.notification;
     if (notification == null) return;
 
+    // Nombre de non lues envoyé par le backend (data['badge_count']) :
+    // affiché sur la notification Android 8+ (setNumber) → le lanceur peut
+    // l'utiliser pour le badge d'icône, même quand ShortcutBadger n'est pas
+    // supporté (stock Android, certains lanceurs).
+    final badgeCount = int.tryParse(message.data['badge_count'] ?? '') ?? 0;
+
     await _localNotifications.show(
       message.hashCode,
       notification.title,
@@ -219,6 +225,7 @@ class FcmService {
           largeIcon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
           playSound: true,
           enableVibration: true,
+          number: badgeCount, // Compteur de non lues sur la notification (Android 8+)
           styleInformation: BigTextStyleInformation(
             notification.body ?? '',
             htmlFormatBigText: false,
