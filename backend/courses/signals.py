@@ -58,6 +58,20 @@ def on_session_summarized(sender, instance, **kwargs):
         )
         return
 
+    # Anti-doublon : la notification « en attente de validation » est créée à la
+    # CRÉATION du résumé (on_summary_created). Ce signal ne fait que servir de
+    # filet de sécurité si cette notification n'existe pas (ex. échec de la
+    # tâche au moment de la création) — sinon pas de seconde notification.
+    from notifications.models import AppNotification
+    if AppNotification.objects.filter(
+        notification_type='summary_created',
+        summary_id=summary.id,
+    ).exists():
+        logger.info(
+            f"✅ [Signal] Résumé {summary.id} déjà notifié à sa création — pas de doublon"
+        )
+        return
+
     author = summary.author_user
     if not author:
         logger.warning(
@@ -85,34 +99,51 @@ def on_session_summarized(sender, instance, **kwargs):
 @receiver(post_save, sender=Summary)
 def on_summary_created(sender, instance, created, **kwargs):
     """
-    Signal déclenché à la création d'un résumé MANUEL (author_type='cp'),
-    qui n'a pas de session à statut (donc pas de transition « Résumé disponible »).
+    Signal déclenché à la CRÉATION d'un résumé (manuel 'cp' ou IA 'ai').
 
-    Les résumés manuels sont AUTO-VALIDÉS à la sauvegarde (Summary.save →
-    is_validated=True). À la création on fait donc :
-      1. confirmation au CP créateur (résumé créé) ;
-      2. diffusion « résumé disponible » aux étudiants de la promotion,
-         comme le ferait une validation (validate_summary_view).
+    Résumé MANUEL (cp) : auto-validé à la sauvegarde → confirmation CP +
+    diffusion « résumé disponible » aux étudiants de la promotion.
 
-    Les résumés générés depuis un audio (author_type='ai') sont notifiés par le
-    signal de statut de session (on_session_summarized), lié au vrai passage à
-    « Résumé disponible » — ce signal ne les gère plus, pour éviter le double
-    déclenchement.
+    Résumé IA (ai) : dès sa création, on notifie le CP « en attente de
+    validation » (le résumé existe et doit être validé). Le signal de statut
+    de session (on_session_summarized) sert de filet de sécurité avec une
+    garde anti-doublon.
     """
     if not created:
         return
 
-    if instance.author_type != 'cp':
+    if instance.author_type not in ('cp', 'ai'):
         return
 
     author = instance.author_user
-    logger.info(
-        f"🔔 [Signal] Résumé manuel créé — ID={instance.id}, "
-        f"auteur={getattr(author, 'username', 'None')}"
-    )
 
     try:
+        from notifications.tasks import notify_summary_available
+
+        if instance.author_type == 'ai':
+            # Résumé IA créé → informer immédiatement le CP (fallback CP du cours
+            # si le résumé est sans auteur). La garde anti-doublon dans
+            # on_session_summarized évite une seconde notification au changement
+            # de statut.
+            logger.info(
+                f"🔔 [Signal] Résumé IA créé — ID={instance.id}, "
+                f"auteur={getattr(author, 'username', 'None')}"
+            )
+            notify_summary_available.apply_async(
+                kwargs={
+                    'summary_id': instance.id,
+                    'author_user_id': author.id if author else None,
+                },
+                countdown=1,
+            )
+            return
+
+        # ── Résumé manuel (cp) : flux inchangé ────────────────────────────
         from notifications.tasks import notify_summary_created, create_and_send_notification
+        logger.info(
+            f"🔔 [Signal] Résumé manuel créé — ID={instance.id}, "
+            f"auteur={getattr(author, 'username', 'None')}"
+        )
 
         # 1. Confirmation au CP créateur (le résumé est déjà auto-validé, pas « en attente »)
         if author:

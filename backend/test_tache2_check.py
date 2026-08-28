@@ -67,11 +67,11 @@ def main():
     )
     log(f'Setup: CP={user.username}, session={session.id}, résumé={summary.id} (author_type=ai)')
 
-    # 2. AUCUNE notification ne doit être créée à la création du résumé AI
-    #    (le flow audio est notifié par le changement de statut, pas par post_save Summary)
-    n0 = AppNotification.objects.filter(summary_id=summary.id).count()
-    log(f'[1] Notifications après création résumé AI (sans changement de statut): {n0}')
-    results.append(('aucune notification à la création du résumé AI', n0 == 0))
+    # 2. Le résumé IA est créé → 1 notification « en attente de validation »
+    #    (déclenchée à la CRÉATION du résumé, voir on_summary_created)
+    n0 = AppNotification.objects.filter(summary_id=summary.id, notification_type='summary_created').count()
+    log(f'[1] Notifications après création résumé IA: {n0}')
+    results.append(('notification créée à la création du résumé IA', n0 == 1))
 
     # 3. Le worker passe la session à « Résumé disponible »
     session.processing_status = 'summarized'
@@ -79,7 +79,7 @@ def main():
 
     notifs = AppNotification.objects.filter(summary_id=summary.id, notification_type='summary_created')
     log(f'[2] Notifications « summary_created » après passage à « Résumé disponible »: {notifs.count()}')
-    results.append(('notification créée au changement de statut', notifs.count() >= 1))
+    results.append(('aucun doublon au changement de statut', notifs.count() == 1))
 
     if notifs.exists():
         notif = notifs.first()
