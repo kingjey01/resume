@@ -26,6 +26,7 @@ class StorageService {
   static const _registeredPhoneKey = 'registered_phone';
   static const _registeredDeviceIdKey = 'registered_device_id';
   static const _onboardingCompleteKey = 'onboarding_complete';
+  static const _generalOnboardingCompleteKey = 'general_onboarding_complete';
 
   // Token management - utilise SharedPreferences sur Web, SecureStorage sur mobile
   Future<void> writeTokens({required String accessToken, required String refreshToken}) async {
@@ -271,6 +272,18 @@ class StorageService {
   Future<bool> isOnboardingComplete() async {
     final prefs = _injectedPrefs ?? await SharedPreferences.getInstance();
     return prefs.getBool(_onboardingCompleteKey) ?? false;
+  }
+
+  // Onboarding général (2 pages) après la complétion du profil — flag séparé de
+  // l'onboarding de première connexion (3 pages avant login).
+  Future<void> setGeneralOnboardingComplete() async {
+    final prefs = _injectedPrefs ?? await SharedPreferences.getInstance();
+    await prefs.setBool(_generalOnboardingCompleteKey, true);
+  }
+
+  Future<bool> isGeneralOnboardingComplete() async {
+    final prefs = _injectedPrefs ?? await SharedPreferences.getInstance();
+    return prefs.getBool(_generalOnboardingCompleteKey) ?? false;
   }
 
   Future<void> clearDeviceRegistration() async {
