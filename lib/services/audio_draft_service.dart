@@ -14,6 +14,15 @@ class AudioDraft {
   String? fileName;
   int? courseId;
   String? courseName;
+  // Université / filière / promotion du cours sélectionné : indispensables pour
+  // restaurer le cours COMPLET depuis un brouillon (sinon le cours se charge
+  // sans son université et complique la suite du processus).
+  int? universiteFk;
+  String? universiteNom;
+  int? filiereFk;
+  String? filiereNom;
+  int? promotionFk;
+  String? promotionNom;
   String? title;
   double? price;
   int duration; // secondes
@@ -29,6 +38,12 @@ class AudioDraft {
     this.fileName,
     this.courseId,
     this.courseName,
+    this.universiteFk,
+    this.universiteNom,
+    this.filiereFk,
+    this.filiereNom,
+    this.promotionFk,
+    this.promotionNom,
     this.title,
     this.price,
     this.duration = 0,
@@ -44,6 +59,12 @@ class AudioDraft {
         'fileName': fileName,
         'courseId': courseId,
         'courseName': courseName,
+        'universiteFk': universiteFk,
+        'universiteNom': universiteNom,
+        'filiereFk': filiereFk,
+        'filiereNom': filiereNom,
+        'promotionFk': promotionFk,
+        'promotionNom': promotionNom,
         'title': title,
         'price': price,
         'duration': duration,
@@ -59,6 +80,12 @@ class AudioDraft {
         fileName: json['fileName'] as String?,
         courseId: json['courseId'] as int?,
         courseName: json['courseName'] as String?,
+        universiteFk: json['universiteFk'] as int?,
+        universiteNom: json['universiteNom'] as String?,
+        filiereFk: json['filiereFk'] as int?,
+        filiereNom: json['filiereNom'] as String?,
+        promotionFk: json['promotionFk'] as int?,
+        promotionNom: json['promotionNom'] as String?,
         title: json['title'] as String?,
         price: (json['price'] as num?)?.toDouble(),
         duration: json['duration'] as int? ?? 0,
