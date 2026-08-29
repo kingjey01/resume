@@ -361,6 +361,12 @@ class AudioProcessor:
                     summary_text = result['summary']
                     generated_by_ai = True
                     logger.info(f"✅ Résumé DeepSeek généré avec succès")
+                    if not summary_text:
+                        logger.warning(
+                            f"⚠️ DeepSeek a répondu success=True mais contenu vide "
+                            f"({len(summary_text) if summary_text else 0} caractères) — "
+                            f"fallback local nécessaire"
+                        )
                 else:
                     logger.warning(f"⚠️ Échec DeepSeek: {result['error']}")
             else:
@@ -556,7 +562,9 @@ Date : {date}
             
             for idea in main_ideas:
                 # S'assurer que l'idée ne commence pas par des symboles parasites
-                clean_idea = re.sub(r'^[#*-\s]+', '', idea).strip()
+                # NB: le '-' est échappé/placé en fin de classe (sinon 're.error:
+                # bad character range *-\s' plantait le fallback → résumé jamais créé).
+                clean_idea = re.sub(r'^[\s#*\-]+', '', idea).strip()
                 if clean_idea:
                     body += f"• {clean_idea}\n\n"
         else:
