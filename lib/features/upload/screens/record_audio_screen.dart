@@ -145,15 +145,21 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       _priceController.text = draft.price!.toStringAsFixed(0);
     }
 
-    // Restaurer le cours
+    // Restaurer le cours COMPLET (avec son université / filière / promotion)
     if (draft.courseId != null && draft.courseName != null) {
       _selectedCourse = Course(
         id: draft.courseId!,
         nom: draft.courseName!,
-        filiere: '',
+        filiere: draft.filiereNom ?? '',
         description: '',
-        university: '',
+        university: draft.universiteNom ?? '',
         createdAt: DateTime.now(),
+        universiteFk: draft.universiteFk,
+        universiteNom: draft.universiteNom,
+        filiereFk: draft.filiereFk,
+        filiereNom: draft.filiereNom,
+        promotionFk: draft.promotionFk,
+        promotionNom: draft.promotionNom,
       );
     }
 
@@ -364,6 +370,12 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       fileName: 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a',
       courseId: _selectedCourse?.id ?? base?.courseId,
       courseName: _selectedCourse?.nom ?? base?.courseName,
+      universiteFk: _selectedCourse?.universiteFk ?? base?.universiteFk,
+      universiteNom: _selectedCourse?.universiteNom ?? base?.universiteNom,
+      filiereFk: _selectedCourse?.filiereFk ?? base?.filiereFk,
+      filiereNom: _selectedCourse?.filiereNom ?? base?.filiereNom,
+      promotionFk: _selectedCourse?.promotionFk ?? base?.promotionFk,
+      promotionNom: _selectedCourse?.promotionNom ?? base?.promotionNom,
       title: title.isNotEmpty ? title : base?.title,
       price: price ?? base?.price,
       duration: _recordDuration,
@@ -796,6 +808,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         'summary_price': summaryPrice.toString(),
         'audio_duration': _recordDuration.toString(),
       };
+      // Envoyer l'université du cours (restaurée depuis le brouillon) pour que
+      // le backend puisse s'en servir en secours si le profil n'en a pas.
+      if (_selectedCourse?.universiteFk != null) {
+        metadata['universite_id'] = _selectedCourse!.universiteFk;
+      }
       if (_selectedProfesseur != null) {
         metadata['professeur_id'] = _selectedProfesseur!.id;
       }

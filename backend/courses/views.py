@@ -590,13 +590,26 @@ def upload_audio_session(request):
         professeur_nom = request.data.get('professeur_nom', '')
         resolved_professeur_fk = professeur_id
         resolved_professeur_text = professeur_nom
-        
+
+        # Université de référence : celle de l'utilisateur connecté (source de
+        # vérité). Si le profil n'en a pas (ex. brouillon chargé sans université,
+        # cours restauré sans son université), on retombe sur l'universite_id
+        # envoyé par le frontend (récupéré depuis le brouillon si disponible).
+        universite_id = request.data.get('universite_id')
+
         if not professeur_id:
             profile = request.user.profile
-            if profile.universite and profile.filiere and profile.promotion:
+            reference_universite = profile.universite
+            if not reference_universite and universite_id:
+                from courses.models import Universite
+                try:
+                    reference_universite = Universite.objects.get(id=universite_id)
+                except Universite.DoesNotExist:
+                    reference_universite = None
+            if reference_universite and profile.filiere and profile.promotion:
                 dispense = Dispense.objects.filter(
                     cours=course,
-                    universite=profile.universite,
+                    universite=reference_universite,
                     filiere=profile.filiere,
                     promotion=profile.promotion
                 ).select_related('professeur__user').first()
