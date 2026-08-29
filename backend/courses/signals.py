@@ -5,6 +5,12 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+# Log AU CHARGEMENT : permet de confirmer dans les logs production (gunicorn /
+# celery) que les signaux de courses sont bien enregistrés. Si ce message
+# n'apparaît PAS au démarrage du worker, les signaux ne sont pas connectés
+# (apps.ready() non appelé / worker non redémarré).
+logger.info("🔌 [Signaux] Signaux courses enregistrés (on_session_summarized / on_summary_created)")
+
 
 @receiver(pre_save, sender=Session)
 def _track_session_processing_status(sender, instance, **kwargs):
