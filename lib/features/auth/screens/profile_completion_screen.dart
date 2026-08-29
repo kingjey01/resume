@@ -5,6 +5,7 @@ import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/features/app/screens/main_navigation_screen.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
+import 'package:resume_plus_clean/features/onboarding/general_onboarding_screen.dart';
 
 class ProfileCompletionScreen extends StatefulWidget {
   const ProfileCompletionScreen({
@@ -141,7 +142,27 @@ class _ProfileCompletionScreenState extends State<ProfileCompletionScreen> {
 
         if (response.statusCode == 200) {
           if (mounted) {
-            // Profil complété avec succès, aller à l'espace principal
+            // Déterminer le rôle pour choisir le parcours après la complétion.
+            final userData = response.data['user'] as Map<String, dynamic>?;
+            final profileData = userData?['profile'] as Map<String, dynamic>?;
+            final role = profileData?['groupe']?.toString() ?? '';
+
+            final isCP = role == 'CP' || role == 'ADMIN';
+            final generalOnboardingDone =
+                await StorageService().isGeneralOnboardingComplete();
+
+            if (!isCP && !generalOnboardingDone) {
+              // Étudiant / standard → onboarding général (2 pages) puis Accueil.
+              // L'onboarding CP reste déclenché uniquement par la logique existante.
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const GeneralOnboardingScreen()),
+                (route) => false,
+              );
+              return;
+            }
+
+            // CP (l'onboarding CP est géré par MainNavigationScreen) ou
+            // onboarding général déjà terminé → espace principal.
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => MainNavigationScreen(key: MainNavigationScreen.navKey)),
               (route) => false,
