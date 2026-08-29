@@ -26,6 +26,7 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   Set<int> _processingSessionIds = {};
   String _currentFilter = 'all';
   Timer? _autoRefreshTimer;
+  bool _isRefreshing = false;
 
   @override
   void initState() {
@@ -60,11 +61,13 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
     });
   }
 
-  Future<void> _loadSessions() async {
+  Future<void> _loadSessions({bool silent = false}) async {
+    if (_isRefreshing) return; // éviter les appels simultanés
+    _isRefreshing = true;
     try {
       print('🔄 Chargement de la file d\'attente...');
       final result = await _apiService.getSessionsQueue();
-      
+
       if (result['success'] == true) {
         setState(() {
           _sessions = result['sessions'] ?? [];
@@ -80,7 +83,12 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
       setState(() {
         _isLoading = false;
       });
-      SnackbarService.show('Erreur lors du chargement: $e', isError: true);
+      // Pas de snackbar lors du rafraîchissement automatique silencieux
+      if (!silent) {
+        SnackbarService.show('Erreur lors du chargement: $e', isError: true);
+      }
+    } finally {
+      _isRefreshing = false;
     }
   }
 
@@ -281,17 +289,13 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
     MainNavigationScreen.navKey.currentState?.switchToTab(2, summaryId: summaryId);
   }
 
-  /// Polling automatique : recharge les sessions toutes les 10s
-  /// tant qu'il y a des sessions en pending/processing.
+  /// Polling automatique : recharge les sessions toutes les 5 s tant que
+  /// l'écran est ouvert, pour refléter automatiquement les changements de
+  /// statut (Transcription en cours → Transcrit → Résumé disponible) sans
+  /// refresh manuel. Échecs silencieux.
   void _startAutoRefresh() {
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      final hasPending = _sessions.any((s) {
-        final st = s['processing_status'] as String? ?? '';
-        return st == 'pending' || st == 'processing';
-      });
-      if (hasPending) {
-        _loadSessions();
-      }
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (mounted) _loadSessions(silent: true);
     });
   }
 
