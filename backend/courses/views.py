@@ -1637,69 +1637,128 @@ def onboarding_status_view(request):
 @permission_classes([permissions.IsAuthenticated])
 def complete_cp_onboarding_view(request):
     """
-    Marque l'onboarding CP comme terminé.
+    Termine l'onboarding CP de manière ATOMIQUE (prévention des doublons).
 
-    Transactionnel : ne passe le champ à True QUE si les 3 étapes
-    obligatoires ont réellement été créées :
-      1. un professeur
-      2. un cours
-      3. une association Professeur ↔ Cours (Dispense)
+    Crée en UNE seule transaction :
+      1. le professeur (User + UserProfile + Professeur) ;
+      2. le cours (associé à l'université/filière/promotion du CP) ;
+      3. l'association Professeur ↔ Cours (Dispense) ;
+      4. marque l'onboarding CP comme terminé.
 
-    En cas d'erreur, la transaction est annulée → rien n'est modifié.
+    Si une étape échoue, la transaction est annulée → AUCUNE création
+    partielle n'est conservée. Un CP qui abandonne l'onboarding avant ce
+    point ne laisse donc rien en base (pas de doublon à la reprise).
     """
     from django.db import transaction
+    from django.contrib.auth.models import User
+    from users.models import UserProfile
 
     try:
         profile = request.user.profile
 
-        # Vérifier que l'utilisateur est bien CP (un étudiant ne peut pas
-        # marquer l'onboarding CP comme terminé)
         if profile.groupe not in ['CP', 'ADMIN']:
             return Response({
                 'error': 'Seul un CP peut valider cet onboarding.'
             }, status=status.HTTP_403_FORBIDDEN)
 
+        if not (profile.universite and profile.filiere and profile.promotion):
+            return Response({
+                'error': 'Profil incomplet (université/filière/promotion).'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        professeur_nom = request.data.get('professeur_nom', '').strip()
+        professeur_telephone = request.data.get('professeur_telephone', '').strip()
+        professeur_specialite = request.data.get('professeur_specialite', '').strip()
+        cours_nom = request.data.get('cours_nom', '').strip()
+        cours_description = request.data.get('cours_description', '').strip()
+
+        if not professeur_nom or not cours_nom:
+            return Response({
+                'error': 'professeur_nom et cours_nom sont requis.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         with transaction.atomic():
-            # 1. Professeur créé ?
-            has_professeur = Professeur.objects.filter(
-                universite=profile.universite
-            ).exists() if profile.universite else False
+            # ── 1. Professeur ──────────────────────────────────────────────
+            import re
+            base_username = re.sub(r'[^a-zA-Z0-9]', '', professeur_nom.lower())[:20]
+            username = base_username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f"{base_username}{counter}"
+                counter += 1
 
-            # 2. Cours créé ?
-            has_course = Course.objects.filter(
-                universites=profile.universite,
-                filieres=profile.filiere,
-                promotions=profile.promotion
-            ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
+            prof_user = User.objects.create(
+                username=username,
+                first_name=professeur_nom.split()[0] if ' ' in professeur_nom else professeur_nom,
+                last_name=' '.join(professeur_nom.split()[1:]) if ' ' in professeur_nom else '',
+                email=f"{username}@resumeplus.local",
+                is_active=True,
+            )
+            prof_user.set_password(User.objects.make_random_password())
+            prof_user.save()
 
-            # 3. Association (Dispense) créée ?
-            has_dispense = Dispense.objects.filter(
+            UserProfile.objects.get_or_create(
+                user=prof_user,
+                defaults={
+                    'groupe': 'Prof',
+                    'phone': professeur_telephone,
+                    'universite': profile.universite,
+                    'filiere': profile.filiere,
+                    'promotion': profile.promotion,
+                }
+            )
+
+            professeur = Professeur.objects.create(
+                user=prof_user,
+                telephone=professeur_telephone,
+                specialite=professeur_specialite,
                 universite=profile.universite,
-                filiere=profile.filiere,
+            )
+            if profile.filiere:
+                professeur.filieres.add(profile.filiere)
+
+            # ── 2. Cours ───────────────────────────────────────────────────
+            course = Course.objects.create(
+                nom=cours_nom,
+                description=cours_description or None,
+                university=profile.universite.nom if profile.universite else '',
+                filiere=profile.filiere.nom if profile.filiere else '',
+            )
+            if profile.universite:
+                course.universites.add(profile.universite)
+            if profile.promotion:
+                course.promotions.add(profile.promotion)
+            if profile.filiere:
+                course.filieres.add(profile.filiere)
+
+            # ── 3. Dispense (association Professeur ↔ Cours) ──────────────
+            Dispense.objects.get_or_create(
+                professeur=professeur,
+                cours=course,
                 promotion=profile.promotion,
-            ).exists() if (profile.universite and profile.filiere and profile.promotion) else False
+                defaults={
+                    'universite': profile.universite,
+                    'filiere': profile.filiere,
+                }
+            )
 
-            if not (has_professeur and has_course and has_dispense):
-                return Response({
-                    'success': False,
-                    'error': 'Onboarding incomplet : professeur, cours et association requis.',
-                    'steps': {
-                        'has_professeur': has_professeur,
-                        'has_course': has_course,
-                        'has_dispense': has_dispense,
-                    },
-                }, status=status.HTTP_400_BAD_REQUEST)
-
-            # Tout est en place → source de vérité mise à True (transactionnel)
+            # ── 4. Onboarding terminé (source de vérité) ──────────────────
             profile.cp_onboarding_completed = True
             profile.save()
 
+        logger.info(
+            f"✅ [Onboarding CP] Atomique terminé — prof={professeur.id}, "
+            f"cours={course.id} pour {profile.user.username}"
+        )
         return Response({
             'success': True,
-            'message': 'Onboarding CP marqué comme terminé.',
+            'message': 'Onboarding CP terminé avec succès.',
+            'professeur_id': professeur.id,
+            'cours_id': course.id,
         }, status=status.HTTP_200_OK)
+
     except Exception as e:
-        logger.error(f"Erreur complete_cp_onboarding: {e}")
+        logger.error(f"Erreur complete_cp_onboarding atomique: {e}")
         return Response({'error': str(e)}, status=500)
 
 

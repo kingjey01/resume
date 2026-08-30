@@ -21,15 +21,15 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
   final _nomCompletCtrl = TextEditingController();
   final _telephoneCtrl = TextEditingController();
   final _specialiteCtrl = TextEditingController();
-  bool _isCreatingProf = false;
-  int? _createdProfId;
 
   // État cours
   final _courseFormKey = GlobalKey<FormState>();
   final _nomCoursCtrl = TextEditingController();
   final _descCoursCtrl = TextEditingController();
-  bool _isCreatingCourse = false;
-  int? _createdCourseId;
+
+  // Soumission ATOMIQUE à l'étape finale (professeur + cours + association
+  // créés en une seule transaction backend — aucune création partielle).
+  bool _isFinishing = false;
 
   @override
   void dispose() {
@@ -246,10 +246,11 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
           ),
         ),
 
-        // Bouton Continuer
+        // Bouton Continuer — étape 1 : collecte uniquement (aucune création,
+        // l'onboarding est atomique, tout sera créé à l'étape finale).
         _buildBottomButton(
           label: 'Continuer',
-          isLoading: _isCreatingProf,
+          isLoading: false,
           onTap: _submitProfesseur,
         ),
       ],
@@ -369,10 +370,11 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
           ),
         ),
 
-        // Bouton Continuer
+        // Bouton Continuer — étape 2 : collecte uniquement (création atomique
+        // à l'étape finale).
         _buildBottomButton(
           label: 'Continuer',
-          isLoading: _isCreatingCourse,
+          isLoading: false,
           onTap: _submitCourse,
         ),
       ],
@@ -504,11 +506,13 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
                 width: double.infinity,
                 height: 54,
                 child: ElevatedButton.icon(
-                  onPressed: _goToCreateSession,
-                  icon: const Icon(Icons.fiber_manual_record_rounded, size: 18),
-                  label: const Text(
-                    'Créer ma première séance',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
+                  onPressed: _isFinishing ? null : _goToCreateSession,
+                  icon: _isFinishing
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                      : const Icon(Icons.fiber_manual_record_rounded, size: 18),
+                  label: Text(
+                    _isFinishing ? 'Finalisation...' : 'Créer ma première séance',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
                   ),
                   style: ElevatedButton.styleFrom(
                     backgroundColor: AppTheme.primaryBlue,
@@ -524,11 +528,13 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
                 width: double.infinity,
                 height: 54,
                 child: OutlinedButton.icon(
-                  onPressed: _goToHome,
-                  icon: const Icon(Icons.home_rounded, size: 20),
-                  label: const Text(
-                    'Aller à l\'accueil',
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
+                  onPressed: _isFinishing ? null : _goToHome,
+                  icon: _isFinishing
+                      ? const SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2, color: AppTheme.primaryBlue))
+                      : const Icon(Icons.home_rounded, size: 20),
+                  label: Text(
+                    _isFinishing ? 'Finalisation...' : 'Aller à l\'accueil',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
                   ),
                   style: OutlinedButton.styleFrom(
                     foregroundColor: AppTheme.primaryBlue,
@@ -711,73 +717,32 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
 
   // ─── Actions ────────────────────────────────────────────────────────────────
   Future<void> _submitProfesseur() async {
+    // Étape 1 : validation + collecte UNIQUEMENT. Aucune création backend ici :
+    // tout est créé de façon ATOMIQUE à l'étape finale (professeur + cours +
+    // association), pour éviter les doublons si le CP abandonne l'onboarding.
     if (!_profFormKey.currentState!.validate()) return;
-    setState(() => _isCreatingProf = true);
-
-    try {
-      final data = await _apiService.createProfesseurSimple(
-        nomComplet: _nomCompletCtrl.text.trim(),
-        telephone: _telephoneCtrl.text.trim(),
-        specialite: _specialiteCtrl.text.trim(),
-      );
-      _createdProfId = data['professeur']?['id'];
-      if (mounted) setState(() => _step = 1);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: AppTheme.error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isCreatingProf = false);
-    }
+    if (mounted) setState(() => _step = 1);
   }
 
   Future<void> _submitCourse() async {
+    // Étape 2 : validation + collecte UNIQUEMENT. La création (professeur +
+    // cours + association) se fait de façon atomique à l'étape finale.
     if (!_courseFormKey.currentState!.validate()) return;
-    setState(() => _isCreatingCourse = true);
-
-    try {
-      final data = await _apiService.createCourse(
-        nom: _nomCoursCtrl.text.trim(),
-        description: _descCoursCtrl.text.trim(),
-      );
-      _createdCourseId = data['id'];
-
-      // Auto-créer la dispense si on a les deux IDs
-      if (_createdProfId != null && _createdCourseId != null) {
-        try {
-          await _apiService.createDispense(
-            professeurId: _createdProfId!,
-            coursId: _createdCourseId!,
-          );
-        } catch (_) {
-          // La dispense est souvent créée automatiquement côté backend
-        }
-      }
-
-      if (mounted) setState(() => _step = 2);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Erreur: $e'), backgroundColor: AppTheme.error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isCreatingCourse = false);
-    }
+    if (mounted) setState(() => _step = 2);
   }
 
   Future<void> _goToHome() async {
-    await _finishOnboarding();
-    if (!mounted) return;
+    // Finalisation ATOMIQUE : si elle échoue, rien n'a été créé et on reste
+    // sur l'écran pour réessayer.
+    final ok = await _finishOnboarding();
+    if (!mounted || !ok) return;
     // Retour au menu principal, onglet Accueil.
     _exitToMainNavigation();
   }
 
   Future<void> _goToCreateSession() async {
-    await _finishOnboarding();
-    if (!mounted) return;
+    final ok = await _finishOnboarding();
+    if (!mounted || !ok) return;
     _exitToMainNavigation();
     // Le menu de création (UploadChoiceScreen) est empilé PAR-DESSUS le menu
     // principal : le bouton retour ramène à l'accueil. On attend la pose de
@@ -817,16 +782,37 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
     );
   }
 
-  /// Marque l'onboarding CP comme terminé côté backend
-  /// (cp_onboarding_completed = True) pour ne plus le re-proposer.
-  /// Attendu avant la navigation : sinon, au prochain démarrage,
-  /// le splash re-redirigerait vers l'onboarding.
-  Future<void> _finishOnboarding() async {
+  /// Termine l'onboarding CP de façon ATOMIQUE : le backend crée le professeur,
+  /// le cours et l'association (Dispense) en une seule transaction, puis marque
+  /// l'onboarding comme terminé.
+  ///
+  /// Retourne true en cas de succès. En cas d'échec, rien n'a été créé côté
+  /// backend (transaction annulée) → l'utilisateur peut réessayer sans risque
+  /// de doublon.
+  Future<bool> _finishOnboarding() async {
+    if (_isFinishing) return false;
+    setState(() => _isFinishing = true);
     try {
-      await _apiService.completeCPOnboarding();
+      await _apiService.completeCPOnboarding(
+        professeurNom: _nomCompletCtrl.text.trim(),
+        professeurTelephone: _telephoneCtrl.text.trim(),
+        professeurSpecialite: _specialiteCtrl.text.trim(),
+        coursNom: _nomCoursCtrl.text.trim(),
+        coursDescription: _descCoursCtrl.text.trim(),
+      );
+      return true;
     } catch (e) {
-      // Non bloquant : si l'appel échoue, l'onboarding sera re-proposé
-      debugPrint('⚠️ [CPOnboarding] completeCPOnboarding échoué (non bloquant): $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erreur lors de la finalisation : $e'),
+            backgroundColor: AppTheme.error,
+          ),
+        );
+      }
+      return false;
+    } finally {
+      if (mounted) setState(() => _isFinishing = false);
     }
   }
 

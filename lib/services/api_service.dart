@@ -1278,13 +1278,29 @@ class ApiService {
 
   // ─── Onboarding CP ──────────────────────────────────────────────────
 
-  /// Marque l'onboarding CP comme terminé pour l'utilisateur connecté.
-  Future<void> completeCPOnboarding() async {
+  /// Termine l'onboarding CP de manière ATOMIQUE : le backend crée le
+  /// professeur + le cours + l'association (Dispense) en une seule transaction,
+  /// puis marque l'onboarding comme terminé. Aucune création partielle.
+  Future<void> completeCPOnboarding({
+    required String professeurNom,
+    required String professeurTelephone,
+    required String professeurSpecialite,
+    required String coursNom,
+    String coursDescription = '',
+  }) async {
     try {
-      await _dio.post('/onboarding/complete-cp/');
+      await _dio.post('/onboarding/complete-cp/', data: {
+        'professeur_nom': professeurNom,
+        'professeur_telephone': professeurTelephone,
+        'professeur_specialite': professeurSpecialite,
+        'cours_nom': coursNom,
+        'cours_description': coursDescription,
+      });
     } catch (e) {
-      // Non bloquant : si l'appel échoue, l'onboarding sera re-proposé
-      AppLogger.warning('completeCPOnboarding error (non bloquant)', e.toString());
+      // L'appel est bloquant ici : en cas d'échec, rien n'a été créé côté
+      // backend (transaction atomique) → l'utilisateur peut réessayer.
+      AppLogger.warning('completeCPOnboarding error', e.toString());
+      rethrow;
     }
   }
 
