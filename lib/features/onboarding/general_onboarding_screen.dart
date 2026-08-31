@@ -61,16 +61,23 @@ class _GeneralOnboardingScreenState extends State<GeneralOnboardingScreen> {
       backgroundColor: Colors.white,
       body: Stack(
         children: [
-          // Éléments décoratifs triangulaires bleus
+          // ── Éléments décoratifs triangulaires bleu / bleu ciel ──────────
+          // Maquette : fond blanc + triangles bleu ciel en haut-gauche,
+          // bas-gauche et bas-droit (haut-droit laissé blanc).
           const Positioned(
-            top: -60,
-            right: -50,
-            child: _DecorativeTriangle(size: 180, color: Color(0x1A1A237E)),
+            top: -70,
+            left: -60,
+            child: _DecorativeTriangle(size: 190, color: Color(0xFF9ABBF7)),
           ),
           const Positioned(
-            bottom: -70,
-            left: -60,
-            child: _DecorativeTriangle(size: 200, color: Color(0x1F3949AB)),
+            bottom: -60,
+            left: -70,
+            child: _DecorativeTriangle(size: 200, color: Color(0xFFAFCBFA)),
+          ),
+          const Positioned(
+            bottom: -80,
+            right: -70,
+            child: _DecorativeTriangle(size: 220, color: Color(0xFFDBE7FB)),
           ),
           Column(
             children: [
