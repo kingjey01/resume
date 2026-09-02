@@ -145,11 +145,12 @@ class CPRequestSerializer(serializers.ModelSerializer):
     user_name = serializers.SerializerMethodField()
     status_display = serializers.CharField(source='get_status_display', read_only=True)
     email = serializers.EmailField(required=False, allow_blank=True)
+    phone = serializers.CharField(required=False, allow_blank=True)
 
     class Meta:
         model = CPRequest
         fields = [
-            'id', 'username', 'user_name', 'email', 'motivation',
+            'id', 'username', 'user_name', 'email', 'phone', 'motivation',
             'status', 'status_display', 'admin_comment',
             'created_at', 'processed_at',
         ]

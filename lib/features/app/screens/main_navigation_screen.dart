@@ -274,7 +274,7 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
       });
       // Vérifier si c'est la première utilisation du CP
       if (role == 'CP') {
-        _checkCPOnboarding();
+        checkCPOnboarding();
       }
     } catch (e) {
       setState(() {
@@ -285,7 +285,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     }
   }
 
-  Future<void> _checkCPOnboarding() async {
+  /// Re-vérifie (serveur) si l'onboarding CP doit s'afficher et le lance.
+  /// Public : appelé après acceptation d'une demande CP (rafraîchissement) pour
+  /// afficher l'onboarding sans redémarrer l'app.
+  Future<void> checkCPOnboarding() async {
     try {
       final status = await _apiService.getOnboardingStatus();
       if (status['is_first_use'] == true && mounted) {

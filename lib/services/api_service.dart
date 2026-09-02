@@ -1247,10 +1247,12 @@ class ApiService {
   Future<Map<String, dynamic>> createCPRequest({
     String motivation = '',
     String email = '',
+    String phone = '',
   }) async {
     try {
       final data = <String, dynamic>{'motivation': motivation};
       if (email.isNotEmpty) data['email'] = email;
+      if (phone.isNotEmpty) data['phone'] = phone;
       final response = await _dio.post('/auth/cp-request/', data: data);
       if (response.statusCode == 201 || response.statusCode == 200) {
         return response.data as Map<String, dynamic>;

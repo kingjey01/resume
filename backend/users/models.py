@@ -183,6 +183,10 @@ class CPRequest(models.Model):
         blank=True,
         help_text="Email du candidat pour les notifications d'approbation/refus"
     )
+    phone = models.CharField(
+        max_length=20, blank=True, default='',
+        help_text="Numéro de téléphone du candidat (prérempli depuis le profil, modifiable)"
+    )
     motivation = models.TextField(
         blank=True,
         help_text="Motivation du candidat (pourquoi devenir CP)"
