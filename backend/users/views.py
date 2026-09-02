@@ -1095,13 +1095,37 @@ def create_cp_request_view(request):
                 'already_pending': True,
             }, status=status.HTTP_200_OK)
 
+        # Combinaison Université + Filière + Promotion : une seule demande
+        # active (pending) ou approuvée par promotion. Protection backend.
+        if profile.universite and profile.filiere and profile.promotion:
+            combination_blocked = CPRequest.objects.filter(
+                status__in=['pending', 'approved'],
+            ).exclude(user=user).filter(
+                user__profile__universite=profile.universite,
+                user__profile__filiere=profile.filiere,
+                user__profile__promotion=profile.promotion,
+            ).exists()
+            if combination_blocked:
+                return Response({
+                    'error': 'Impossible de faire une nouvelle demande : '
+                             'une demande est déjà en cours ou validée pour cette promotion.',
+                    'duplicate_combination': True,
+                }, status=status.HTTP_400_BAD_REQUEST)
+
         # Créer la demande
         motivation = request.data.get('motivation', '').strip()
         # Email du candidat : celui fourni dans le formulaire, sinon l'email du compte
         email = (request.data.get('email') or '').strip() or user.email
+        # Numéro de téléphone : obligatoire, prérempli côté frontend mais modifiable
+        phone = (request.data.get('phone') or '').strip() or getattr(profile, 'phone', '')
+        if not phone:
+            return Response({
+                'error': 'Le numéro de téléphone est requis.'
+            }, status=status.HTTP_400_BAD_REQUEST)
         cp_request = CPRequest.objects.create(
             user=user,
             email=email,
+            phone=phone,
             motivation=motivation,
             status='pending',
         )
@@ -1143,17 +1167,32 @@ def get_cp_request_view(request):
     Retourne la dernière demande (quelle que soit son statut).
     """
     try:
+        # combination_blocked : une demande active/approuvée existe-t-elle déjà
+        # pour la combinaison Université + Filière + Promotion ? (permet au
+        # frontend de masquer les actions si la promotion est déjà couverte)
+        profile = getattr(request.user, 'profile', None)
+        combination_blocked = False
+        if profile and profile.universite and profile.filiere and profile.promotion:
+            combination_blocked = CPRequest.objects.filter(
+                status__in=['pending', 'approved'],
+                user__profile__universite=profile.universite,
+                user__profile__filiere=profile.filiere,
+                user__profile__promotion=profile.promotion,
+            ).exists()
+
         cp_request = CPRequest.objects.filter(user=request.user).first()
 
         if not cp_request:
             return Response({
                 'has_request': False,
                 'request': None,
+                'combination_blocked': combination_blocked,
             }, status=status.HTTP_200_OK)
 
         return Response({
             'has_request': True,
             'request': CPRequestSerializer(cp_request).data,
+            'combination_blocked': combination_blocked,
         }, status=status.HTTP_200_OK)
 
     except Exception as e:

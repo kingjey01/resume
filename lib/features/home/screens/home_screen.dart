@@ -16,6 +16,7 @@ import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/features/notifications/providers/notification_provider.dart';
 import 'package:resume_plus_clean/features/notifications/screens/notifications_screen.dart';
 import 'package:resume_plus_clean/services/notification_service.dart';
+import 'package:resume_plus_clean/features/app/screens/main_navigation_screen.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
   const HomeScreen({super.key});
@@ -39,6 +40,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
   // Demande CP
   bool _cpRequestPending = false;
   String? _cpRequestStatus; // pending / approved / rejected
+  bool _cpRequestBlocked = false; // une demande active/approuvée existe pour la promotion
+  String _userPhone = ''; // téléphone du profil (prérempli dans la demande CP)
 
   @override
   bool get wantKeepAlive => true;
@@ -81,6 +84,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
       
       setState(() {
         _userRole = profile['profile']?['groupe'] ?? 'ETUDIANT';
+        _userPhone = profile['profile']?['phone']?.toString() ?? '';
         _isLoadingProfile = false;
       });
       // Charger les cours seulement après le profil
@@ -96,18 +100,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     }
   }
 
-  /// Charge le statut de la demande CP de l'utilisateur (étudiant).
+  /// Charge le statut de la demande CP de l'utilisateur (étudiant) + signale si
+  /// la combinaison Université + Filière + Promotion est déjà couverte.
   Future<void> _loadCPRequestStatus() async {
     try {
       final result = await _apiService.getCPRequestStatus();
       if (!mounted) return;
       final request = result['request'];
-      if (request != null) {
-        setState(() {
-          _cpRequestStatus = request['status'];
-          _cpRequestPending = request['status'] == 'pending';
-        });
-      }
+      final combinationBlocked = result['combination_blocked'] == true;
+      setState(() {
+        _cpRequestBlocked = combinationBlocked;
+        _cpRequestStatus = request != null ? request['status'] : null;
+        _cpRequestPending = request != null && request['status'] == 'pending';
+      });
     } catch (e) {
       // Non bloquant : le bouton reste actif
       print('⚠️ Erreur chargement statut demande CP: $e');
@@ -146,9 +151,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               shape: BoxShape.circle,
             ),
             child: Icon(
-              _cpRequestPending
-                  ? Icons.hourglass_top_rounded
-                  : Icons.workspace_premium_rounded,
+              _cpRequestBlocked
+                  ? Icons.lock_rounded
+                  : _cpRequestPending
+                      ? Icons.hourglass_top_rounded
+                      : Icons.workspace_premium_rounded,
               color: Colors.white,
               size: 22,
             ),
@@ -159,9 +166,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _cpRequestPending
-                      ? 'Demande en cours de traitement'
-                      : 'Devenez Chef de Promotion',
+                  _cpRequestBlocked
+                      ? 'Promotion déjà couverte'
+                      : _cpRequestPending
+                          ? 'Demande en cours de traitement'
+                          : 'Devenez Chef de Promotion',
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: AppTheme.primaryBlue,
@@ -169,9 +178,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _cpRequestPending
-                      ? 'Votre demande a été envoyée. Un administrateur la traitera prochainement.'
-                      : 'Créez des cours, enregistrez des séances et publiez des résumés pour les étudiants.',
+                  _cpRequestBlocked
+                      ? 'Une demande est déjà en cours ou validée pour votre promotion.'
+                      : _cpRequestPending
+                          ? 'Votre demande a été envoyée. Un administrateur la traitera prochainement.'
+                          : 'Créez des cours, enregistrez des séances et publiez des résumés pour les étudiants.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.6),
                     height: 1.4,
@@ -180,7 +191,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               ],
             ),
           ),
-          if (!_cpRequestPending) ...[
+          if (!_cpRequestPending && !_cpRequestBlocked) ...[
             const SizedBox(width: 8),
             InkWell(
               onTap: _showCPRequestDialog,
@@ -222,6 +233,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     final TextEditingController emailCtrl = TextEditingController(
       text: ref.read(currentUserProvider)?.email ?? '',
     );
+    // Téléphone : prérempli avec celui du profil, mais modifiable.
+    final TextEditingController phoneCtrl = TextEditingController(text: _userPhone);
     bool isSubmitting = false;
 
     await showDialog(
@@ -260,6 +273,19 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                   labelText: 'Email (pour les notifications)',
                   hintText: 'Vous recevrez la réponse de l\'administrateur ici',
                   prefixIcon: const Icon(Icons.mail_outline_rounded),
+                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+                  filled: true,
+                ),
+              ),
+              const SizedBox(height: 12),
+              // Champ téléphone : obligatoire, prérempli depuis le profil, modifiable
+              TextField(
+                controller: phoneCtrl,
+                keyboardType: TextInputType.phone,
+                decoration: InputDecoration(
+                  labelText: 'Numéro de téléphone *',
+                  hintText: 'Votre numéro pour le contact',
+                  prefixIcon: const Icon(Icons.phone_outlined),
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
                   filled: true,
                 ),
@@ -304,11 +330,23 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                         onPressed: isSubmitting
                             ? null
                             : () async {
+                                final email = emailCtrl.text.trim();
+                                final phone = phoneCtrl.text.trim();
+                                if (email.isEmpty || phone.isEmpty) {
+                                  ScaffoldMessenger.of(dialogContext).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Email et numéro de téléphone sont requis.'),
+                                      backgroundColor: AppTheme.error,
+                                    ),
+                                  );
+                                  return;
+                                }
                                 setDialogState(() => isSubmitting = true);
                                 try {
                                   await _apiService.createCPRequest(
                                     motivation: motivationCtrl.text.trim(),
-                                    email: emailCtrl.text.trim(),
+                                    email: email,
+                                    phone: phone,
                                   );
                                   if (!dialogContext.mounted) return;
                                   Navigator.pop(dialogContext);
@@ -383,6 +421,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     print('🔄 Pull-to-refresh déclenché');
     await ref.refresh(summariesProvider.future);
     await _loadCourses();
+    // Après acceptation d'une demande CP, le rôle a pu changer → re-vérifier.
+    await _recheckCPAfterRefresh();
+  }
+
+  /// Re-vérifie le rôle CP après un rafraîchissement : si l'utilisateur vient
+  /// d'être accepté comme CP, l'onboarding CP est déclenché immédiatement (sans
+  /// redémarrer l'app).
+  Future<void> _recheckCPAfterRefresh() async {
+    await _loadUserProfile();
+    if (_userRole == 'CP' && mounted) {
+      MainNavigationScreen.navKey.currentState?.checkCPOnboarding();
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -620,6 +670,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                           setState(() => _isRefreshing = true);
                           await ref.refresh(summariesProvider.future);
                           await _loadCourses();
+                          await _recheckCPAfterRefresh();
                           if (mounted) setState(() => _isRefreshing = false);
                         },
                         isLoading: _isRefreshing,
