@@ -59,28 +59,8 @@ class _GeneralOnboardingScreenState extends State<GeneralOnboardingScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: Stack(
+      body: Column(
         children: [
-          // ── Éléments décoratifs triangulaires bleu / bleu ciel ──────────
-          // Maquette : fond blanc + triangles bleu ciel en haut-gauche,
-          // bas-gauche et bas-droit (haut-droit laissé blanc).
-          const Positioned(
-            top: -70,
-            left: -60,
-            child: _DecorativeTriangle(size: 190, color: Color(0xFF9ABBF7)),
-          ),
-          const Positioned(
-            bottom: -60,
-            left: -70,
-            child: _DecorativeTriangle(size: 200, color: Color(0xFFAFCBFA)),
-          ),
-          const Positioned(
-            bottom: -80,
-            right: -70,
-            child: _DecorativeTriangle(size: 220, color: Color(0xFFDBE7FB)),
-          ),
-          Column(
-            children: [
               // Bouton « Passer » (disponible dès la page 1)
               Padding(
                 padding: EdgeInsets.only(top: topPadding + 8, right: 20),
@@ -147,8 +127,6 @@ class _GeneralOnboardingScreenState extends State<GeneralOnboardingScreen> {
               ),
             ],
           ),
-        ],
-      ),
     );
   }
 
@@ -394,40 +372,4 @@ class _GeneralOnboardingScreenState extends State<GeneralOnboardingScreen> {
       ),
     );
   }
-}
-
-/// Triangle décoratif bleu (élément visuel de la maquette).
-class _DecorativeTriangle extends StatelessWidget {
-  final double size;
-  final Color color;
-
-  const _DecorativeTriangle({required this.size, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    return IgnorePointer(
-      child: CustomPaint(
-        size: Size(size, size),
-        painter: _TrianglePainter(color),
-      ),
-    );
-  }
-}
-
-class _TrianglePainter extends CustomPainter {
-  final Color color;
-  _TrianglePainter(this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = Path()
-      ..moveTo(0, size.height)
-      ..lineTo(size.width, size.height)
-      ..lineTo(size.width, 0)
-      ..close();
-    canvas.drawPath(path, Paint()..color = color);
-  }
-
-  @override
-  bool shouldRepaint(_TrianglePainter oldDelegate) => oldDelegate.color != color;
 }
