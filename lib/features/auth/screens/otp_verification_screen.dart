@@ -155,7 +155,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
         // source de vérité qui déclenche l'invalidation des données utilisateur
         // (isolation entre comptes). Sans cette mise à jour, l'app gardait
         // l'utilisateur précédent et ses données restaient affichées.
-        await ref.read(authProvider.notifier).refreshUser();
+        // NON bloquant : la navigation ne doit pas attendre ce rechargement
+        // réseau (évitait un blocage à la vérification OTP si le serveur était
+        // lent — le flux restait figé sans erreur).
+        unawaited(ref.read(authProvider.notifier).refreshUser());
 
         // Enregistrer le token FCM maintenant que l'utilisateur est authentifié
         if (!kIsWeb) {

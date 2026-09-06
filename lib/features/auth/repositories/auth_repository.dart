@@ -51,6 +51,10 @@ class AuthRepository {
       // Vider les caches persistants de l'utilisateur (profil, achats,
       // recherches) pour que l'utilisateur suivant ne voie PAS ses données.
       await _storageService.clearAllCache();
+      // Réinitialiser le flag d'onboarding général : sinon, un nouveau compte
+      // étudiant créé après ce logout sauterait l'onboarding général (le flag
+      // « déjà vu » du compte précédent reste vrai) et irait droit à l'accueil.
+      await _storageService.resetGeneralOnboarding();
     }
   }
 

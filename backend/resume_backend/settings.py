@@ -24,6 +24,7 @@ ALLOWED_HOSTS = [
     '0.0.0.0',
     'resumecours.gestionhospitaliare.site',  # Domaine de production
     'www.resumecours.gestionhospitaliare.site',  # Avec www si applicable
+    'ftp.gestionhospitaliare.site',  # Domaine FTP (évite les DisallowedHost en logs)
     'ftp.clavierplus.com',  # Domaine alternatif
     '180.149.197.29',  # IP serveur de production
 ]
