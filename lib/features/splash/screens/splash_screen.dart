@@ -7,6 +7,7 @@ import 'package:resume_plus_clean/services/auto_login_service.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/version_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
+import 'package:resume_plus_clean/services/fcm_service.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'force_update_screen.dart';
@@ -97,6 +98,19 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             print('🔴 [Splash] Badge d\'icône synchronisé (session active)');
           } catch (e) {
             print('⚠️ [Splash] Badge sync error: $e');
+          }
+
+          // 📱 Ré-enregistrer le token FCM au démarrage (session restaurée).
+          // registerCurrentUserToken() n'était appelé QU'après un OTP. Or au
+          // logout le token est désactivé côté serveur (is_active=False).
+          // Sans ce ré-enregistrement ici, un utilisateur qui revient via
+          // auto-login garde un token inactif → notifications push non reçues
+          // (le worker affiche « envoyés: 0, échoués: 0 »).
+          try {
+            final registered = await FcmService().registerCurrentUserToken();
+            print('🔔 [Splash] Ré-enregistrement token FCM: ${registered ? "✅ OK" : "⚠️ sans token/ignoré"}');
+          } catch (e) {
+            print('⚠️ [Splash] Ré-enregistrement token FCM (non bloquant): $e');
           }
         }
 

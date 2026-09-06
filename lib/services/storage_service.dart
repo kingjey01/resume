@@ -286,6 +286,16 @@ class StorageService {
     return prefs.getBool(_generalOnboardingCompleteKey) ?? false;
   }
 
+  /// Réinitialise le flag d'onboarding général. Appelé à la fin de session
+  /// (logout / changement de compte) : sans cela, un NOUVEAU compte créé
+  /// ensuite sur le même téléphone hérite du « déjà vu » du compte précédent
+  /// et saute l'onboarding général (va directement à l'accueil après la
+  /// complétion du profil).
+  Future<void> resetGeneralOnboarding() async {
+    final prefs = _injectedPrefs ?? await SharedPreferences.getInstance();
+    await prefs.remove(_generalOnboardingCompleteKey);
+  }
+
   Future<void> clearDeviceRegistration() async {
     final prefs = _injectedPrefs ?? await SharedPreferences.getInstance();
     await prefs.remove(_registeredPhoneKey);

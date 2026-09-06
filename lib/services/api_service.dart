@@ -58,7 +58,15 @@ class ApiService {
   Map<int, List<Promotion>> _cachedPromotionsByFiliere = {};
 
   ApiService({Dio? dio, StorageService? storageService})
-      : _dio = dio ?? Dio(BaseOptions(baseUrl: baseUrl)),
+      : _dio = dio ?? Dio(BaseOptions(
+          baseUrl: baseUrl,
+          // Timeouts indispensables : sans eux, une requête vers un serveur
+          // lent/indisponible attend INDÉFINIMENT (app figée au démarrage /
+          // blocage à la vérification OTP, sans message d'erreur).
+          connectTimeout: const Duration(seconds: 10),
+          sendTimeout: const Duration(seconds: 15),
+          receiveTimeout: const Duration(seconds: 20),
+        )),
         _storageService = storageService ?? StorageService() {
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: _onRequest,
