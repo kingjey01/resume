@@ -23,6 +23,55 @@ def get_random_string(length):
     return ''.join(random.choice(letters) for i in range(length))
 
 
+# Une tentative de paiement « pending » au-delà de ce délai est considérée
+# comme abandonnée (callback jamais reçu) → on la solde pour permettre de
+# réessayer sans créer de doublon.
+PENDING_EXPIRY_MINUTES = 15
+
+
+def _check_duplicate_summary_purchase(user, summary):
+    """
+    Garde anti-doublon à l'initiation d'un achat de résumé.
+
+    Règle métier : un résumé est « acheté » uniquement si une transaction
+    validée existe. Une tentative échouée ne compte pas. Deux callbacks de
+    succès sur deux lignes distinctes du même résumé ne doivent pas créer deux
+    droits d'accès ni deux lignes « Résumés achetés ».
+
+    Comportement :
+    - s'il existe déjà un achat 'completed' pour (user, summary) → bloqué
+      (« déjà acheté ») ;
+    - les tentatives 'pending' OBSOLÈTES (> PENDING_EXPIRY_MINUTES) sont
+      soldées en 'failed' (l'utilisateur a abandonné) pour permettre un nouvel
+      essai ;
+    - s'il reste une tentative 'pending' encore valide → bloqué (« paiement en
+      cours ») : on évite d'empiler deux lignes pending qui seraient toutes
+      deux marquées 'completed' par les callbacks ultérieurs.
+
+    Retourne une chaîne d'erreur à renvoyer, ou None si l'initiation peut
+    continuer.
+    """
+    if Purchase.objects.filter(
+        user=user, summary=summary, status='completed'
+    ).exists():
+        return 'Vous avez déjà acheté ce résumé'
+
+    cutoff = timezone.now() - timedelta(minutes=PENDING_EXPIRY_MINUTES)
+    stale_pending = Purchase.objects.filter(
+        user=user, summary=summary, status='pending', created_at__lt=cutoff
+    )
+    for stale in stale_pending:
+        stale.status = 'failed'
+        stale.save(update_fields=['status'])
+
+    if Purchase.objects.filter(
+        user=user, summary=summary, status='pending'
+    ).exists():
+        return 'Un paiement pour ce résumé est déjà en cours de validation. Veuillez patienter.'
+
+    return None
+
+
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def initiate_subscription_payment(request):
@@ -267,6 +316,11 @@ def _process_summary_purchase(user, data, summary):
 
         if not phone_number:
             return Response({'error': 'Numéro de téléphone requis'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Garde anti-doublon (déjà acheté / tentative en cours) — voir helper.
+        duplicate_error = _check_duplicate_summary_purchase(user, summary)
+        if duplicate_error:
+            return Response({'error': duplicate_error}, status=status.HTTP_400_BAD_REQUEST)
 
         # Formater le numéro de téléphone
         phone_number = str(phone_number).strip().replace('+', '').replace(' ', '')

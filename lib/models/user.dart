@@ -11,6 +11,7 @@ class User {
   final int? filiereId;
   final DateTime? dateJoined;
   final bool hasActiveSubscription;
+  final bool cpOnboardingCompleted;
 
   User({
     required this.id,
@@ -25,11 +26,12 @@ class User {
     this.filiereId,
     this.dateJoined,
     this.hasActiveSubscription = false,
+    this.cpOnboardingCompleted = false,
   });
 
   factory User.fromJson(Map<String, dynamic> json) {
     final profile = json['profile'] as Map<String, dynamic>?;
-    
+
     return User(
       id: json['id'] as int,
       username: json['username'] as String,
@@ -42,7 +44,8 @@ class User {
       promotionId: profile?['promotion'] as int?,
       filiereId: profile?['filiere'] as int?,
       hasActiveSubscription: profile?['has_active_subscription'] as bool? ?? false,
-      dateJoined: json['date_joined'] != null 
+      cpOnboardingCompleted: profile?['cp_onboarding_completed'] as bool? ?? false,
+      dateJoined: json['date_joined'] != null
           ? DateTime.parse(json['date_joined'] as String)
           : null,
     );

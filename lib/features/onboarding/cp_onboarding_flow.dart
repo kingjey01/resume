@@ -31,6 +31,41 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
   // créés en une seule transaction backend — aucune création partielle).
   bool _isFinishing = false;
 
+  // Barrière définitive « une fois finalisé, plus jamais affiché » : à
+  // l'ouverture, on re-vérifie auprès du backend (source de vérité). Si
+  // l'onboarding est déjà terminé, on quitte IMMÉDIATEMENT sans montrer les
+  // étapes — même si ce flux a été poussé par erreur ou par une réponse en
+  // vol qui datait d'avant la finalisation.
+  bool _guardChecking = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _verifyShouldShow();
+  }
+
+  /// Auto-garde : ferme le flux sans l'afficher si l'onboarding est déjà
+  /// finalisé côté backend.
+  Future<void> _verifyShouldShow() async {
+    var shouldExit = false;
+    try {
+      final status = await _apiService.getOnboardingStatus();
+      shouldExit =
+          status['is_first_use'] == false ||
+          status['cp_onboarding_completed'] == true;
+    } catch (_) {
+      // Vérification impossible (réseau, etc.) : on laisse le flux s'afficher
+      // (comportement historique) plutôt que de bloquer un CP légitime.
+      shouldExit = false;
+    }
+    if (!mounted) return;
+    if (shouldExit) {
+      _exitToMainNavigation();
+      return;
+    }
+    setState(() => _guardChecking = false);
+  }
+
   @override
   void dispose() {
     _nomCompletCtrl.dispose();
@@ -819,6 +854,17 @@ class _CPOnboardingFlowState extends State<CPOnboardingFlow> {
   // ─── Build ──────────────────────────────────────────────────────────────────
   @override
   Widget build(BuildContext context) {
+    // Auto-garde : tant que la vérification backend n'est pas revenue, on
+    // affiche un simple indicateur — on ne montre jamais un onboarding déjà
+    // finalisé (même brièvement).
+    if (_guardChecking) {
+      return const Scaffold(
+        backgroundColor: Color(0xFFF5F7FA),
+        body: Center(
+          child: CircularProgressIndicator(color: AppTheme.primaryBlue),
+        ),
+      );
+    }
     return AnnotatedRegion<SystemUiOverlayStyle>(
       value: SystemUiOverlayStyle.light,
       child: Scaffold(

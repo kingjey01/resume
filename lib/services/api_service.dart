@@ -53,6 +53,13 @@ class ApiService {
   static const Duration _cacheExpiration = Duration(minutes: 10);
   DateTime? _cacheTimestamp;
 
+  // Upload audio (fichiers longs, limite métier 3 h) — voir uploadAudio() :
+  // le garde-fou anti-blocage annule la requête si plus aucun octet n'est
+  // transmis pendant ce délai (liaison réellement coupée en plein envoi).
+  static const Duration _uploadStallLimit = Duration(seconds: 60);
+  // Fenêtre d'attente de la réponse serveur après envoi complet du corps.
+  static const Duration _uploadResponseTimeout = Duration(minutes: 10);
+
   List<Universite>? _cachedUniversites;
   Map<int, List<Filiere>> _cachedFilieresByUniversite = {};
   Map<int, List<Promotion>> _cachedPromotionsByFiliere = {};
@@ -676,6 +683,24 @@ class ApiService {
 
   // ─── Audio ──────────────────────────────────────────────────────────
 
+  /// Upload d'une session audio (enregistrement natif OU fichier importé).
+  ///
+  /// Les timeouts globaux de l'[ApiService] (10/15/20 s) sont adaptés aux
+  /// requêtes courtes (OTP, profil…), mais le `sendTimeout` de 15 s borne
+  /// l'ÉCRITURE COMPLÈTE du corps : tout fichier volumineux (audio d'1 h,
+  /// limite métier 3 h) est coupé avant la fin de l'envoi sur un réseau
+  /// mobile, d'où le message « délai de connexion expiré » — alors que la
+  /// connexion est saine. C'est l'upload des fichiers importés qui échoue,
+  /// pas l'enregistrement natif (petit m4a envoyé en quelques secondes).
+  ///
+  /// Ici, pour CETTE requête uniquement :
+  ///  * `sendTimeout` est neutralisé (corps envoyé en continu aussi
+  ///    longtemps que nécessaire pour un fichier de plusieurs heures) ;
+  ///  * un garde-fou anti-blocage remplace le cap en temps : si plus aucun
+  ///    octet n'est transmis pendant [_uploadStallLimit], on annule
+  ///    proprement la requête (liaison réellement coupée en plein envoi) ;
+  ///  * `receiveTimeout` est élargi pour laisser au serveur le temps de
+  ///    stocker le fichier et répondre après réception complète du corps.
   Future<Map<String, dynamic>> uploadAudio({
     required Uint8List audioBytes,
     required String fileName,
@@ -683,6 +708,35 @@ class ApiService {
     Map<String, dynamic>? metadata,
     void Function(int sent, int total)? onSendProgress,
   }) async {
+    // Garde-fou : chaque octet transmis relance le délai ; il est désarmé dès
+    // que le corps est entièrement envoyé (le receiveTimeout prend le relais
+    // pour l'attente de la réponse serveur).
+    final cancelToken = CancelToken();
+    Timer? stallTimer;
+    var sendCompleted = false;
+
+    void armStallGuard() {
+      stallTimer?.cancel();
+      stallTimer = Timer(_uploadStallLimit, () {
+        cancelToken.cancel('Aucune donnée transmise depuis $_uploadStallLimit');
+      });
+    }
+
+    void handleSendProgress(int sent, int total) {
+      if (!sendCompleted) {
+        if (total > 0 && sent >= total) {
+          // Corps entièrement envoyé : on attend désormais la réponse.
+          sendCompleted = true;
+          stallTimer?.cancel();
+          stallTimer = null;
+        } else {
+          // Avancée (ou premier octet) : on relance le compteur anti-blocage.
+          armStallGuard();
+        }
+      }
+      onSendProgress?.call(sent, total);
+    }
+
     try {
       final formData = FormData();
       formData.files.add(MapEntry(
@@ -698,10 +752,15 @@ class ApiService {
       final response = await _dio.post(
         '/courses/sessions/upload-audio/',
         data: formData,
-        options: Options(headers: {'Content-Type': 'multipart/form-data'}),
-        onSendProgress: onSendProgress != null
-            ? (sent, total) => onSendProgress(sent.toInt(), total.toInt())
-            : null,
+        options: Options(
+          headers: {'Content-Type': 'multipart/form-data'},
+          // sendTimeout : 0 = désactivé pour cette requête (géré par le
+          // garde-fou). connectTimeout (10 s) reste celui par défaut.
+          sendTimeout: Duration.zero,
+          receiveTimeout: _uploadResponseTimeout,
+        ),
+        cancelToken: cancelToken,
+        onSendProgress: handleSendProgress,
       );
 
       if (response.statusCode == 201) {
@@ -711,7 +770,18 @@ class ApiService {
           type: ApiExceptionType.server);
     } catch (e) {
       if (e is ApiException) rethrow;
+      if (e is DioException && e.type == DioExceptionType.cancel) {
+        // Annulation par le garde-fou : plus aucune donnée transmise.
+        throw ApiException(
+          'L\'envoi du fichier a été interrompu : plus aucune donnée transmise. '
+          'Vérifiez votre connexion et réessayez.',
+          type: ApiExceptionType.network,
+          originalError: e,
+        );
+      }
       throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
+    } finally {
+      stallTimer?.cancel();
     }
   }
 
@@ -936,6 +1006,41 @@ class ApiService {
         throw ApiException('Format de réponse inattendu.', type: ApiExceptionType.server);
       }
       throw ApiException('Impossible de charger les achats.',
+          type: ApiExceptionType.server);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
+    }
+  }
+
+  /// Résumés réellement ACHETÉS, dédupliqués (endpoint `/summaries/achetes/`).
+  ///
+  /// Le serveur ne renvoie qu'une entrée par résumé (statut completed), même si
+  /// plusieurs transactions complétées existent en base. Chaque entrée est un
+  /// objet `Summary` (sérialisé), pas une ligne `Purchase`.
+  Future<PurchasesPage> getAchetesSummaries({
+    int page = 1,
+    int pageSize = 10,
+  }) async {
+    try {
+      final response = await _dio.get('/summaries/achetes/', queryParameters: {
+        'page': page,
+        'page_size': pageSize,
+      });
+      if (response.statusCode == 200) {
+        dynamic data = response.data;
+        if (data is Map) {
+          final results = (data['results'] as List?) ?? [];
+          final count = data['count'] as int? ?? results.length;
+          return PurchasesPage(items: results, count: count, page: page, pageSize: pageSize);
+        }
+        if (data is List) {
+          // Ancien format (liste brute) : considéré comme une page complète
+          return PurchasesPage(items: data, count: data.length, page: 1, pageSize: data.length);
+        }
+        throw ApiException('Format de réponse inattendu.', type: ApiExceptionType.server);
+      }
+      throw ApiException('Impossible de charger les résumés achetés.',
           type: ApiExceptionType.server);
     } catch (e) {
       if (e is ApiException) rethrow;

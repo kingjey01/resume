@@ -97,6 +97,13 @@ class PersonalizedExerciseGenerator:
                 seed
             )
 
+            # Répartir les bonnes réponses de façon équilibrée et non
+            # prévisible (jamais 3 de suite identiques, pas de blocs A/A/A
+            # puis B/B/B…) SANS changer le contenu ni le contrat : on ne
+            # permute que l'affectation des options aux lettres A/B/C/D.
+            if questions_data:
+                questions_data = self._rebalance_correct_answers(questions_data, seed)
+
             if questions_data:
                 # Structure 3 tables (comme le standard) : chaque question est
                 # une ligne séparée rattachée à l'exercice. En régénération,
@@ -290,7 +297,140 @@ class PersonalizedExerciseGenerator:
                 logger.warning(f"Question générique détectée: '{question['question_text']}' — question rejetée")
                 return False
 
+        # Questions de RECONNAISSANCE de phrase (mémoriser une phrase EXACTE du
+        # résumé, sans comprendre) : interdites — elles ne testent aucune
+        # connaissance précise.
+        recognition_phrases = [
+            "d'après le résumé, quelle phrase",
+            "selon le résumé, quelle phrase",
+            "d'après le résultat, quelle phrase",
+            "selon le contenu, quelle affirmation",
+            "d'après ce qui est présenté, quelle affirmation",
+            "quelle phrase du résumé",
+            "quelle phrase parle",
+            "quelle phrase décrit",
+            "quelle phrase correspond",
+            "quelle phrase évoque",
+            "quelle phrase se rapporte",
+            "quelle phrase concerne",
+            "quelle phrase est tirée",
+            "quelle phrase de la leçon",
+            "correspond au schéma",
+            "que signifie cette phrase",
+        ]
+        for r in recognition_phrases:
+            if r in question_text:
+                logger.warning(f"Question de reconnaissance de phrase détectée: '{question['question_text']}' — question rejetée")
+                return False
+
         return True
+
+    # ═══════════════════════════════════════════════════════════════════════════
+    #  RÉPARTITION ÉQUILIBRÉE ET NON PRÉVISIBLE DES BONNES RÉPONSES
+    #  Aucun changement de contenu ni de contrat : on ne permute que
+    #  l'affectation des options aux lettres A/B/C/D et on recalcule
+    #  `correct_answer` en conséquence. La bonne réponse garde donc son texte,
+    #  mais à une position équilibrée sur l'ensemble du QCM.
+    # ═══════════════════════════════════════════════════════════════════════════
+
+    @staticmethod
+    def _letters():
+        return ['A', 'B', 'C', 'D']
+
+    @staticmethod
+    def _current_letters(questions):
+        letters = PersonalizedExerciseGenerator._letters()
+        return [
+            (q.get('correct_answer') if q.get('correct_answer') in letters else 'A')
+            for q in questions
+        ]
+
+    def _needs_rebalance(self, questions):
+        """True si la distribution actuelle est prévisible (3 mêmes de suite,
+        déséquilibre marqué entre les lettres, ou alternance régulière)."""
+        seq = self._current_letters(questions)
+        n = len(seq)
+        if n < 3:
+            return False
+        # 3 fois de suite la même lettre
+        for i in range(2, n):
+            if seq[i] == seq[i - 1] == seq[i - 2]:
+                return True
+        # Déséquilibre : écart > 1 entre la lettre la plus et la moins utilisée
+        counts = {l: seq.count(l) for l in self._letters()}
+        if max(counts.values()) - min(counts.values()) > 1:
+            return True
+        # Alternance régulière A/B/A/B… (motif prévisible)
+        if n >= 6 and len(set(seq)) == 2:
+            if all(seq[i] == seq[i % 2] for i in range(n)):
+                return True
+        return False
+
+    def _move_correct_answer_to(self, question, target_letter):
+        """
+        Replace la bonne réponse (contenu inchangé) sous la lettre cible et
+        recalcule correct_answer. Les distracteurs sont répartis sur les autres
+        lettres.
+        """
+        options = question.get('options')
+        if not isinstance(options, dict):
+            return question
+        current = question.get('correct_answer')
+        if current not in options or target_letter not in self._letters():
+            return question
+        correct_text = options[current]
+        other_values = [v for k, v in options.items() if k != current]
+        remaining = [l for l in self._letters() if l != target_letter]
+        new_options = {target_letter: correct_text}
+        # Python conserve l'ordre d'insertion des dicts : la répartition des
+        # distracteurs sur les lettres restantes est stable.
+        for letter, text in zip(remaining, other_values):
+            new_options[letter] = text
+        question['options'] = new_options
+        question['correct_answer'] = target_letter
+        return question
+
+    def _rebalance_correct_answers(self, questions, seed=None):
+        """
+        Répartit les bonnes réponses de façon équilibrée (≈ parts égales
+        A/B/C/D) et non prévisible (jamais 3 de suite identiques). N'intervient
+        que si la distribution actuelle est prévisible ou trop regroupée : dans
+        le cas courant (déjà variée), le contenu n'est pas touché.
+        """
+        if not questions or not self._needs_rebalance(questions):
+            return questions
+
+        n = len(questions)
+        # Seed dérivé mais distinct du seed de contenu : la distribution reste
+        # reproductible par exercice sans recopier celle d'un autre étudiant.
+        rng = random.Random((seed or 0) + 1000003)
+        letters = self._letters()
+
+        # Quota cible : parts égales (le reste réparti aléatoirement).
+        counts = {l: n // 4 for l in letters}
+        for l in rng.sample(letters, n % 4):
+            counts[l] += 1
+
+        # Construit une séquence équilibrée, sans 3 répétitions consécutives,
+        # en privilégiant toujours les lettres au quota restant le plus élevé.
+        seq = []
+        for _ in range(n):
+            usable = [
+                l for l in letters
+                if counts[l] > 0
+                and not (len(seq) >= 2 and seq[-1] == l and seq[-2] == l)
+            ]
+            if not usable:
+                usable = [l for l in letters if counts[l] > 0]
+            best = max(counts[l] for l in usable)
+            candidates = [l for l in usable if counts[l] == best]
+            chosen = rng.choice(candidates)
+            counts[chosen] -= 1
+            seq.append(chosen)
+
+        questions = [self._move_correct_answer_to(q, target) for q, target in zip(questions, seq)]
+        logger.info(f"🔀 [QCM Répartition] Bonnes réponses rééquilibrées ({len(seq)} questions) : {''.join(seq)}")
+        return questions
 
     # ═══════════════════════════════════════════════════════════════════════════
     #  FALLBACK LOCAL : questions construites UNIQUEMENT sur le contenu réel

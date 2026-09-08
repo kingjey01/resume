@@ -1661,6 +1661,20 @@ def complete_cp_onboarding_view(request):
                 'error': 'Seul un CP peut valider cet onboarding.'
             }, status=status.HTTP_403_FORBIDDEN)
 
+        # Idempotence (barrière définitive côté backend) : si l'onboarding est
+        # déjà finalisé, on ne recrée RIEN. Un double clic sur « Finaliser » ou
+        # un écran d'onboarding resté dans la pile de navigation ne doit jamais
+        # dupliquer professeur/cours ni réinitialiser l'état.
+        if profile.cp_onboarding_completed:
+            logger.info(
+                f"ℹ️ [Onboarding CP] Déjà finalisé pour "
+                f"{profile.user.username} — aucun re-traitement."
+            )
+            return Response({
+                'success': True,
+                'message': 'Onboarding CP déjà terminé.',
+            }, status=status.HTTP_200_OK)
+
         if not (profile.universite and profile.filiere and profile.promotion):
             return Response({
                 'error': 'Profil incomplet (université/filière/promotion).'
