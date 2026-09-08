@@ -43,6 +43,17 @@ final currentUserProvider = Provider<User?>((ref) {
   return authState.value;
 });
 
+// Fournisseur RÉACTIF du rôle (groupe) de l'utilisateur connecté.
+//
+// ⚠️ Il lit authProvider DIRECTEMENT (pas currentUserProvider) : à chaque
+// rafraîchissement, le notifier remplace l'état par un NOUVEL objet → les
+// consommateurs sont prévenus même si seul `groupe` a changé. Le `==` du
+// modèle User ne comparant que l'`id`, un Provider dérivé qui renverrait un
+// User « égal » (même id) ne notifierait pas ses dépendants.
+final currentUserRoleProvider = Provider<String>((ref) {
+  return ref.watch(authProvider).value?.groupe ?? 'ETUDIANT';
+});
+
 /// Compteur incrémenté à chaque login pour forcer le rafraîchissement des données
 final userSessionVersionProvider = StateProvider<int>((ref) => 0);
 
@@ -150,6 +161,27 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
       state = AsyncValue.data(user);
     } catch (e) {
       state = AsyncValue.error(e, StackTrace.current);
+    }
+  }
+
+  /// Rafraîchit l'utilisateur depuis le backend SANS écran de chargement et
+  /// SANS déconnecter en cas d'échec réseau : l'état précédent est conservé.
+  ///
+  /// C'est la brique du « rafraîchissement global » : après acceptation d'une
+  /// demande CP, elle recharge le profil → `groupe`/`cp_onboarding_completed`
+  /// sont à jour → les écrans branchés sur [authProvider] se reconstruisent
+  /// (nombre d'onglets, bouton « + », etc.) sans logout ni redémarrage.
+  ///
+  /// Renvoie true si le profil a bien été rechargé.
+  Future<bool> refreshCurrentUser() async {
+    try {
+      final user = await _authRepository.getCurrentUser();
+      if (user == null) return false;
+      state = AsyncValue.data(user);
+      return true;
+    } catch (e) {
+      debugPrint('⚠️ [Auth] refreshCurrentUser échoué : $e');
+      return false;
     }
   }
 }

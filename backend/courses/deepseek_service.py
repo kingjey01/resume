@@ -491,6 +491,45 @@ REGLES STRICTES A SUIVRE:
     une consequence ou un raisonnement explicitement present dans le resume.
     Une bonne question ne se repond pas en devinant un mot manquant : il faut
     avoir compris la notion.
+25. SOURCE UNIQUE DE CONNAISSANCES : le resume fourni est la seule source de
+    verite. Chaque question ET chaque reponse doivent pouvoir etre justifiees
+    par une ou plusieurs informations concretes presentes dans le resume.
+    Interdiction de generer une question uniquement parce qu'elle est
+    pertinente dans le domaine mais absente du resume.
+26. INTERDICTION des questions de RECONNAISSANCE de phrase (elles testent la
+    memorisation d'une phrase exacte, pas la comprehension). Ne jamais formuler :
+    - « D'apres le resume, quelle phrase... »,
+    - « Selon le resume, quelle phrase correspond a / parle de... »,
+    - « Quelle phrase du resume parle de / decrit / correspond / evoque... »,
+    - « Quelle phrase decrit l'objet / le schema... »,
+    - « D'apres le resultat, quelle phrase... »,
+    - « Selon le contenu, quelle affirmation... » quand elle ne teste aucune
+      connaissance precise.
+    Construire a la place une vraie question de comprehension, par exemple :
+    « Quel est le role de X dans le processus decrit ? », « Quelle consequence
+    se produit lorsque X est applique ? », « Quelle difference le resume
+    etablit-il entre X et Y ? ».
+27. REPARTITION DES BONNES REPONSES : repartis les bonnes reponses de facon
+    VARiee, EQUILIBREE et non previsible entre A, B, C et D sur l'ensemble des
+    questions. Ne mets JAMAIS la meme bonne reponse 3 fois de suite, evite les
+    longues series d'une meme lettre, les blocs (A,A,A puis B,B,B) et les
+    motifs trop reguliers (A,B,A,B,A,B...).
+28. DIFFICULTE REELLE selon le niveau demande :
+    - FACILE : notions essentielles, definitions, faits explicitement presents,
+      relations simples. Accessible sans etre trivial.
+    - MOYEN : comparaison, distinction entre deux concepts, relation entre
+      plusieurs informations, cause et consequence, application d'une regle,
+      choix entre concepts proches.
+    - DIFFICILE : analyse, deduction, raisonnement multi-etapes, application a
+      une situation nouvelle, consequence non explicitement formulee mais
+      deductible du resume, distinction entre propositions tres proches.
+    Une question MOYENNE ne doit pas etre une question FACILE reformulee ; une
+    question DIFFICILE doit exiger plus de raisonnement qu'une MOYENNE.
+29. DISTRACTEURS : plausibles et lies au contenu. Pour les niveaux MOYEN et
+    DIFFICILE, les mauvaises reponses doivent etre conceptuellement proches de
+    la bonne reponse pour obliger a comprendre. Jamais de distracteur absurde,
+    hors sujet, d'une longueur tres differente qui trahirait la bonne reponse,
+    ni de formulation qui donnerait involontairement la reponse.
 
 STYLE DES QUESTIONS:
 

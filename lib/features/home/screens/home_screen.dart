@@ -425,12 +425,22 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     await _recheckCPAfterRefresh();
   }
 
-  /// Re-vérifie le rôle CP après un rafraîchissement : si l'utilisateur vient
-  /// d'être accepté comme CP, l'onboarding CP est déclenché immédiatement (sans
-  /// redémarrer l'app).
+  /// Rafraîchissement GLOBAL après un refresh manuel (icône ou pull-to-refresh).
+  ///
+  /// 1. Recharge l'utilisateur depuis le backend dans l'état GLOBAL
+  ///    (authProvider). C'est ce qui fait reconstruire la barre de navigation
+  ///    (4 → 5 onglets) et cet écran (FAB « + »…) sans déconnexion.
+  /// 2. Re-synchronise les données locales liées au profil (téléphone, statut
+  ///    de demande CP, complétude du profil).
+  /// 3. Si l'utilisateur vient d'être accepté comme CP (et n'a pas encore fait
+  ///    son onboarding), déclenche l'onboarding CP immédiatement.
   Future<void> _recheckCPAfterRefresh() async {
+    final refreshed = await ref.read(authProvider.notifier).refreshCurrentUser();
+    // Recharger aussi les données locales du profil (rôle affiché par _userRole
+    // se resynchronise déjà via currentUserRoleProvider dans build).
     await _loadUserProfile();
-    if (_userRole == 'CP' && mounted) {
+    final user = ref.read(authProvider).value;
+    if (refreshed && user != null && user.isCP && !user.cpOnboardingCompleted && mounted) {
       MainNavigationScreen.navKey.currentState?.checkCPOnboarding();
     }
   }
@@ -454,6 +464,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
   @override
   Widget build(BuildContext context) {
     super.build(context);
+    // Rôle RÉACTIF : resynchronise _userRole quand l'état global change
+    // (rafraîchissement global après acceptation CP) → FAB « + », bannière
+    // « devenir CP », badges auteur, icône micro… se mettent à jour sans
+    // reconnexion ni redémarrage.
+    final liveRole = ref.watch(currentUserRoleProvider);
+    if (liveRole != _userRole) {
+      _userRole = liveRole;
+    }
     final summariesAsync = ref.watch(summariesProvider);
     final theme = Theme.of(context);
     final topPadding = MediaQuery.of(context).padding.top;

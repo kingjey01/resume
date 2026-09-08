@@ -8,6 +8,7 @@ import 'package:resume_plus_clean/features/exercises/screens/exercises_screen.da
 import 'package:resume_plus_clean/features/validation/screens/validation_screen.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/notification_service.dart';
+import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/providers/purchase_badge_provider.dart';
 import 'package:resume_plus_clean/features/home/providers/summary_provider.dart';
@@ -45,6 +46,11 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
   String _userRole = 'ETUDIANT';
   bool _isLoadingProfile = true;
   final ApiService _apiService = ApiService();
+
+  /// Garde-fou anti-doublon : un seul flux d'onboarding CP à la fois. Tant que
+  /// le flux est affiché (route ouverte), toute tentative concurrente est
+  /// ignorée → jamais deux CPOnboardingFlow empilés.
+  bool _cpCheckInFlight = false;
 
   // CP:      Accueil(0), Résumés(1), Validation(2), Mes achats(3), Exercices(4)
   // Étudiant: Accueil(0), Résumés(1), Mes achats(2), Exercices(3)
@@ -267,14 +273,19 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     try {
       final profile = await _apiService.getUserProfile();
       final role = profile['profile']?['groupe'] ?? 'ETUDIANT';
+      final cpOnboardingCompleted =
+          profile['profile']?['cp_onboarding_completed'] == true;
       setState(() {
         _userRole = role;
         _isLoadingProfile = false;
         _purchasesTabIndex = _userRole == 'CP' ? 3 : 2;
       });
-      // Vérifier si c'est la première utilisation du CP
-      if (role == 'CP') {
-        checkCPOnboarding();
+      // Première utilisation du CP (non encore finalisée) : lancer l'onboarding.
+      // Décision SYNCHRONE depuis le profil déjà chargé — on évite un second
+      // appel asynchrone différé dont la réponse, datant d'avant la
+      // finalisation, pourrait réafficher le flux après coup.
+      if (role == 'CP' && !cpOnboardingCompleted) {
+        _openCPOnboarding();
       }
     } catch (e) {
       setState(() {
@@ -285,23 +296,39 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     }
   }
 
+  /// Ouvre le flux d'onboarding CP — une seule instance à la fois.
+  ///
+  /// [Navigator.push] ne se termine qu'au pop de la route : tant que le flux
+  /// est affiché, [_cpCheckInFlight] reste vrai et toute tentative concurrente
+  /// est ignorée → jamais deux CPOnboardingFlow empilés dans la pile.
+  Future<void> _openCPOnboarding() async {
+    if (_cpCheckInFlight || !mounted) return;
+    _cpCheckInFlight = true;
+    try {
+      await Navigator.of(context).push(
+        MaterialPageRoute(
+          fullscreenDialog: true,
+          builder: (_) => const CPOnboardingFlow(),
+        ),
+      );
+    } catch (_) {
+      // Silencieux : si la navigation échoue on n'interrompt pas l'utilisateur
+    } finally {
+      _cpCheckInFlight = false;
+    }
+  }
+
   /// Re-vérifie (serveur) si l'onboarding CP doit s'afficher et le lance.
   /// Public : appelé après acceptation d'une demande CP (rafraîchissement) pour
   /// afficher l'onboarding sans redémarrer l'app.
   Future<void> checkCPOnboarding() async {
     try {
       final status = await _apiService.getOnboardingStatus();
-      if (status['is_first_use'] == true && mounted) {
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) {
-          Navigator.of(context).push(
-            MaterialPageRoute(
-              fullscreenDialog: true,
-              builder: (_) => const CPOnboardingFlow(),
-            ),
-          );
-        }
-      }
+      // Si le backend dit « déjà finalisé » (réponse en vol obtenue APRÈS une
+      // finalisation), on ne pousse plus rien — l'auto-garde du flow fait le
+      // reste pour tout flux déjà ouvert par erreur.
+      if (status['is_first_use'] != true || !mounted) return;
+      await _openCPOnboarding();
     } catch (_) {
       // Silencieux : si l'API échoue on n'interrompt pas l'utilisateur
     }
@@ -309,6 +336,27 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Source de vérité RÉACTIVE du rôle : on écoute authProvider (chaque
+    // rafraîchissement global crée un nouvel état → ce build se rejoue) et on
+    // resynchronise _userRole. Un CP accepté voit donc immédiatement ses
+    // 5 onglets (4 → 5) sans déconnexion ni redémarrage.
+    final authState = ref.watch(authProvider);
+    final authRole = authState.value?.groupe;
+    if (authRole != null && authRole != _userRole) {
+      _userRole = authRole;
+    }
+    // Sécurité d'index : si le rôle a réduit le nombre d'onglets, ramener
+    // l'onglet courant dans les bornes (après la frame, hors build).
+    final tabCount = _userRole == 'CP' ? 5 : 4;
+    if (_currentIndex >= tabCount) {
+      final maxIndex = tabCount - 1;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _currentIndex >= tabCount) {
+          setState(() => _currentIndex = maxIndex);
+        }
+      });
+    }
+
     if (_isLoadingProfile) {
       return const Scaffold(
         body: Center(child: CircularProgressIndicator()),

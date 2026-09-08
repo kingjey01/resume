@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/features/summaries/providers/purchased_summaries_provider.dart';
 import 'package:resume_plus_clean/providers/tab_refresh_provider.dart';
-import 'package:resume_plus_clean/features/summaries/widgets/purchased_summary_card.dart';
+import 'package:resume_plus_clean/models/summary.dart';
+import 'package:resume_plus_clean/features/summary_details/screens/summary_details_screen.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 
 class PurchasesScreen extends ConsumerStatefulWidget {
@@ -192,21 +193,164 @@ class _PurchasesScreenState extends ConsumerState<PurchasesScreen>
             ? 'Essayez avec d\'autres mots-clés'
             : 'Vos résumés achetés apparaîtront ici',
         errorTitle: 'Erreur lors du chargement des résumés achetés',
-        // Le serveur filtre déjà status=completed ; ici on exclut les
-        // abonnements (service sans résumé) comme avant.
-        extraFilter: (p) => p is Map && p['summary'] != null,
-        searchText: (p) => _getPropertySafely(p, 'summary_title', ''),
-        itemBuilder: (purchase) {
-          try {
-            return PurchasedSummaryCard(purchase: purchase);
-          } catch (e) {
-            print('Erreur lors de la construction de PurchasedSummaryCard: $e');
-            return const SizedBox.shrink();
-          }
-        },
+        // Endpoint /summaries/achetes/ (dédupliqué) : chaque entrée est un
+        // objet Summary (une carte par résumé — pas de doublon, même si
+        // plusieurs transactions complétées existent en base).
+        extraFilter: (p) => p is Map && p['titre'] != null,
+        searchText: (p) => _getPropertySafely(p, 'titre', ''),
+        itemBuilder: (summary) => _buildPurchasedSummaryCard(summary),
         scrollController: _summaryScrollController,
       ),
     );
+  }
+
+  /// Carte d'un résumé acheté (objet Summary dédupliqué) — ouvre le résumé.
+  Widget _buildPurchasedSummaryCard(dynamic raw) {
+    final theme = Theme.of(context);
+    final summary = _toSummaryForOpen(raw);
+    if (summary == null) return const SizedBox.shrink();
+
+    final amountText = summary.price > 0
+        ? '${summary.price.toStringAsFixed(0)} CDF'
+        : null;
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppTheme.softShadow,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () => _openPurchasedSummary(summary),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: AppTheme.success.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.check_circle_rounded, size: 14, color: AppTheme.success),
+                          SizedBox(width: 4),
+                          Text(
+                            'ACHETÉ',
+                            style: TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.success,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Spacer(),
+                    if (amountText != null)
+                      Text(
+                        amountText,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppTheme.primaryBlue,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  summary.title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: theme.colorScheme.onSurface,
+                  ),
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                if (summary.subject.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    summary.subject,
+                    style: TextStyle(
+                      color: theme.colorScheme.onSurface.withOpacity(0.7),
+                      fontSize: 12,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
+                const SizedBox(height: 14),
+                SizedBox(
+                  width: double.infinity,
+                  height: 46,
+                  child: ElevatedButton.icon(
+                    onPressed: () => _openPurchasedSummary(summary),
+                    icon: const Icon(Icons.visibility_rounded, size: 17),
+                    label: const Text('Consulter', style: TextStyle(fontSize: 13)),
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: AppTheme.primaryBlue,
+                      foregroundColor: Colors.white,
+                      elevation: 0,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _openPurchasedSummary(Summary summary) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SummaryDetailsScreen(summary: summary),
+      ),
+    );
+  }
+
+  /// Convertit l'objet Summary sérialisé en modèle [Summary]. Le contenu est
+  /// marqué `__FETCH_REQUIRED__` : l'écran de détail re-fetch le texte complet
+  /// par id (comportement identique à l'ancienne carte d'achat).
+  Summary? _toSummaryForOpen(dynamic raw) {
+    try {
+      if (raw is! Map) return null;
+      final base = Summary.fromJson(Map<String, dynamic>.from(raw));
+      return Summary(
+        id: base.id,
+        title: base.title,
+        subject: base.subject,
+        filiereName: base.filiereName,
+        imageUrl: base.imageUrl,
+        content: '__FETCH_REQUIRED__',
+        price: base.price,
+        isFree: false,
+        authorName: base.authorName,
+        createdAt: base.createdAt,
+        updatedAt: base.updatedAt,
+        isPurchased: true,
+        courseId: base.courseId,
+        authorType: base.authorType,
+        isValidated: true,
+        professorName: base.professorName,
+      );
+    } catch (_) {
+      return null;
+    }
   }
 
   Widget _buildPaymentHistoryTab() {
