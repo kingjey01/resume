@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
+import 'package:resume_plus_clean/services/auto_login_service.dart';
 import 'package:resume_plus_clean/services/otp_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
@@ -150,6 +151,19 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
           result['access_token'],
           result['refresh_token'],
         );
+
+        // Marquer l'appareil comme authentifié (téléphone + device id). C'est
+        // ce marqueur qui permet, aux démarrages suivants, de reconnaître un
+        // appareil déjà connu (branches `sessionRestored` /
+        // `deviceKnownNeedsAuth` de AutoLoginService) au lieu de renvoyer
+        // l'utilisateur vers l'onboarding. `registerDevice` n'était appelé
+        // nulle part : `isDeviceRegistered()` était donc toujours faux.
+        // NON bloquant : un échec ici ne doit pas empêcher la connexion.
+        try {
+          await AutoLoginService.registerDevice(phone: widget.phoneNumber);
+        } catch (e) {
+          print('⚠️ [OTP] Enregistrement appareil échoué (non bloquant): $e');
+        }
 
         // Mettre à jour l'état d'authentification (authProvider) : c'est LA
         // source de vérité qui déclenche l'invalidation des données utilisateur

@@ -333,7 +333,12 @@ class PersonalizedExerciseNotifier extends StateNotifier<PersonalizedExerciseSta
   // ═══════════════════════════════════════════════════════════════════════════════
 
   /// Soumet toutes les réponses et récupère le score
-  Future<void> submitQuiz() async {
+  ///
+  /// [timeSpentSeconds] : durée réellement passée sur l'exercice, mesurée par
+  /// le chronomètre de l'écran (démarré à l'affichage des questions). Le
+  /// backend ne peut pas la déduire lui-même — il crée la tentative au moment
+  /// de la soumission — donc sans elle l'historique affiche 0 s.
+  Future<void> submitQuiz({int? timeSpentSeconds}) async {
     if (!state.isQuizComplete || state.exercise == null) return;
 
     state = state.copyWith(status: ExerciseGenerationStatus.submitting, isLoading: true);
@@ -347,6 +352,7 @@ class PersonalizedExerciseNotifier extends StateNotifier<PersonalizedExerciseSta
       final data = await _api.submitPersonalizedExercise(
         exerciseId: state.exercise!.id,
         answers: answers,
+        timeSpentSeconds: timeSpentSeconds,
       );
 
       final result = AttemptResult.fromJson(data);
