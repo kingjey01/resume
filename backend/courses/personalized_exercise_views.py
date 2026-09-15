@@ -287,8 +287,15 @@ def submit_personalized_exercise_view(request, exercise_id):
 
     Body:
     {
-        "answers": {"0": "A", "1": "B", "2": "C", ...}  // index_question: réponse
+        "answers": {"0": "A", "1": "B", "2": "C", ...},  // index_question: réponse
+        "time_spent_seconds": 143                        // OPTIONNEL (secondes)
     }
+
+    `time_spent_seconds` est la durée réellement passée sur l'exercice, mesurée
+    par le chronomètre de l'app. Elle doit venir du client : côté serveur la
+    tentative est créée AU MOMENT de la soumission (`started_at` est en
+    `auto_now_add`), donc aucune durée calculable n'existe. Sans ce champ, le
+    temps enregistré reste 0 (comportement historique).
 
     Retourne le score détaillé avec corrections.
     """
@@ -316,6 +323,20 @@ def submit_personalized_exercise_view(request, exercise_id):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
+        # Durée réelle mesurée par le chronomètre de l'app. Champ OPTIONNEL :
+        # absent, on garde le comportement historique (temps laissé à 0).
+        raw_time_spent = request.data.get('time_spent_seconds')
+        time_spent_seconds = None
+        if raw_time_spent is not None:
+            try:
+                # Accepte un entier, un flottant JSON ou une chaîne numérique.
+                time_spent_seconds = max(0, int(float(raw_time_spent)))
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'time_spent_seconds doit être un nombre de secondes'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         # Créer la tentative
         attempt = UserPersonalizedAttempt.objects.create(
             personalized_exercise=exercise,
@@ -325,7 +346,7 @@ def submit_personalized_exercise_view(request, exercise_id):
 
         # Calculer le score — les résultats sont reconstruits depuis les lignes
         # de questions (la tentative ne stocke plus les questions)
-        attempt.calculate_results()
+        attempt.calculate_results(time_spent_seconds=time_spent_seconds)
 
         # Formater la réponse
         results_formatted = []

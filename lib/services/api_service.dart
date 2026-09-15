@@ -311,7 +311,14 @@ class ApiService {
       }
     } catch (e) {
       AppLogger.error('Erreur refresh token', e);
-      await _invalidateTokens();
+      // On ne détruit les jetons QUE si le serveur a réellement rejeté le
+      // refresh (400/401/403 → jeton invalide ou blacklisté). Une panne réseau,
+      // un timeout ou une 5xx ne disent RIEN de la validité de la session :
+      // effacer les jetons dans ce cas transformait une simple perte de
+      // connexion en déconnexion définitive.
+      if (_isRefreshRejected(e)) {
+        await _invalidateTokens();
+      }
       final error = e is ApiException
           ? e
           : ApiException('Session expirée. Veuillez vous reconnecter.',
@@ -321,6 +328,24 @@ class ApiService {
     } finally {
       _refreshCompleter = null;
     }
+  }
+
+  /// Le serveur a-t-il explicitement rejeté le refresh token ?
+  ///
+  /// Seul ce cas autorise la suppression des jetons stockés. Un échec réseau
+  /// n'est pas un rejet.
+  bool _isRefreshRejected(Object error) {
+    if (error is DioException) {
+      final code = error.response?.statusCode;
+      return code == 400 || code == 401 || code == 403;
+    }
+    if (error is ApiException) {
+      // `noRefreshToken` : rien à conserver de toute façon.
+      // `refreshFailed` : le serveur a répondu autre chose que 200.
+      return error.type == ApiExceptionType.noRefreshToken ||
+          error.type == ApiExceptionType.refreshFailed;
+    }
+    return false;
   }
 
   Future<void> _invalidateTokens() async {
@@ -413,6 +438,12 @@ class ApiService {
           type: ApiExceptionType.server);
     } catch (e) {
       if (e is ApiException) rethrow;
+      // Conserver le TYPE d'origine : c'est lui qui permet aux appelants de
+      // distinguer une session réellement rejetée (401 → unauthorized) d'une
+      // simple panne réseau. Sans cela, tout devenait `unknown` et
+      // l'authentification traitait une perte de connexion comme une
+      // déconnexion (jetons effacés).
+      if (e is DioException) throw ApiException.fromDioException(e);
       throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
     }
   }
@@ -1591,14 +1622,23 @@ class ApiService {
   }
 
   /// Soumet les réponses et récupère le score
+  ///
+  /// [timeSpentSeconds] : durée réellement passée sur l'exercice, mesurée par
+  /// le chronomètre de l'écran de quiz. Elle doit être envoyée par le client :
+  /// côté serveur la tentative est créée à la soumission même, donc la durée
+  /// calculable y est nulle. Omise, le temps enregistré reste 0.
   Future<Map<String, dynamic>> submitPersonalizedExercise({
     required int exerciseId,
     required Map<String, String> answers, // {"0": "A", "1": "B", ...}
+    int? timeSpentSeconds,
   }) async {
     try {
       final response = await _dio.post(
         '/courses/personalized-exercises/$exerciseId/submit/',
-        data: {'answers': answers},
+        data: {
+          'answers': answers,
+          if (timeSpentSeconds != null) 'time_spent_seconds': timeSpentSeconds,
+        },
       );
       return response.data as Map<String, dynamic>;
     } on DioException catch (e) {

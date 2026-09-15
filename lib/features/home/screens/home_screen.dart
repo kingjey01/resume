@@ -439,7 +439,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     // Recharger aussi les données locales du profil (rôle affiché par _userRole
     // se resynchronise déjà via currentUserRoleProvider dans build).
     await _loadUserProfile();
-    final user = ref.read(authProvider).value;
+    final user = ref.read(authProvider).valueOrNull;
     if (refreshed && user != null && user.isCP && !user.cpOnboardingCompleted && mounted) {
       MainNavigationScreen.navKey.currentState?.checkCPOnboarding();
     }
@@ -468,8 +468,14 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     // (rafraîchissement global après acceptation CP) → FAB « + », bannière
     // « devenir CP », badges auteur, icône micro… se mettent à jour sans
     // reconnexion ni redémarrage.
+    //
+    // ⚠️ `null` = rôle pas encore connu (profil global en cours de chargement
+    // ou en erreur) : on n'écrase JAMAIS le rôle déjà connu avec cet état
+    // « inconnu ». Sinon un CP validé repassait en « ETUDIANT » le temps du
+    // chargement → bannière de demande CP réaffichée et bouton « + » masqué
+    // (voire durablement si le chargement global échouait).
     final liveRole = ref.watch(currentUserRoleProvider);
-    if (liveRole != _userRole) {
+    if (liveRole != null && liveRole != _userRole) {
       _userRole = liveRole;
     }
     final summariesAsync = ref.watch(summariesProvider);
@@ -487,9 +493,12 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     });
 
     // Écouter les changements d'état auth pour détecter un nouvel utilisateur
+    // (`valueOrNull` : un état en chargement/erreur vaut « pas d'utilisateur »,
+    // et ne doit pas faire planter le listener).
     ref.listen<AsyncValue<User?>>(authProvider, (prev, next) {
-      if (prev?.value?.id != next.value?.id && next.value != null) {
-        print('🔄 [Home] Nouvel utilisateur détecté (id=${next.value!.id}) — rechargement des données');
+      final nextUser = next.valueOrNull;
+      if (prev?.valueOrNull?.id != nextUser?.id && nextUser != null) {
+        print('🔄 [Home] Nouvel utilisateur détecté (id=${nextUser.id}) — rechargement des données');
         _apiService.clearSession();
         _loadUserProfile();
         ref.invalidate(summariesProvider);
@@ -507,7 +516,10 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
 
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
-      floatingActionButton: _isLoadingProfile
+      // Le rôle est connu soit via l'état global réactif (authProvider), soit
+      // via le profil chargé localement : le bouton « + » apparaît dès que
+      // l'un des deux est disponible, sans attendre le second appel réseau.
+      floatingActionButton: (_isLoadingProfile && liveRole == null)
           ? null
           : (_userRole == 'CP' || _userRole == 'ADMIN'
               ? FloatingActionButton(

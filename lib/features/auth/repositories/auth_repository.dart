@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:resume_plus_clean/exceptions/api_exception.dart';
 import 'package:resume_plus_clean/models/user.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
@@ -15,25 +16,39 @@ class AuthRepository {
        _storageService = storageService ?? StorageService();
 
   /// Récupère l'utilisateur actuellement connecté
-  /// 
-  /// Retourne null si aucun utilisateur n'est connecté
+  ///
+  /// Retourne null si aucun utilisateur n'est connecté, ou si le serveur a
+  /// explicitement rejeté la session (401 → les jetons sont supprimés).
+  ///
+  /// LÈVE en revanche sur tout autre échec (réseau, timeout, 5xx, parsing) :
+  /// ces erreurs ne disent RIEN de la validité de la session. Auparavant on
+  /// appelait `logout()` dans ce cas, ce qui effaçait les jetons et
+  /// blacklistait le refresh côté serveur — une simple perte de connexion
+  /// déconnectait donc définitivement l'utilisateur.
   Future<User?> getCurrentUser() async {
     try {
       final tokens = await _storageService.readTokens();
       if (tokens['access'] == null) return null;
-      
+
       final userProfile = await _apiService.getUserProfile();
+
+      // Mémoriser le profil : il permet de rouvrir l'espace personnel hors-ligne
+      // (cf. AuthNotifier._resolveCurrentUser).
+      await _storageService.cacheUserProfile(userProfile);
+
       return User.fromJson(userProfile);
     } on DioException catch (e) {
-      // Si le token est invalide ou expiré, on déconnecte l'utilisateur
+      // Seul un 401 prouve que la session est morte.
       if (e.response?.statusCode == 401) {
         await _apiService.logout();
+        return null;
       }
-      return null;
-    } catch (e) {
-      // En cas d'autre erreur, on déconnecte aussi pour être sûr
-      await _apiService.logout();
-      return null;
+      rethrow;
+    } on ApiException catch (e) {
+      // Le token a été rejeté puis le refresh a échoué → session réellement
+      // perdue (les jetons ont déjà été nettoyés par ApiService).
+      if (e.type == ApiExceptionType.unauthorized) return null;
+      rethrow;
     }
   }
 

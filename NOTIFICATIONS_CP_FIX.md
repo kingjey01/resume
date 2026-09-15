@@ -1,137 +1,90 @@
-# Correction — CP reçoit ses propres notifications
+ Transcription réussie: 725 caractères
+[2026-08-29 15:33:47,962: WARNING/ForkPoolWorker-4] ✅ Transcription Deepgram réussie (confiance: 96.78%)
+[2026-08-29 15:33:47,962: INFO/ForkPoolWorker-4] ✅ Transcription Deepgram réussie (confiance: 96.78%)
+[2026-08-29 15:33:47,967: INFO/ForkPoolWorker-4] ✅ [Celery] Étape 1/2 terminée: Transcription #40
+[2026-08-29 15:33:47,967: INFO/ForkPoolWorker-4] 📝 [Celery] Étape 2/2 : Résumé session 42...
+[2026-08-29 15:33:47,967: INFO/ForkPoolWorker-4] 🔍 DIAGNOSTIC - Début étape 2 génération résumé
+[2026-08-29 15:33:47,967: INFO/ForkPoolWorker-4] 🔍 Transcription ID: 40
+[2026-08-29 15:33:47,967: INFO/ForkPoolWorker-4] 🔍 Transcription created_at: 2026-08-29 15:33:46.660429
+[2026-08-29 15:33:47,968: INFO/ForkPoolWorker-4] 🔍 Session ID: 42
+[2026-08-29 15:33:47,968: INFO/ForkPoolWorker-4] 🔍 Session date: 2026-08-29 15:33:46.553794
+[2026-08-29 15:33:47,968: INFO/ForkPoolWorker-4] 🔍 Author user: YETA6
+[2026-08-29 15:33:47,974: INFO/ForkPoolWorker-4] 🤖 Génération du résumé via DeepSeek API...
+[2026-08-29 15:34:13,034: INFO/ForkPoolWorker-4] Tokens: 5521
+[2026-08-29 15:34:13,039: INFO/ForkPoolWorker-4] ✅ Résumé DeepSeek généré avec succès
+[2026-08-29 15:34:13,039: INFO/ForkPoolWorker-4] 🔍 Création Summary avec:
+[2026-08-29 15:34:13,039: INFO/ForkPoolWorker-4] 🔍   - titre: variables
+[2026-08-29 15:34:13,044: INFO/ForkPoolWorker-4] 🔍   - course: Python - INFORMATIQUE (UCC)
+[2026-08-29 15:34:13,045: INFO/ForkPoolWorker-4] 🔍   - session: Python - 29/08/2026
+[2026-08-29 15:34:13,045: INFO/ForkPoolWorker-4] 🔍   - transcription: Transcription - Python - 29/08/2026 (completed)
+[2026-08-29 15:34:13,045: INFO/ForkPoolWorker-4] 🔍   - author_user: YETA6
+[2026-08-29 15:34:13,053: INFO/ForkPoolWorker-4] 🔍 Summary créé: ID=45, created_at=2026-08-29 15:34:13.049171
+[2026-08-29 15:34:13,056: INFO/ForkPoolWorker-4] ✅ [Celery] Session 42 terminée — Transcription #40, Résumé #45
+[2026-08-29 15:34:13,057: INFO/ForkPoolWorker-4] Task courses.tasks.process_audio_session_task[c86f2081-535d-4ac0-b196-1dcf72bb8c89] succeeded in 26.45073343720287s: {'success': True, 'session_id': 42, 'summary_id': 45, 'transcription_id': 40}
+## PROBLÈME 1 — La file d'attente audio ne détecte pas les changements de statut en temps réel
 
-## 🔧 Problème identifié
+Dans l'onglet **File d'attente audio** (icône microphone), l'état affiché ne se met pas automatiquement à jour lorsque le traitement d'une session évolue.
 
-Le CP (Chef de Promotion) était exclu des notifications de :
-1. **Validation de résumé** — Notification "📚 Nouveau résumé disponible"
-2. **Abonnement payé** — Notification "✅ Abonnement activé"
-3. **Abonnement expire bientôt** — Notification "⏰ Abonnement expire bientôt"
-4. **Abonnement expiré** — Notification "❌ Abonnement expiré"
+Exemple :
 
-### Cause
-- `sender_id` était passé aux notifications de validation → exclusion du sender
-- Les notifications d'abonnement créaient directement une notification pour l'utilisateur au lieu de passer par `create_and_send_notification()` qui respecte la logique de ciblage
+**Transcription en cours → Transcrit → Résumé disponible**
 
----
+Le backend change correctement le statut, mais la file d'attente Flutter conserve l'ancien état jusqu'à ce que l'utilisateur fasse manuellement un rafraîchissement de la page.
 
-## ✅ Corrections apportées
+### Travail demandé
 
-### 1. Validation de résumé (`courses/views.py:1336-1350`)
+Analyser comment la file d'attente récupère actuellement les sessions et comment le state est mis à jour.
 
-**Avant :**
-```python
-create_and_send_notification.apply_async(kwargs={
-    ...
-    'sender_id': request.user.id,  # ❌ Excluait le CP
-}, countdown=3)
-```
+Identifier pourquoi les changements de statut provenant du backend ne sont pas propagés automatiquement à l'interface.
 
-**Après :**
-```python
-create_and_send_notification.apply_async(kwargs={
-    'title': '📚 Nouveau résumé disponible',
-    'body': f'Le résumé « {summary.titre} » du cours {course.nom} est maintenant disponible.',
-    'notification_type': 'summary_validated',
-    'universite_id': course.universite_fk_id,
-    'filiere_id': course.filiere_fk_id,
-    'promotion_id': course.promotion_fk_id,
-    'summary_id': summary.id,
-    'course_id': course.id,
-    # ✅ Pas de sender_id → CP inclus
-}, countdown=3)
-```
+Corriger uniquement la gestion du state/rafraîchissement afin que la file d'attente reflète automatiquement le nouveau statut.
 
-### 2. Notifications d'abonnement (`notifications/tasks.py`)
+Lorsqu'un statut change :
 
-**Avant :**
-```python
-# Créait directement une notification pour l'utilisateur
-notif = AppNotification.objects.create(...)
-un, _ = UserNotification.objects.get_or_create(user=user, notification=notif)
-send_fcm_notification.apply_async(args=[[un.id]], countdown=1)
-```
+* la progression doit se mettre à jour automatiquement ;
+* la barre de progression doit évoluer jusqu'à son état final ;
+* lorsque le traitement est terminé, afficher immédiatement l'état correspondant (par exemple terminé/vert) ;
+* l'utilisateur ne doit pas avoir besoin de quitter l'écran ou de faire un refresh manuel.
 
-**Après :**
-```python
-# Utilise create_and_send_notification pour respecter la logique de ciblage
-profile = UserProfile.objects.get(user=user)
-create_and_send_notification.apply_async(
-    kwargs={
-        'title': '✅ Abonnement activé',
-        'body': f'Votre abonnement {service.nom} est maintenant actif...',
-        'notification_type': 'payment',
-        'universite_id': profile.universite_id,  # ✅ Ciblage par université
-        'filiere_id': profile.filiere_id,        # ✅ Ciblage par filière
-        'promotion_id': profile.promotion_id,    # ✅ Ciblage par promotion
-    },
-    countdown=1
-)
-```
+Utiliser le mécanisme de mise à jour déjà présent dans l'application lorsqu'il existe, plutôt que de dupliquer la logique.
 
-**Tâches modifiées :**
-- `notify_subscription_paid()` — Abonnement payé
-- `notify_subscription_expiring_soon()` — Abonnement expire bientôt
-- `notify_subscription_expired()` — Abonnement expiré
-
-### 3. ALLOWED_HOSTS (`resume_backend/settings.py:20-29`)
-
-**Ajout du domaine manquant :**
-```python
-ALLOWED_HOSTS = [
-    'localhost',
-    '127.0.0.1',
-    '0.0.0.0',
-    'resumecours.gestionhospitaliare.site',
-    'www.resumecours.gestionhospitaliare.site',
-    'ftp.clavierplus.com',  # ✅ Domaine alternatif ajouté
-    '180.149.197.29',
-]
-```
+Ne pas modifier le workflow backend de transcription/génération si celui-ci fonctionne correctement.
 
 ---
 
-## 📋 Logique de ciblage
+## PROBLÈME 2 — Notification « Résumé créé » absente et badge de notification non incrémenté
 
-Avec `create_and_send_notification()`, les notifications sont envoyées à :
+Lorsqu'un résumé est créé avec succès, le **badge de validation** s'incrémente correctement : le système détecte donc bien qu'un nouveau résumé doit être validé.
 
-| Filtre | Destinataires |
-|--------|---|
-| `universite_id` uniquement | Tous les utilisateurs de l'université (y compris CP) |
-| `universite_id` + `filiere_id` | Tous les utilisateurs de l'université + filière (y compris CP) |
-| `universite_id` + `filiere_id` + `promotion_id` | Uniquement le groupe exact (y compris CP) |
+Cependant, la notification correspondante n'est pas envoyée au CP.
 
-**Point clé :** Aucun `sender_id` n'est passé → le CP reçoit ses propres notifications.
+Conséquence :
 
----
+* le badge **Validation** s'incrémente ;
+* aucune notification « Résumé créé » n'est reçue ;
+* le badge de l'icône **Notifications** ne s'incrémente pas.
 
-## 🚀 Déploiement
+### Travail demandé
 
-```bash
-# 1. Redémarrer Celery Worker
-sudo systemctl restart celery
+Analyser le workflow exact lorsqu'un résumé est créé :
 
-# 2. Redémarrer Django
-sudo systemctl restart gunicorn
+**Résumé généré → Résumé enregistré → statut Résumé créé → déclenchement notification → réception → incrément du badge Notifications**
 
-# 3. Vérifier les logs
-sudo journalctl -u celery -f
-```
+Comparer ce workflow avec celui utilisé pour les validations, puisque le badge Validation fonctionne correctement.
 
----
+Vérifier notamment :
 
-## ✅ Vérification
+* si la tâche Celery/worker de notification existe ;
+* si elle est réellement appelée après la création du résumé ;
+* si elle reçoit le bon utilisateur/CP destinataire ;
+* si la notification est correctement enregistrée ;
+* si le système de badge Notifications écoute correctement ce type de notification.
 
-Après déploiement, vérifier que :
-1. ✅ CP reçoit la notification "📚 Nouveau résumé disponible" lors de la validation
-2. ✅ CP reçoit la notification "✅ Abonnement activé" lors d'un paiement réussi
-3. ✅ CP reçoit la notification "⏰ Abonnement expire bientôt" 7 jours avant expiration
-4. ✅ CP reçoit la notification "❌ Abonnement expiré" après expiration
-5. ✅ Pas d'erreur `DisallowedHost` pour `ftp.clavierplus.com`
+Corriger le workflow afin que, dès qu'un résumé est créé :
 
----
+1. une notification soit créée et envoyée au CP concerné ;
+2. cette notification apparaisse dans l'onglet Notifications ;
+3. le compteur/badge Notifications soit immédiatement incrémenté ;
+4. le badge Validation continue également de fonctionner comme actuellement.
 
-## 📁 Fichiers modifiés
-
-- `backend/courses/views.py` — Suppression de `sender_id` ligne 1350
-- `backend/notifications/tasks.py` — Refactorisation de 3 tâches (notify_subscription_paid, notify_subscription_expiring_soon, notify_subscription_expired)
-- `backend/resume_backend/settings.py` — Ajout de `ftp.clavierplus.com` à ALLOWED_HOSTS
+Ne pas modifier le mécanisme de validation qui fonctionne déjà. Utiliser son fonctionnement comme référence pour identifier pourquoi le workflow de notification « Résumé créé » ne fonctionne pas.

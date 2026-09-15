@@ -22,13 +22,13 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
     },
     {
       'icon': Icons.shopping_cart_rounded,
-      'title': 'Achetez des Résumés',
-      'description': 'Explorez notre marketplace pour trouver et acheter des résumés de haute qualité, créés par d\'autres membres de la communauté.',
+      'title': 'Achetez le résumé du jour',
+      'description': 'Accédez aux résumés des cours de votre promotion, enseignés par vos professeurs. Dès que votre CP publie le résumé du jour, vous pouvez l’acheter et le consulter en temps réel.',
     },
     {
       'icon': Icons.quiz_rounded,
-      'title': 'Quiz & Exercices Premium',
-      'description': 'Évaluez vos acquis en temps réel grâce à des quiz et exercices générés par l\'intelligence artificielle, conçus pour renforcer votre apprentissage de manière ciblée et efficace.',
+      'title': 'Quiz & Exercices',
+      'description': 'Évaluez vos acquis en temps réel grâce à des quiz et exercices générés par l\'intelligence artificielle basé sur vos cours, conçus pour renforcer votre apprentissage de manière ciblée et efficace.',
     },
   ];
 

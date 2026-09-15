@@ -341,7 +341,10 @@ class _MainNavigationScreenState extends ConsumerState<MainNavigationScreen> {
     // resynchronise _userRole. Un CP accepté voit donc immédiatement ses
     // 5 onglets (4 → 5) sans déconnexion ni redémarrage.
     final authState = ref.watch(authProvider);
-    final authRole = authState.value?.groupe;
+    // `valueOrNull` : en chargement ou en erreur le rôle est simplement
+    // « inconnu » (null) — on garde le rôle déjà connu au lieu de faire
+    // planter le build (contrairement à `value`, qui relance l'erreur).
+    final authRole = authState.valueOrNull?.groupe;
     if (authRole != null && authRole != _userRole) {
       _userRole = authRole;
     }

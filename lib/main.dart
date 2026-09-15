@@ -68,9 +68,13 @@ class MyApp extends ConsumerWidget {
     // authentifié change (login, logout, changement de compte sur le même
     // téléphone), on invalide TOUS les providers dépendants de l'utilisateur
     // pour que l'utilisateur suivant ne voie JAMAIS les données du précédent.
+    // `valueOrNull` (et non `value`) : un état en chargement/erreur vaut
+    // « utilisateur inconnu » (null) au lieu de relancer l'erreur — une
+    // déconnexion passe par `loading` → `data(null)` et doit donc invalider
+    // les données dès que l'identifiant change.
     ref.listen(authProvider, (prev, next) {
-      final prevId = prev?.value?.id;
-      final nextId = next.value?.id;
+      final prevId = prev?.valueOrNull?.id;
+      final nextId = next.valueOrNull?.id;
       if (prevId != nextId) {
         debugPrint('🔄 [Root] Utilisateur changé ($prevId → $nextId) — invalidation des données');
         // Vider la session API en mémoire (token + caches universités/filières)
