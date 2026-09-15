@@ -503,41 +503,69 @@ class PersonalizedExerciseGenerator:
         if code_blocks:
             add_unique(self._build_code_question(code_blocks[0], terms))
 
-        # 2. Questions réelles de compréhension, ordonnées selon la difficulté
+        # 2. Questions réelles de compréhension, ordonnées selon la DIFFICULTÉ.
+        #    Les niveaux ne sont PAS identiques (le fallback doit respecter le
+        #    niveau choisi comme la voie IA) :
+        #      easy  → notions / définitions / idées essentielles (rappel) ;
+        #      medium→ compréhension : rôle, importance, synthèse ;
+        #      hard  → compréhension + raisonnement, jamais de simple rappel.
+        #    Le rattrapage « quelle phrase parle de X » (mémorisation d'une
+        #    phrase exacte) n'est utilisé qu'en tout dernier recours, et UNIQUEMENT
+        #    pour le niveau easy.
         builders_by_difficulty = {
-            'easy': ['meaning', 'retenir', 'importance'],
-            'medium': ['meaning', 'retenir', 'importance'],
-            'hard': ['meaning', 'retenir', 'importance'],
+            # (type, nombre max)
+            'easy': [('meaning', 2), ('retenir', 2), ('importance', 2)],
+            'medium': [('role', 2), ('importance', 2), ('retenir', 2), ('meaning', 1)],
+            'hard': [('role', 2), ('importance', 2), ('retenir', 1), ('meaning', 1)],
         }
-        builder_order = builders_by_difficulty.get(difficulty, builders_by_difficulty['medium'])
+        builder_plan = builders_by_difficulty.get(
+            difficulty, builders_by_difficulty['medium']
+        )
 
-        # Au maximum 2 questions par type pour garantir un mélange varié
-        builder_counts = {}
-        for builder_key in builder_order:
-            for _ in range(6):
-                if len(questions) >= 8:
-                    break
-                if builder_counts.get(builder_key, 0) >= 2:
-                    break
-                q = None
-                if builder_key == 'meaning':
-                    q = self._build_meaning_question(defs)
-                elif builder_key == 'retenir':
-                    q = self._build_retenir_question(sections)
-                elif builder_key == 'importance':
-                    q = self._build_importance_question(sections)
-                if add_unique(q):
-                    builder_counts[builder_key] = builder_counts.get(builder_key, 0) + 1
+        def dispatch(builder_key):
+            if builder_key == 'meaning':
+                return self._build_meaning_question(defs)
+            if builder_key == 'role':
+                return self._build_role_question(defs)
+            if builder_key == 'retenir':
+                return self._build_retenir_question(sections)
+            if builder_key == 'importance':
+                return self._build_importance_question(sections)
+            return None
 
-        # 3. Compléter si nécessaire (jamais de questions inventées) : d'abord de
-        #    vraies questions de sens, puis « quelle phrase parle de X ? »
-        if len(questions) < 8:
+        builder_counts = {key: 0 for key, _ in builder_plan}
+
+        def build_from_plan():
+            """Un passage sur le plan : ajoute une question par type tant qu'on
+            n'a pas atteint le quota de ce type."""
+            added = False
+            for builder_key, max_count in builder_plan:
+                while builder_counts[builder_key] < max_count and len(questions) < 8:
+                    before = len(questions)
+                    if add_unique(dispatch(builder_key)):
+                        builder_counts[builder_key] += 1
+                        added = True
+                    if len(questions) == before:
+                        break  # plus rien à tirer de ce type (contenu insuffisant)
+            return added
+
+        # 3. Remplir selon le plan (plusieurs passages si le contenu le permet),
+        #    sans jamais inventer ni tomber dans la mémorisation pour medium/hard.
+        passes = 0
+        while len(questions) < 8 and passes < 4:
+            if not build_from_plan():
+                break
+            passes += 1
+
+        # 4. Ultra-dernier recours pour atteindre 8 — uniquement EASY :
+        #    question de repérage réelle (« quelle phrase parle de X »). Jamais
+        #    pour medium / hard (mémorisation interdite à ces niveaux).
+        if len(questions) < 8 and difficulty == 'easy':
             for _ in range(10):
                 if len(questions) >= 8:
                     break
-                add_unique(self._build_meaning_question(defs))
-                if len(questions) < 8:
-                    add_unique(self._build_about_question(sentences, noun_terms))
+                if not add_unique(self._build_about_question(sentences, noun_terms)):
+                    break
 
         logger.info(f"📄 [QCM Perso Fallback] {len(questions)} questions construites depuis le contenu réel (difficulty={difficulty}, seed={seed})")
         return questions[:8]
@@ -764,6 +792,42 @@ class PersonalizedExerciseGenerator:
             "options": dict(zip('ABCD', options_list)),
             "correct_answer": correct_letter,
             "explanation": f"Le résumé explique l'importance de « {target_title} » ainsi : « {target_text} »",
+        }
+
+    def _build_role_question(self, defs):
+        """
+        Vraie question de compréhension (moyen/difficile) : « quel est le rôle
+        de X ? ». Cible uniquement des notions dont la définition réelle du
+        résumé exprime une fonction/action (permet, sert, garantit, assure…),
+        avec de réelles définitions d'autres notions en options.
+        """
+        role_verbs = ('permet', 'sert', 'garantit', 'assure', 'facilite',
+                      'contribue', 'fournit', 'produit', 'intervient', 'joue',
+                      'constitue', 'permet de')
+        candidates = [
+            (t, d) for (t, d) in defs
+            if any(v in d.lower() for v in role_verbs)
+        ]
+        if len(candidates) < 2:
+            return None
+        target_term, target_def = random.choice(candidates)
+        # Distracteurs : d'abord d'autres définitions « fonctionnelles », sinon
+        # d'autres définitions réelles du résumé (jamais inventées).
+        others = [d for (t, d) in candidates if t.lower() != target_term.lower()]
+        others = list(dict.fromkeys(others))
+        if len(others) < 3:
+            others = [d for (t, d) in defs if t.lower() != target_term.lower()]
+            others = list(dict.fromkeys(others))
+        if len(others) < 3:
+            return None
+        options_list = [target_def] + random.sample(others, 3)
+        random.shuffle(options_list)
+        correct_letter = [k for k, v in zip('ABCD', options_list) if v == target_def][0]
+        return {
+            "question_text": f"Selon le résumé, quel est le rôle de « {target_term} » ?",
+            "options": dict(zip('ABCD', options_list)),
+            "correct_answer": correct_letter,
+            "explanation": f"Dans le résumé, le rôle de « {target_term} » est présenté ainsi : « {target_def} »",
         }
 
     def _build_code_question(self, code_block, terms):

@@ -710,11 +710,19 @@ class UserPersonalizedAttempt(models.Model):
             })
         return results
 
-    def calculate_results(self):
+    def calculate_results(self, time_spent_seconds=None):
         """
         Calcule le score en comparant les réponses avec les lignes de questions
         (équivalent du calculate_score du système standard).
         Retourne la liste des résultats détaillés (construits à la volée).
+
+        [time_spent_seconds] : durée RÉELLE mesurée par le chronomètre de l'app,
+        démarré à l'affichage des questions. Elle est indispensable ici :
+        `started_at` est posé par `auto_now_add` au moment de la CRÉATION de la
+        ligne, c'est-à-dire pendant la requête de soumission elle-même — le
+        delta `completed_at - started_at` vaut donc quelques millisecondes et
+        s'arrondit à 0 s. Laissé à None, cet ancien calcul est conservé pour ne
+        pas casser les appels existants (migration, admin, scripts).
         """
         questions = list(
             self.personalized_exercise.questions.all().order_by('order')
@@ -737,8 +745,12 @@ class UserPersonalizedAttempt(models.Model):
         self.correct_answers_count = correct_count
         self.completed_at = timezone.now()
 
-        # Calculer temps passé
-        if self.started_at and self.completed_at:
+        # Temps passé : on fait foi à la durée mesurée par l'app (seule source
+        # fiable, cf. docstring). Repli sur le delta started_at/completed_at
+        # quand elle n'est pas fournie.
+        if time_spent_seconds is not None:
+            self.time_spent_seconds = max(0, int(time_spent_seconds))
+        elif self.started_at and self.completed_at:
             delta = self.completed_at - self.started_at
             self.time_spent_seconds = int(delta.total_seconds())
 

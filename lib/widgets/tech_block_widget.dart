@@ -15,13 +15,42 @@ class TechBlockWidget extends StatelessWidget {
   final String? codeLanguage;
   final String? codeBlock;
 
+  /// Dessiner le cadre (bordure + coins arrondis + marge) autour du bloc.
+  ///
+  /// À laisser à `false` quand l'appelant encadre DÉJÀ le bloc — c'est le cas
+  /// des résumés : flutter_markdown enveloppe tout bloc de code dans
+  /// `codeblockDecoration`. Sans ce drapeau on obtiendrait un cadre dans le
+  /// cadre.
+  final bool withFrame;
+
   const TechBlockWidget({
     super.key,
     this.codeLanguage,
     this.codeBlock,
+    this.withFrame = true,
   });
 
   bool get hasContent => codeBlock != null && codeBlock!.trim().isNotEmpty;
+
+  /// Le langage désigne-t-il une FORMULE (maths, physique, chimie, calcul,
+  /// équation…) plutôt que du code ?
+  ///
+  /// Ces blocs sont rendus dans une zone dédiée, en typographie de lecture —
+  /// pas en police monospace. Le jeu de langages est celui que produit le
+  /// backend (`code_language: "latex" | "formula" | "math"`) et celui des
+  /// clôtures Markdown ` ```latex `.
+  static bool isFormulaLanguage(String? language) {
+    const formulaLanguages = <String>{
+      'latex',
+      'formula',
+      'formule',
+      'math',
+      'maths',
+      'mathematics',
+      'equation',
+    };
+    return formulaLanguages.contains(language?.trim().toLowerCase() ?? '');
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -31,9 +60,19 @@ class TechBlockWidget extends StatelessWidget {
     final label = _languageLabel(lang);
     final icon = _languageIcon(lang);
 
-    // Envelopper le code dans un bloc de code Markdown
-    // pour que MarkdownBody le rende comme dans AiContentView
-    final markdownContent = '```$lang\n${codeBlock!.trim()}\n```';
+    final content = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _buildHeader(context, icon, label),
+        if (isFormulaLanguage(lang))
+          _buildFormulaBody(context)
+        else
+          _buildCodeBody(context, lang),
+      ],
+    );
+
+    if (!withFrame) return content;
 
     return Container(
       width: double.infinity,
@@ -47,50 +86,97 @@ class TechBlockWidget extends StatelessWidget {
           width: 1,
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisSize: MainAxisSize.min,
+      child: content,
+    );
+  }
+
+  /// Bandeau supérieur : icône + libellé du langage.
+  Widget _buildHeader(BuildContext context, IconData icon, String label) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
+      decoration: BoxDecoration(
+        color: Theme.of(context).brightness == Brightness.dark
+            ? const Color(0xFF252540)
+            : const Color(0xFFE8E8F0),
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(9),
+          topRight: Radius.circular(9),
+        ),
+      ),
+      child: Row(
         children: [
-          // Header avec icône et langage
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
-            decoration: BoxDecoration(
-              color: Theme.of(context).brightness == Brightness.dark
-                  ? const Color(0xFF252540)
-                  : const Color(0xFFE8E8F0),
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(9),
-                topRight: Radius.circular(9),
-              ),
+          Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: GoogleFonts.poppins(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Theme.of(context).colorScheme.primary,
+              letterSpacing: 0.5,
             ),
-            child: Row(
-              children: [
-                Icon(icon, size: 16, color: Theme.of(context).colorScheme.primary),
-                const SizedBox(width: 6),
-                Text(
-                  label,
-                  style: GoogleFonts.poppins(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).colorScheme.primary,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Contenu technique rendu via flutter_markdown (MÊME style que AiContentView)
-          MarkdownBody(
-            data: markdownContent,
-            selectable: true,
-            styleSheet: AiContentView.sharedStyleSheet(context),
-            extensionSet: md.ExtensionSet.gitHubFlavored,
-            softLineBreak: true,
           ),
         ],
       ),
     );
+  }
+
+  /// Corps « code » : rendu via flutter_markdown (MÊME style que AiContentView).
+  Widget _buildCodeBody(BuildContext context, String lang) {
+    // Envelopper le code dans un bloc de code Markdown
+    // pour que MarkdownBody le rende comme dans AiContentView
+    final markdownContent = '```$lang\n${codeBlock!.trim()}\n```';
+
+    return MarkdownBody(
+      data: markdownContent,
+      selectable: true,
+      styleSheet: AiContentView.sharedStyleSheet(context),
+      extensionSet: md.ExtensionSet.gitHubFlavored,
+      softLineBreak: true,
+    );
+  }
+
+  /// Corps « formule » : même fond que les blocs de code pour rester dans la
+  /// même famille visuelle, mais en typographie de lecture et centré, plutôt
+  /// qu'en police monospace — une formule n'est pas du code.
+  Widget _buildFormulaBody(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+
+    final formula = _stripMathDelimiters(codeBlock!);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E1E2E) : const Color(0xFFF5F5FA),
+        // Coins bas arrondis : sans cadre, le corps dépasserait sinon du cadre
+        // arrondi du parent (le Container englobant n'a pas de `clipBehavior`).
+        borderRadius: const BorderRadius.only(
+          bottomLeft: Radius.circular(9),
+          bottomRight: Radius.circular(9),
+        ),
+      ),
+      child: SelectableText(
+        formula,
+        textAlign: TextAlign.center,
+        style: GoogleFonts.poppins(
+          fontSize: 15,
+          height: 1.6,
+          color: theme.colorScheme.onSurface,
+        ),
+      ),
+    );
+  }
+
+  /// Retire d'éventuels délimiteurs LaTeX (`$`, `$$`, `\[`, `\]`) restés autour
+  /// de la formule. Le backend demande un contenu brut, mais on reste tolérant.
+  static String _stripMathDelimiters(String raw) {
+    var formula = raw.trim();
+    formula = formula.replaceFirst(RegExp(r'^\\\[|^\$\$?'), '');
+    formula = formula.replaceFirst(RegExp(r'\\\]$|\$\$?$'), '');
+    return formula.trim();
   }
 
   IconData _languageIcon(String lang) {

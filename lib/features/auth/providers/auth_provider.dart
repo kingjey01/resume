@@ -32,15 +32,20 @@ final authProvider = StateNotifierProvider<AuthNotifier, AsyncValue<User?>>((ref
 });
 
 // Fournisseur utilitaire pour vérifier si l'utilisateur est connecté
+//
+// `valueOrNull` : en chargement ou en erreur, l'utilisateur n'est « pas
+// (encore) authentifié » — on ne fait pas planter le build de ses
+// consommateurs (contrairement à `value`, qui relance l'erreur).
 final isAuthenticatedProvider = Provider<bool>((ref) {
   final authState = ref.watch(authProvider);
-  return authState.value != null;
+  return authState.valueOrNull != null;
 });
 
 // Fournisseur utilitaire pour accéder à l'utilisateur actuel
+// (null tant que le profil n'est pas connu, plutôt qu'une exception).
 final currentUserProvider = Provider<User?>((ref) {
   final authState = ref.watch(authProvider);
-  return authState.value;
+  return authState.valueOrNull;
 });
 
 // Fournisseur RÉACTIF du rôle (groupe) de l'utilisateur connecté.
@@ -50,8 +55,17 @@ final currentUserProvider = Provider<User?>((ref) {
 // consommateurs sont prévenus même si seul `groupe` a changé. Le `==` du
 // modèle User ne comparant que l'`id`, un Provider dérivé qui renverrait un
 // User « égal » (même id) ne notifierait pas ses dépendants.
-final currentUserRoleProvider = Provider<String>((ref) {
-  return ref.watch(authProvider).value?.groupe ?? 'ETUDIANT';
+//
+// ⚠️ Renvoie `null` tant que le rôle n'est PAS CONNU : chargement initial du
+// profil (AsyncValue.loading), erreur réseau, ou utilisateur déconnecté.
+// Ne JAMAIS traduire ce `null` par « ETUDIANT » : un consommateur ne doit pas
+// confondre « pas encore chargé » avec « étudiant ». C'est ce qui faisait
+// réapparaître la bannière « devenir CP » et disparaître le bouton « + » chez
+// un CP déjà validé jusqu'au prochain rafraîchissement manuel.
+final currentUserRoleProvider = Provider<String?>((ref) {
+  // `valueOrNull` (et non `value`) : un état en ERREUR ne doit pas faire
+  // planter le build des consommateurs, il vaut « rôle inconnu » → null.
+  return ref.watch(authProvider).valueOrNull?.groupe;
 });
 
 /// Compteur incrémenté à chaque login pour forcer le rafraîchissement des données
@@ -64,7 +78,12 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   
   // Pour gérer les accès concurrents lors du rafraîchissement du token
   bool _isRefreshingToken = false;
-  
+
+  // Garde anti-concurrence du chargement du profil. Volontairement SÉPARÉ de
+  // `state.isLoading` : l'état initial est `loading`, donc s'appuyer dessus
+  // empêchait le tout premier chargement (cf. _loadCurrentUser).
+  bool _isLoadingUser = false;
+
   AuthNotifier(
     this._authRepository,
     this._storageService,
@@ -87,25 +106,58 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
     await _loadCurrentUser();
   }
 
-  Future<void> _loadCurrentUser() async {
-    // Ne pas recharger si déjà en cours de chargement
-    if (state.isLoading) return;
-    
-    state = const AsyncValue.loading();
-    
+  /// Résout l'utilisateur courant SANS jamais déconnecter sur un échec non
+  /// authentifiant.
+  ///
+  /// Renvoie `null` uniquement quand la session est réellement absente ou
+  /// rejetée par le serveur (401 → le repository a déjà nettoyé les jetons).
+  /// Sur une panne réseau, une 5xx ou un timeout, la session reste valide : on
+  /// se replie sur le dernier profil mis en cache. C'est ce qui évite qu'une
+  /// simple perte de connexion renvoie l'utilisateur vers téléphone + OTP.
+  Future<User?> _resolveCurrentUser() async {
     try {
       final user = await _authRepository.getCurrentUser();
-      
+
       if (user == null) {
-        // Si l'utilisateur n'est pas authentifié, on s'assure qu'aucun token n'est stocké
+        // Plus aucun token, ou session rejetée : on s'assure qu'il ne reste
+        // rien de stocké (le repository l'a normalement déjà fait).
         await _authRepository.logout();
       }
-      
+
+      return user;
+    } catch (e) {
+      debugPrint('⚠️ [Auth] Profil injoignable ($e) — repli sur le profil en cache');
+
+      final cached = await _storageService.getCachedUserProfile();
+      if (cached != null) {
+        try {
+          return User.fromJson(cached);
+        } catch (parseError) {
+          debugPrint('⚠️ [Auth] Profil en cache illisible : $parseError');
+        }
+      }
+
+      return null;
+    }
+  }
+
+  Future<void> _loadCurrentUser() async {
+    // Garde anti-concurrence sur un booléen DÉDIÉ, et non sur `state.isLoading`.
+    // L'état initial de ce notifier EST `loading` : l'ancien
+    // `if (state.isLoading) return;` renvoyait donc immédiatement au démarrage
+    // et le profil n'était jamais restauré depuis le stockage — l'app restait
+    // bloquée en `loading` jusqu'à un rafraîchissement manuel.
+    if (_isLoadingUser) return;
+    _isLoadingUser = true;
+
+    state = const AsyncValue.loading();
+
+    try {
+      // Ne lève jamais : renvoie null si la session est réellement perdue.
+      final user = await _resolveCurrentUser();
       state = AsyncValue.data(user);
-    } catch (e, stackTrace) {
-      // En cas d'erreur, on déconnecte l'utilisateur pour être sûr
-      await _authRepository.logout();
-      state = AsyncValue.error(e, stackTrace);
+    } finally {
+      _isLoadingUser = false;
     }
   }
 
@@ -156,12 +208,10 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   }
 
   Future<void> refreshUser() async {
-    try {
-      final user = await _authRepository.getCurrentUser();
-      state = AsyncValue.data(user);
-    } catch (e) {
-      state = AsyncValue.error(e, StackTrace.current);
-    }
+    // Passe par _resolveCurrentUser : un échec réseau ne met plus l'état en
+    // erreur (ce qui équivalait à « non authentifié » chez les consommateurs,
+    // juste après l'OTP notamment) — on retombe sur le profil en cache.
+    state = AsyncValue.data(await _resolveCurrentUser());
   }
 
   /// Rafraîchit l'utilisateur depuis le backend SANS écran de chargement et
@@ -174,14 +224,11 @@ class AuthNotifier extends StateNotifier<AsyncValue<User?>> {
   ///
   /// Renvoie true si le profil a bien été rechargé.
   Future<bool> refreshCurrentUser() async {
-    try {
-      final user = await _authRepository.getCurrentUser();
-      if (user == null) return false;
-      state = AsyncValue.data(user);
-      return true;
-    } catch (e) {
-      debugPrint('⚠️ [Auth] refreshCurrentUser échoué : $e');
-      return false;
-    }
+    // _resolveCurrentUser ne lève jamais et retombe sur le profil en cache :
+    // hors-ligne, l'état précédent est donc conservé plutôt que vidé.
+    final user = await _resolveCurrentUser();
+    if (user == null) return false;
+    state = AsyncValue.data(user);
+    return true;
   }
 }

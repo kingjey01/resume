@@ -30,6 +30,13 @@ class PersonalizedQuizScreen extends ConsumerStatefulWidget {
 class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen> {
   bool _resultNavigated = false;
 
+  /// Chronomètre de la tentative : démarré à l'affichage RÉEL des questions
+  /// (jamais pendant la génération, qui peut durer plusieurs minutes) et lu à
+  /// la soumission. C'est la seule durée fiable : côté backend la tentative est
+  /// créée pendant la requête de soumission, donc son `started_at` vaut
+  /// `completed_at` et la durée calculée serait toujours 0.
+  final Stopwatch _stopwatch = Stopwatch();
+
   @override
   void initState() {
     super.initState();
@@ -48,9 +55,31 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
   }
 
   @override
+  void dispose() {
+    _stopwatch.stop();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     final state = ref.watch(personalizedExerciseProvider);
     final theme = Theme.of(context);
+
+    // Le chronomètre suit l'état « quiz réellement en cours » : démarre quand
+    // les questions sont affichées, s'arrête dès qu'on le quitte (soumission,
+    // régénération, reset) et repart à zéro pour la tentative suivante.
+    ref.listen<bool>(
+      personalizedExerciseProvider.select((s) => s.isQuizInProgress),
+      (previous, next) {
+        if (next) {
+          _stopwatch
+            ..reset()
+            ..start();
+        } else {
+          _stopwatch.stop();
+        }
+      },
+    );
 
     return WillPopScope(
       onWillPop: () async {
@@ -600,7 +629,12 @@ class _PersonalizedQuizScreenState extends ConsumerState<PersonalizedQuizScreen>
   }
 
   Future<void> _submitQuiz() async {
-    await ref.read(personalizedExerciseProvider.notifier).submitQuiz();
+    // Durée lue AVANT la soumission : le passage en `submitting` fait sortir de
+    // `isQuizInProgress` et arrête le chronomètre.
+    final elapsedSeconds = _stopwatch.elapsed.inSeconds;
+    await ref.read(personalizedExerciseProvider.notifier).submitQuiz(
+          timeSpentSeconds: elapsedSeconds,
+        );
   }
 
   Future<bool?> _showExitConfirmation() async {

@@ -20,6 +20,15 @@ class _UnifiedAttempt {
   final bool isPersonalized;
   final int summaryId;
 
+  /// Durée réelle de la tentative, déjà mise en forme (« 2min 23s »), ou `null`
+  /// quand elle n'est pas mesurable.
+  ///
+  /// Deux cas donnent `null` : les tentatives de l'ancien système d'exercices,
+  /// dont l'API n'expose aucune durée, et celles enregistrées avant la mise en
+  /// place du chronomètre (temps valant 0). Afficher « 0s » dans ce second cas
+  /// laisserait croire à un exercice expédié en une seconde.
+  final String? durationLabel;
+
   const _UnifiedAttempt({
     required this.id,
     required this.title,
@@ -28,6 +37,7 @@ class _UnifiedAttempt {
     required this.completedAt,
     required this.isPersonalized,
     this.summaryId = 0,
+    this.durationLabel,
   });
 
   String get scoreFormatted => '${score.toStringAsFixed(0)}%';
@@ -118,6 +128,9 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
           completedAt: att.completedAt ?? att.startedAt,
           isPersonalized: true,
           summaryId: att.summaryId,
+          // `formattedTime` du modèle : on réutilise sa mise en forme pour que
+          // l'historique et l'écran de résultat annoncent la même durée.
+          durationLabel: att.timeSpentSeconds > 0 ? att.formattedTime : null,
         ));
       }
       attemptsLoaded = true;
@@ -416,9 +429,31 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
                     maxLines: 1, overflow: TextOverflow.ellipsis,
                   ),
                   const SizedBox(height: 4),
-                  Text(
-                    _formatDate(attempt.completedAt),
-                    style: const TextStyle(color: AppTheme.textLight, fontSize: 11),
+                  Row(
+                    children: [
+                      // `Flexible` + ellipsis : la date passe à la ligne
+                      // plutôt que de déborder sur les petits écrans quand la
+                      // durée l'accompagne.
+                      Flexible(
+                        child: Text(
+                          _formatDate(attempt.completedAt),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: AppTheme.textLight, fontSize: 11),
+                        ),
+                      ),
+                      // Durée réelle de la tentative, quand elle est connue.
+                      if (attempt.durationLabel != null) ...[
+                        const SizedBox(width: 10),
+                        const Icon(Icons.timer_outlined,
+                            size: 12, color: AppTheme.textLight),
+                        const SizedBox(width: 3),
+                        Text(
+                          attempt.durationLabel!,
+                          style: const TextStyle(color: AppTheme.textLight, fontSize: 11),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
