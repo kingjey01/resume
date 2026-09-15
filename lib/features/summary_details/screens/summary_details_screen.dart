@@ -759,14 +759,30 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
                           borderRadius: BorderRadius.circular(16),
                           boxShadow: AppTheme.mediumShadow,
                         ),
-                        child: Row(
-                          children: [
-                            _buildInfoChip(context, Icons.person_outline_rounded, _fetchedAuthor ?? widget.summary.authorName),
-                            const SizedBox(width: 12),
-                            _buildInfoChip(context, Icons.calendar_today_rounded, DateFormat('dd/MM/yyyy').format(widget.summary.createdAt)),
-                            const Spacer(),
+                        // Auteur / date / prix : si le nom est trop long pour tenir
+                        // sur une ligne, la zone passe en colonne (nom sur plusieurs
+                        // lignes) et le prix reste dans sa propre zone.
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final author = _fetchedAuthor ?? widget.summary.authorName;
+                            final dateText = DateFormat('dd/MM/yyyy').format(widget.summary.createdAt);
+                            final priceText = widget.summary.isFree
+                                ? 'Gratuit'
+                                : '${widget.summary.price.toStringAsFixed(0)} FC';
+
+                            final authorChip = _buildInfoChip(
+                              context,
+                              Icons.person_outline_rounded,
+                              author,
+                              wrap: true,
+                            );
+                            final dateChip = _buildInfoChip(
+                              context,
+                              Icons.calendar_today_rounded,
+                              dateText,
+                            );
                             // Badge prix
-                            Container(
+                            final priceBadge = Container(
                               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                               decoration: BoxDecoration(
                                 color: widget.summary.isFree
@@ -775,15 +791,70 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
                                 borderRadius: BorderRadius.circular(20),
                               ),
                               child: Text(
-                                widget.summary.isFree ? 'Gratuit' : '${widget.summary.price.toStringAsFixed(0)} FC',
+                                priceText,
+                                maxLines: 1,
                                 style: TextStyle(
                                   color: widget.summary.isFree ? AppTheme.success : theme.colorScheme.primary,
                                   fontSize: 13,
                                   fontWeight: FontWeight.w700,
                                 ),
                               ),
-                            ),
-                          ],
+                            );
+
+                            // Largeur nécessaire pour tout aligner sur une seule ligne.
+                            const chipDecoration = 14.0 + 4.0; // icône + espacement
+                            final oneLineWidth = chipDecoration +
+                                _measureTextWidth(context, author, _chipTextStyle(theme)) +
+                                12 +
+                                chipDecoration +
+                                _measureTextWidth(context, dateText, _chipTextStyle(theme)) +
+                                12 +
+                                _measureTextWidth(
+                                  context,
+                                  priceText,
+                                  const TextStyle(fontSize: 13, fontWeight: FontWeight.w700),
+                                ) +
+                                24; // padding horizontal du badge
+
+                            // Espace horizontal insuffisant → disposition en colonne.
+                            if (constraints.hasBoundedWidth && constraints.maxWidth < oneLineWidth) {
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.center,
+                                children: [
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        authorChip,
+                                        const SizedBox(height: 6),
+                                        dateChip,
+                                      ],
+                                    ),
+                                  ),
+                                  const SizedBox(width: 12),
+                                  priceBadge,
+                                ],
+                              );
+                            }
+
+                            return Row(
+                              children: [
+                                // Flexible : garde-fou, le nom ne peut jamais
+                                // imposer sa largeur au prix.
+                                Expanded(
+                                  child: Row(
+                                    children: [
+                                      Flexible(child: authorChip),
+                                      const SizedBox(width: 12),
+                                      dateChip,
+                                    ],
+                                  ),
+                                ),
+                                const SizedBox(width: 12),
+                                priceBadge,
+                              ],
+                            );
+                          },
                         ),
                       ),
                       const SizedBox(height: 16),
@@ -966,22 +1037,40 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     );
   }
 
-  Widget _buildInfoChip(BuildContext context, IconData icon, String text) {
+  /// Style du texte des puces d'information (auteur / date).
+  TextStyle _chipTextStyle(ThemeData theme) => TextStyle(
+        color: theme.colorScheme.onSurface.withOpacity(0.7),
+        fontSize: 12,
+        fontWeight: FontWeight.w500,
+      );
+
+  /// Largeur d'une ligne de texte, sert à décider si les informations du
+  /// résumé (auteur / date / prix) tiennent sur une seule ligne.
+  double _measureTextWidth(BuildContext context, String text, TextStyle style) {
+    final painter = TextPainter(
+      text: TextSpan(text: text, style: DefaultTextStyle.of(context).style.merge(style)),
+      maxLines: 1,
+      textDirection: Directionality.of(context),
+    )..layout();
+    return painter.width;
+  }
+
+  /// [wrap] = true : le texte peut passer sur plusieurs lignes (utilisé quand la
+  /// zone bascule en colonne). Sinon il reste sur une ligne, tronqué si besoin.
+  Widget _buildInfoChip(BuildContext context, IconData icon, String text, {bool wrap = false}) {
     final theme = Theme.of(context);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         Icon(icon, size: 14, color: theme.colorScheme.onSurface.withOpacity(0.5)),
         const SizedBox(width: 4),
-        Text(
-          text,
-          style: TextStyle(
-            color: theme.colorScheme.onSurface.withOpacity(0.7),
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
+        Flexible(
+          child: Text(
+            text,
+            style: _chipTextStyle(theme),
+            maxLines: wrap ? null : 1,
+            overflow: wrap ? null : TextOverflow.ellipsis,
           ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
         ),
       ],
     );

@@ -63,4 +63,10 @@ Cette info est-elle utile ?
 -Erreur
 Cette version ne prend plus en charge 1 971 appareils qui étaient compatibles avec votre version précédente. Si vous continuez, votre appli ne sera pas disponible pour les nouveaux utilisateurs sur ces appareils non pris en charge, et les mises à jour ne seront pas disponibles pour les utilisateurs qui ont déjà installé votre appli sur ces appareils. Consultez les modifications apportées à vos appareils pris en charge pour voir quels appareils sont concernés.
 
+=====mise a jour API======
+28 août
+Action d'ici le 31 août
+Mettez à jour votre niveau d'API cible d'ici le 31 août 2026 pour pouvoir déployer des mises à jour de votre appli
+Nous avons détecté que votre appli cible une ancienne version d'Android. Pour offrir une expérience sécurisée aux utilisateurs, Google Play exige que toutes les applis répondent aux exigences du niveau d'API cible.
 
+À compter du 31 août 2026, si votre appli ne cible pas un niveau d'API disponible depuis moins d'un an après la dernière version d'Android, vous ne serez plus en mesure de mettre à jour votre appli.

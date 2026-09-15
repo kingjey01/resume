@@ -1,3 +1,4 @@
+import 'package:resume_plus_clean/exceptions/api_exception.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:flutter/foundation.dart';
@@ -40,33 +41,49 @@ class AutoLoginService {
   static Future<AppStartState> determineStartState() async {
     final storageService = StorageService();
     final apiService = ApiService();
-    
-    try {
-      // 1. Vérifier si l'appareil est enregistré (phone + deviceId sauvegardés)
-      final isRegistered = await storageService.isDeviceRegistered();
 
-      // 2. Vérifier si on a un access token
+    try {
+      // 1. La session locale : la présence d'un refresh token prouve qu'un
+      //    utilisateur s'est déjà authentifié SUR CET APPAREIL. On ne se fie
+      //    pas au seul enregistrement « device » : il n'était écrit par
+      //    aucune version de l'app (registerDevice n'était jamais appelé), et
+      //    s'en servir comme critère renvoyait à l'onboarding des utilisateurs
+      //    dont la session était pourtant parfaitement restaurable.
+      final refreshTokenStr = await storageService.refreshToken;
+      final isRegistered = await storageService.isDeviceRegistered();
+      final deviceKnown = isRegistered || refreshTokenStr != null;
+
+      // 2. Un access token est présent : on tente de valider la session
       final accessToken = await storageService.accessToken;
       if (accessToken != null) {
         await apiService.initializeTokens();
-        // Valider le token en appelant le serveur
         try {
           await apiService.getUserProfile();
           print('✅ Token d\'accès valide → espace personnel');
           return AppStartState.loggedIn;
+        } on ApiException catch (e) {
+          // Seul un 401 prouve que la session est morte. Toute autre erreur
+          // (réseau, timeout, 5xx) n'est PAS une déconnexion : la session
+          // locale reste valide, on ouvre l'espace personnel plutôt que de
+          // renvoyer l'utilisateur vers téléphone + OTP.
+          if (e.type != ApiExceptionType.unauthorized) {
+            print('📴 Serveur injoignable (${e.type}) → session locale conservée');
+            return AppStartState.loggedIn;
+          }
+          print('⚠️ Session rejetée (401), tentative de refresh...');
         } catch (_) {
-          print('⚠️ Access token expiré, tentative de refresh...');
+          print('📴 Vérification impossible → session locale conservée');
+          return AppStartState.loggedIn;
         }
       }
 
-      // 3. Si pas enregistré → nouvel appareil
-      if (!isRegistered) {
+      // 3. Aucune session locale exploitable et appareil inconnu → onboarding
+      if (!deviceKnown) {
         print('📱 Nouvel appareil → onboarding');
         return AppStartState.newDevice;
       }
 
-      // 4. L'appareil est enregistré, essayer de restaurer la session avec le refresh token
-      final refreshTokenStr = await storageService.refreshToken;
+      // 4. Appareil connu : restaurer la session avec le refresh token
       if (refreshTokenStr != null) {
         try {
           final newAccessToken = await apiService.refreshToken();
@@ -82,7 +99,7 @@ class AutoLoginService {
       // 5. Device connu mais pas de session valide → besoin re-auth OTP
       print('📱 Device connu mais session expirée → re-auth nécessaire');
       return AppStartState.deviceKnownNeedsAuth;
-      
+
     } catch (e) {
       print('❌ Erreur détermination état: $e');
       // En cas d'erreur, vérifier si device enregistré

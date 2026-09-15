@@ -2,7 +2,47 @@ import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
+import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
 import 'package:markdown/markdown.dart' as md;
+
+/// Builder Markdown qui intercepte les blocs dont le langage désigne une
+/// FORMULE (` ```latex `, ` ```formula `, ` ```math `…) et les rend avec
+/// [TechBlockWidget] — c'est-à-dire dans la MÊME zone dédiée que les QCM
+/// (bandeau « FORMULE » + corps lisible).
+///
+/// Renvoie `null` pour tout le reste (blocs de code, code inline) :
+/// flutter_markdown applique alors son rendu habituel, strictement inchangé.
+///
+/// ⚠️ `isBlockElement()` reste à sa valeur par défaut (`false`) : le déclarer
+/// comme tag de bloc ferait aussi passer le code INLINE par ce builder.
+class _FormulaBlockBuilder extends MarkdownElementBuilder {
+
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    // Un bloc de code porte `class="language-xxx"` ; le code inline n'en a pas.
+    final className = element.attributes['class'] ?? '';
+    if (!className.startsWith('language-')) return null;
+
+    final language = className.substring('language-'.length);
+    if (!TechBlockWidget.isFormulaLanguage(language)) return null;
+
+    final content = element.textContent;
+    if (content.trim().isEmpty) return null;
+
+    // `withFrame: false` : le tag `pre` encadre déjà ce bloc
+    // (codeblockDecoration), on n'ajoute que le bandeau et le corps formule.
+    return TechBlockWidget(
+      codeLanguage: language,
+      codeBlock: content,
+      withFrame: false,
+    );
+  }
+}
 
 /// Widget d'affichage de contenu IA avec rendu Markdown complet.
 ///
@@ -88,6 +128,28 @@ class AiContentView extends StatefulWidget {
     );
   }
 
+  /// Transforme les formules LaTeX de bloc (`$$...$$`, `\[...\]`) en blocs de
+  /// code clôturés de langage `formula`.
+  ///
+  /// C'est ce qui fait emprunter aux formules EXACTEMENT le chemin des blocs de
+  /// code : le builder `_FormulaBlockBuilder` les intercepte alors pour les
+  /// rendre dans une zone dédiée. Sans cette normalisation, flutter_markdown
+  /// afficherait les `$$` littéralement.
+  ///
+  /// Le `$...$` inline est laissé intact : le convertir en bloc couperait le fil
+  /// du texte.
+  static String normalizeMathBlocks(String content) {
+    return content
+        .replaceAllMapped(
+          RegExp(r'\$\$([\s\S]*?)\$\$'),
+          (m) => '\n```formula\n${m.group(1)!.trim()}\n```\n',
+        )
+        .replaceAllMapped(
+          RegExp(r'\\\[([\s\S]*?)\\\]'),
+          (m) => '\n```formula\n${m.group(1)!.trim()}\n```\n',
+        );
+  }
+
   @override
   State<AiContentView> createState() => _AiContentViewState();
 }
@@ -121,7 +183,7 @@ class _AiContentViewState extends State<AiContentView> {
 
   void _splitContent() {
     _pages.clear();
-    final content = widget.content.trim();
+    final content = AiContentView.normalizeMathBlocks(widget.content).trim();
     if (content.isEmpty) return;
 
     // ── Méthode 1 : découpage par sections ## ───────────────────
@@ -231,8 +293,10 @@ class _AiContentViewState extends State<AiContentView> {
             selectable: widget.isSelectable,
             styleSheet: AiContentView.sharedStyleSheet(context),
             extensionSet: md.ExtensionSet.gitHubFlavored,
-            builders: {
-              // Personnalisation supplémentaire si nécessaire
+            builders: <String, MarkdownElementBuilder>{
+              // Les formules (` ```latex `, ` ```formula `…) sont rendues dans
+              // une zone dédiée ; les blocs de code gardent le rendu par défaut.
+              'code': _FormulaBlockBuilder(),
             },
           ),
         ),
