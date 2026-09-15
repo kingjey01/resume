@@ -92,7 +92,19 @@ class AutoLoginService {
             return AppStartState.sessionRestored;
           }
         } catch (e) {
-          print('⚠️ Refresh token expiré: $e');
+          // Un refresh qui échoue ne signifie PAS forcément que la session est
+          // morte : réseau coupé, timeout ou 5xx laissent les jetons intacts.
+          // `ApiService` ne supprime les jetons stockés QUE si le serveur a
+          // réellement rejeté le refresh (400/401/403) — donc leur présence ici
+          // prouve que la session n'a pas été invalidée. Renvoyer l'utilisateur
+          // vers téléphone + OTP dans ce cas transformerait une simple perte de
+          // connexion en déconnexion, ce que le comportement attendu interdit.
+          final stillStored = await storageService.refreshToken;
+          if (stillStored != null) {
+            print('📴 Refresh injoignable mais session locale intacte → espace personnel');
+            return AppStartState.sessionRestored;
+          }
+          print('⚠️ Refresh token rejeté par le serveur: $e');
         }
       }
 
