@@ -28,6 +28,25 @@ class DeepSeekService:
     API_URL = "https://api.deepseek.com/v1/chat/completions"
     MODEL =  "deepseek-v4-flash"
 
+    # Budgets de sortie, essayes dans l'ordre jusqu'a obtenir une reponse
+    # complete.
+    #
+    # Pourquoi plusieurs paliers : ce modele RAISONNE avant de rediger, et son
+    # raisonnement (`reasoning_content`) n'est pas affiche mais consomme le meme
+    # plafond `max_tokens` que le texte final. La longueur du raisonnement varie
+    # d'un appel a l'autre (mesure : 3 660 a 15 873 caracteres pour le meme
+    # prompt), donc le premier palier suffit la plupart du temps... et coupe
+    # parfois la reponse en plein milieu, de facon aleatoire.
+    #
+    # On garde le palier d'origine en premier essai (cout normal inchange) et on
+    # n'elargit QUE lorsque l'API signale elle-meme la coupure
+    # (finish_reason='length').
+    SUMMARY_TOKEN_BUDGETS = (8000, 16000, 24000)
+    # Les QCM produisent un JSON plus court qu'un resume, mais une reponse
+    # coupee donne un JSON invalide : le parsing echoue et l'application
+    # retombait silencieusement sur des questions generiques locales.
+    EXERCISES_TOKEN_BUDGETS = (5000, 10000, 16000)
+
     def __init__(self):
         self.api_key = self._get_api_key()
 
@@ -40,6 +59,44 @@ class DeepSeekService:
     def is_configured(self):
         return bool(self.api_key and self.api_key.startswith('sk-'))
 
+    def _call_api_jusqua_complet(self, prompt, budgets, temperature=0.1,
+                                 timeout=180, label='reponse'):
+        """
+        Appelle l'API en elargissant le budget tant que la reponse est coupee.
+
+        CAUSE IDENTIFIEE : le modele raisonne avant de rediger et son
+        raisonnement (`reasoning_content`) consomme le meme plafond
+        `max_tokens` que le texte final. Quand le raisonnement est long, la
+        reponse est coupee et finissait utilisee comme si elle etait complete.
+
+        On reessaie donc avec un budget plus large, uniquement quand l'API
+        signale elle-meme la coupure (`finish_reason='length'`).
+
+        Retourne le dict de `_call_api` (avec `truncated`) ou un dict d'erreur.
+        """
+        response = None
+        for budget in budgets:
+            response = self._call_api(prompt, temperature=temperature,
+                                      max_tokens=budget, timeout=timeout)
+            if not response['success']:
+                return response
+            if not response.get('truncated'):
+                return response
+
+            reste = budgets[budgets.index(budget) + 1:]
+            if reste:
+                logger.warning(
+                    f"⚠️ {label} : reponse COUPEE a max_tokens={budget} "
+                    f"(raisonnement + texte depassent le plafond). "
+                    f"Nouvel essai avec max_tokens={reste[0]}."
+                )
+
+        logger.error(
+            f"❌ {label} : reponse TOUJOURS coupee apres {len(budgets)} tentatives "
+            f"(dernier budget max_tokens={budgets[-1]})."
+        )
+        return response
+
     def generate_summary(self, transcription_text, course_name, professor, date):
         if not self.is_configured():
             return {'success': False, 'error': 'DeepSeek API non configuree.'}
@@ -49,12 +106,27 @@ class DeepSeekService:
         )
 
         try:
-            response = self._call_api(prompt)
-            if response['success']:
-                cleaned_summary = self._clean_text(response['content'])
-                return {'success': True, 'summary': cleaned_summary}
-            else:
+            response = self._call_api_jusqua_complet(
+                prompt, self.SUMMARY_TOKEN_BUDGETS, label='Resume'
+            )
+            if not response['success']:
                 return {'success': False, 'error': response['error']}
+
+            cleaned_summary = self._clean_text(response['content'])
+            tronque = bool(response.get('truncated'))
+
+            if tronque:
+                logger.error(
+                    "❌ Le resume est enregistre malgre une coupure persistante : "
+                    "il doit etre verifie avant validation."
+                )
+
+            return {
+                'success': True,
+                'summary': cleaned_summary,
+                'truncated': tronque,
+                'finish_reason': response.get('finish_reason'),
+            }
         except Exception as e:
             logger.error(f"Erreur DeepSeek: {e}")
             return {'success': False, 'error': str(e)}
@@ -360,10 +432,32 @@ Puis continue avec:
             if response.status_code == 200:
                 data = response.json()
                 if 'choices' in data and len(data['choices']) > 0:
-                    content = data['choices'][0]['message']['content']
+                    choice = data['choices'][0]
+                    content = choice['message']['content']
                     usage = data.get('usage', {})
-                    logger.info(f"Tokens: {usage.get('total_tokens', '?')}")
-                    return {'success': True, 'content': content}
+                    # finish_reason == 'length' signifie que l'API a COUPE la
+                    # reponse parce que max_tokens a ete atteint. Sans ce
+                    # controle, un resume tronque etait stocke comme s'il
+                    # etait complet (cause de resumes "incomplets").
+                    finish_reason = choice.get('finish_reason')
+                    logger.info(
+                        f"Tokens: {usage.get('total_tokens', '?')} "
+                        f"(prompt={usage.get('prompt_tokens', '?')}, "
+                        f"completion={usage.get('completion_tokens', '?')}, "
+                        f"finish_reason={finish_reason})"
+                    )
+                    if finish_reason == 'length':
+                        logger.warning(
+                            f"⚠️ REPONSE DEEPSEEK TRONQUEE : max_tokens={max_tokens} atteint "
+                            f"({usage.get('completion_tokens', '?')} tokens generes). "
+                            f"Le contenu renvoye est INCOMPLET."
+                        )
+                    return {
+                        'success': True,
+                        'content': content,
+                        'finish_reason': finish_reason,
+                        'truncated': finish_reason == 'length',
+                    }
                 else:
                     return {'success': False, 'error': 'Reponse API invalide: pas de contenu'}
             elif response.status_code == 401:
@@ -387,9 +481,20 @@ Puis continue avec:
         prompt = self._build_exercises_prompt(resume_text, course_name, difficulty=difficulty, seed=seed)
 
         try:
-            response = self._call_api(prompt, temperature=0.2, max_tokens=5000, timeout=90)
+            # Meme risque de coupure que pour les resumes : une reponse coupee
+            # donne un JSON invalide, le parsing echoue, et l'application
+            # retombait silencieusement sur des questions generiques locales.
+            response = self._call_api_jusqua_complet(
+                prompt, self.EXERCISES_TOKEN_BUDGETS,
+                temperature=0.2, timeout=90, label='QCM',
+            )
             if response['success']:
-                return {'success': True, 'content': response['content']}
+                return {
+                    'success': True,
+                    'content': response['content'],
+                    'truncated': bool(response.get('truncated')),
+                    'finish_reason': response.get('finish_reason'),
+                }
             else:
                 return {'success': False, 'error': response['error']}
         except Exception as e:

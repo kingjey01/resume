@@ -117,7 +117,14 @@ class ExerciseGenerator:
                     logger.info(f"✅ [QCM Génération] {len(parsed)} questions issues de DEEPSEEK (origin=deepseek, difficulty={difficulty}) pour: {titre}")
                     return parsed, True
                 else:
-                    reason = 'parsing JSON échoué' if not parsed else f'seulement {len(parsed)} questions valides (< 5)'
+                    # Distinguer la coupure de token du reste : c'est la cause
+                    # la plus probable d'un JSON invalide, et sans ce message
+                    # le repli local restait inexpliqué dans les logs.
+                    if result.get('truncated'):
+                        reason = ('réponse DeepSeek COUPÉE (raisonnement + QCM ont épuisé '
+                                  'max_tokens), donc JSON invalide')
+                    else:
+                        reason = 'parsing JSON échoué' if not parsed else f'seulement {len(parsed)} questions valides (< 5)'
                     logger.warning(f"⚠️ [QCM Génération] DeepSeek a répondu mais {reason} → fallback local utilisé (origin=fallback_local)")
                     return self._generate_mock_questions(titre, resume_text, difficulty=difficulty), False
             else:

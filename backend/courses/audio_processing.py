@@ -361,6 +361,15 @@ class AudioProcessor:
                     summary_text = result['summary']
                     generated_by_ai = True
                     logger.info(f"✅ Résumé DeepSeek généré avec succès")
+                    # Rendre visible une éventuelle coupure à la génération :
+                    # sans ce log, un résumé incomplet passait inaperçu.
+                    if result.get('truncated'):
+                        logger.warning(
+                            f"⚠️ Résumé IA INCOMPLET pour la session {session.id} : "
+                            f"la réponse DeepSeek a été coupée à la limite de tokens "
+                            f"(finish_reason={result.get('finish_reason')}). "
+                            f"Le résumé est enregistré en attente de validation."
+                        )
                     if not summary_text:
                         logger.warning(
                             f"⚠️ DeepSeek a répondu success=True mais contenu vide "
