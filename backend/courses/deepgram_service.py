@@ -6,6 +6,7 @@ Utilise l'API Deepgram pour convertir les fichiers audio en texte
 import os
 import json
 import logging
+import mimetypes
 import requests
 from django.conf import settings
 from decouple import config
@@ -214,11 +215,48 @@ class DeepgramService:
             '.mp3': 'audio/mpeg',
             '.wav': 'audio/wav',
             '.m4a': 'audio/mp4',
+            '.mp4': 'audio/mp4',
             '.ogg': 'audio/ogg',
+            '.oga': 'audio/ogg',
+            '.opus': 'audio/opus',
             '.webm': 'audio/webm',
             '.flac': 'audio/flac',
+            # Formats utilisés par les enregistreurs mobiles (dictaphones,
+            # applications d'enregistrement de cours). Sans ces entrées, on
+            # envoyait 'audio/wav' pour un fichier AMR/3GP, ce qui dégradait
+            # la transcription (mots perdus, mesuré lors du diagnostic).
+            '.amr': 'audio/amr',
+            '.3gp': 'audio/3gpp',
+            '.3gpp': 'audio/3gpp',
+            '.aac': 'audio/aac',
+            '.aiff': 'audio/aiff',
+            '.aif': 'audio/aiff',
+            '.wma': 'audio/x-ms-wma',
+            '.caf': 'audio/x-caf',
+            '.m4b': 'audio/mp4',
+            '.mpga': 'audio/mpeg',
+            '.amr-wb': 'audio/amr-wb',
+            '.awb': 'audio/amr-wb',
+            '.gsm': 'audio/gsm',
         }
-        return mime_types.get(ext, 'audio/wav')
+        if ext in mime_types:
+            return mime_types[ext]
+
+        # Repli sur la bibliothèque standard avant le défaut audio/wav :
+        # elle connaît davantage de formats que la table ci-dessus.
+        devine, _ = mimetypes.guess_type(file_path)
+        if devine and devine.startswith('audio/'):
+            logger.warning(
+                f"⚠️ Extension {ext} absente de la table MIME, "
+                f"type déduit par mimetypes : {devine}"
+            )
+            return devine
+
+        logger.warning(
+            f"⚠️ Extension audio inconnue {ext} pour {file_path}, "
+            f"repli sur audio/wav (la transcription peut être dégradée)"
+        )
+        return 'audio/wav'
     
     def _extract_transcript(self, result):
         """Extrait le texte transcrit du résultat Deepgram"""

@@ -362,7 +362,13 @@ def generate_summary_from_audio(request):
         is_free=True
     )
     
-    return Response(SummarySerializer(summary).data, status=status.HTTP_201_CREATED)
+    # ⚠️ Le context avec la requête est OBLIGATOIRE : sans lui, to_representation()
+    # considère l'utilisateur comme non authentifié et tronque texte_resume à
+    # 50 caractères (voir SummarySerializer.to_representation).
+    return Response(
+        SummarySerializer(summary, context={'request': request}).data,
+        status=status.HTTP_201_CREATED
+    )
 
 
 # CRUD Views pour Universites

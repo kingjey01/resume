@@ -184,7 +184,14 @@ class PersonalizedExerciseGenerator:
                     logger.info(f"✅ [QCM Perso Génération] {len(questions)} questions issues de DEEPSEEK (origin=deepseek, difficulty={difficulty}, seed={seed})")
                     return questions[:8], True  # Maximum 8 questions
                 else:
-                    reason = 'parsing JSON échoué' if not questions else f'seulement {len(questions)} questions valides (< 5)'
+                    # Distinguer la coupure de token du reste : c'est la cause
+                    # la plus probable d'un JSON invalide, et sans ce message
+                    # le repli local restait inexpliqué dans les logs.
+                    if result.get('truncated'):
+                        reason = ('réponse DeepSeek COUPÉE (raisonnement + QCM ont épuisé '
+                                  'max_tokens), donc JSON invalide')
+                    else:
+                        reason = 'parsing JSON échoué' if not questions else f'seulement {len(questions)} questions valides (< 5)'
                     logger.warning(f"⚠️ [QCM Perso Génération] DeepSeek a répondu mais {reason} → fallback local utilisé (origin=fallback_local, difficulty={difficulty}, seed={seed})")
                     return self._generate_mock_questions(resume_text, difficulty, seed), False
             else:
