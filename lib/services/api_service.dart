@@ -632,6 +632,22 @@ class ApiService {
     }
   }
 
+  /// Supprime un résumé encore EN ATTENTE de validation (CP / Admin).
+  /// Le backend refuse la suppression d'un résumé validé ou lié à des achats
+  /// et renvoie alors un message métier explicite, remonté tel quel.
+  Future<void> deleteSummary(int summaryId) async {
+    try {
+      final response = await _dio.delete('/summaries/$summaryId/delete/');
+      if (response.statusCode != 200) {
+        throw ApiException('Erreur lors de la suppression du résumé.',
+            type: ApiExceptionType.validation);
+      }
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
+    }
+  }
+
   Future<Map<String, dynamic>> getSummariesForValidation({String? search}) async {
     try {
       final response = await _dio.get(
