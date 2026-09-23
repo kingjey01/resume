@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
+import 'package:resume_plus_clean/widgets/math_formula_view.dart';
 import 'package:markdown/markdown.dart' as md;
 
 /// Builder Markdown qui intercepte les blocs dont le langage désigne une
@@ -40,6 +41,53 @@ class _FormulaBlockBuilder extends MarkdownElementBuilder {
       codeLanguage: language,
       codeBlock: content,
       withFrame: false,
+    );
+  }
+}
+
+/// Détecte une formule LaTeX INLINE (`$...$` ou `\(...\)`) et produit un nœud
+/// `math-inline` que [_InlineMathBuilder] transforme en rendu mathématique.
+///
+/// Règle de délimitation (celle de KaTeX/MathJax) : pas d'espace juste APRÈS
+/// le `$` ouvrant, ni juste AVANT le `$` fermant. C'est ce qui évite de prendre
+/// une paire de prix (« 5 $ ... 10 $ ») pour une formule.
+///
+/// `$$...$$` est exclu : ces formules-là sont déjà converties en blocs par
+/// [AiContentView.normalizeMathBlocks] et ne doivent pas repasser ici.
+class _InlineMathSyntax extends md.InlineSyntax {
+  _InlineMathSyntax()
+      : super(r'(?<!\$)\$(?![\s$])([^\$\n]*?)(?<![\s])\$(?!\$)|\\\(([\s\S]*?)\\\)');
+
+  @override
+  bool onMatch(md.InlineParser parser, Match match) {
+    final tex = (match.group(1) ?? match.group(2) ?? '').trim();
+    if (tex.isEmpty) return false;
+    parser.addNode(md.Element.text('math-inline', tex));
+    return true;
+  }
+}
+
+/// Rend les formules inline repérées par [_InlineMathSyntax].
+///
+/// Implémente [MarkdownElementBuilder] SANS être un élément de bloc : le widget
+/// retourné est donc inséré dans le fil du texte sous forme de `WidgetSpan`.
+class _InlineMathBuilder extends MarkdownElementBuilder {
+  @override
+  Widget? visitElementAfterWithContext(
+    BuildContext context,
+    md.Element element,
+    TextStyle? preferredStyle,
+    TextStyle? parentStyle,
+  ) {
+    final tex = element.textContent.trim();
+    if (tex.isEmpty) return null;
+
+    // `display: false` → style « text », la formule reste dans la ligne et
+    // s'aligne sur le texte environnant.
+    return MathFormulaView(
+      tex: tex,
+      display: false,
+      fontSize: preferredStyle?.fontSize ?? 15,
     );
   }
 }
@@ -293,10 +341,15 @@ class _AiContentViewState extends State<AiContentView> {
             selectable: widget.isSelectable,
             styleSheet: AiContentView.sharedStyleSheet(context),
             extensionSet: md.ExtensionSet.gitHubFlavored,
+            // Formules INLINE (`$...$`, `\(...\)`) : sans cette syntaxe,
+            // flutter_markdown affichait `$` et les commandes LaTeX brutes.
+            inlineSyntaxes: <md.InlineSyntax>[_InlineMathSyntax()],
             builders: <String, MarkdownElementBuilder>{
               // Les formules (` ```latex `, ` ```formula `…) sont rendues dans
               // une zone dédiée ; les blocs de code gardent le rendu par défaut.
               'code': _FormulaBlockBuilder(),
+              // Formules inline repérées par `_InlineMathSyntax`.
+              'math-inline': _InlineMathBuilder(),
             },
           ),
         ),

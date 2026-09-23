@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:resume_plus_clean/widgets/ai_content_view.dart';
+import 'package:resume_plus_clean/widgets/math_formula_view.dart';
 import 'package:resume_plus_clean/widgets/tech_block_widget.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
@@ -53,7 +54,12 @@ void main() {
       await tester.pump();
 
       expect(find.text('FORMULE'), findsOneWidget);
-      expect(find.text('E = mc^2'), findsOneWidget);
+      // Tâche 30 : la formule n'est plus affichée en texte brut mais
+      // typographiée par MathFormulaView (KaTeX). L'assertion d'origine
+      // (`find.text('E = mc^2')`) vérifiait donc l'ancien comportement :
+      // c'est exactement le LaTeX brut qu'on cherche à ne plus afficher.
+      expect(find.byType(MathFormulaView), findsOneWidget);
+      expect(find.text('E = mc^2'), findsNothing);
       // Les délimiteurs bruts ne doivent JAMAIS rester visibles.
       expect(find.textContaining(r'$$'), findsNothing);
     });
