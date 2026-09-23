@@ -81,3 +81,12 @@ backend/firebase-admin-sdk.json
 # Captures d'écran / documents personnels (hors du repo)
 interface_image/
 .aider*
+
+# Worktrees Claude Code : copies de travail locales, jamais dans le repo
+.claude/worktrees/
+
+# Sauvegardes locales de session (backup_tache30/…)
+backup_*/
+
+# Extraits audio de diagnostic transcription
+backend/*.amr
