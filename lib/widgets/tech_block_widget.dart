@@ -3,6 +3,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:markdown/markdown.dart' as md;
 import 'ai_content_view.dart';
+import 'math_formula_view.dart';
 
 /// Widget réutilisable pour afficher du contenu technique (code, formule,
 /// algorithme, commande, pseudo-code) dans les QCM et leurs résultats.
@@ -138,13 +139,11 @@ class TechBlockWidget extends StatelessWidget {
   }
 
   /// Corps « formule » : même fond que les blocs de code pour rester dans la
-  /// même famille visuelle, mais en typographie de lecture et centré, plutôt
-  /// qu'en police monospace — une formule n'est pas du code.
+  /// même famille visuelle, mais avec un VRAI rendu mathématique (KaTeX) au lieu
+  /// des commandes LaTeX brutes — une formule n'est pas du code.
   Widget _buildFormulaBody(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
-
-    final formula = _stripMathDelimiters(codeBlock!);
 
     return Container(
       width: double.infinity,
@@ -158,25 +157,12 @@ class TechBlockWidget extends StatelessWidget {
           bottomRight: Radius.circular(9),
         ),
       ),
-      child: SelectableText(
-        formula,
-        textAlign: TextAlign.center,
-        style: GoogleFonts.poppins(
-          fontSize: 15,
-          height: 1.6,
-          color: theme.colorScheme.onSurface,
-        ),
+      child: MathFormulaView(
+        tex: codeBlock!,
+        display: true,
+        fontSize: 15,
       ),
     );
-  }
-
-  /// Retire d'éventuels délimiteurs LaTeX (`$`, `$$`, `\[`, `\]`) restés autour
-  /// de la formule. Le backend demande un contenu brut, mais on reste tolérant.
-  static String _stripMathDelimiters(String raw) {
-    var formula = raw.trim();
-    formula = formula.replaceFirst(RegExp(r'^\\\[|^\$\$?'), '');
-    formula = formula.replaceFirst(RegExp(r'\\\]$|\$\$?$'), '');
-    return formula.trim();
   }
 
   IconData _languageIcon(String lang) {

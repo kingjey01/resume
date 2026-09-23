@@ -2,7 +2,7 @@ name: resume_plus_clean
 description: "Une application pour résumer des cours - Version propre."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.1.14+30
+version: 1.1.17+33
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -72,6 +72,9 @@ dependencies:
   # JSON Serialization
   json_annotation: ^4.9.0
   flutter_markdown: ^0.7.7+1
+
+  # Rendu des formules mathématiques (Tâche 30) — port Dart de KaTeX
+  flutter_math_fork: ^0.7.4
 
 dev_dependencies:
   flutter_test:
