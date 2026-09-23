@@ -158,6 +158,69 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
     }
   }
 
+  Future<void> _deleteSummary(Map<String, dynamic> summary) async {
+    final titre = (summary['titre'] ?? 'ce résumé').toString();
+
+    final confirme = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Supprimer ce résumé ?'),
+        content: Text(
+          'Le résumé « $titre » sera définitivement supprimé, ainsi que les '
+          'exercices QCM qui lui sont liés.\n\nCette action est irréversible.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: const Text('Annuler'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: AppTheme.error,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirme != true) return;
+
+    try {
+      await _apiService.deleteSummary(summary['id']);
+    } catch (e) {
+      if (mounted) {
+        // Message métier du backend (résumé validé, achats liés...) remonté ici
+        handleError(e);
+        // La liste peut être obsolète (résumé supprimé entre-temps) : on la rafraîchit
+        await _loadSummaries();
+      }
+      return;
+    }
+
+    // Retirer la carte immédiatement, puis resynchroniser avec le backend.
+    // Le rafraîchissement est indépendant : un échec réseau ici ne doit pas
+    // faire croire que la suppression a échoué.
+    if (!mounted) return;
+    setState(() {
+      _summaries.removeWhere((s) => s['id'] == summary['id']);
+      if (_selectedSummary?['id'] == summary['id']) {
+        _selectedSummary = null;
+      }
+    });
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text('Résumé supprimé'),
+        backgroundColor: AppTheme.success,
+        duration: Duration(seconds: 2),
+      ),
+    );
+    await _loadSummaries();
+  }
+
   @override
   Widget build(BuildContext context) {
     final topPadding = MediaQuery.of(context).padding.top;
@@ -439,6 +502,18 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
                   color: AppTheme.primaryBlue, fontWeight: FontWeight.w700, fontSize: 13,
                 ),
               ),
+              // Suppression réservée aux résumés EN ATTENTE : un résumé déjà
+              // validé/publié reste non supprimable (comportement inchangé).
+              if (!isValidated)
+                IconButton(
+                  onPressed: () => _deleteSummary(summary),
+                  icon: const Icon(Icons.delete_outline_rounded, size: 20),
+                  color: AppTheme.error,
+                  tooltip: 'Supprimer ce résumé',
+                  visualDensity: VisualDensity.compact,
+                  padding: EdgeInsets.zero,
+                  constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
             ],
           ),
           const SizedBox(height: 12),

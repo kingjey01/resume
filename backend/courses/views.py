@@ -1508,6 +1508,90 @@ def edit_summary_view(request, summary_id):
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
+@api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
+def delete_summary_view(request, summary_id):
+    """
+    Supprime un résumé ENCORE EN ATTENTE DE VALIDATION (CP et Admin uniquement).
+
+    Règles :
+    - Un résumé déjà validé/publié n'est JAMAIS supprimable (comportement existant
+      conservé : on demande de l'invalider d'abord si c'est volontaire).
+    - Un résumé lié à un achat est protégé : on ne détruit pas une trace
+      financière, même si le résumé n'est pas validé.
+    - Les données liées (exercices QCM, PDF) sont nettoyées pour éviter
+      toute référence orpheline.
+    """
+    from django.db import transaction
+    from .models import Exercise
+
+    try:
+        # Vérifier les permissions
+        if not hasattr(request.user, 'profile') or not request.user.profile.can_create_summary():
+            return Response({
+                'error': 'Permission refusée. Seuls les CP et Admin peuvent supprimer les résumés.'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        summary = get_object_or_404(Summary, id=summary_id)
+
+        # Un résumé validé est publié : on ne le supprime pas ici.
+        # (Pour le retirer de la circulation, le CP doit d'abord l'invalider.)
+        if summary.is_validated:
+            return Response({
+                'error': 'Ce résumé est validé. Invalidez-le d\'abord pour pouvoir le supprimer.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Protéger les données liées non destructibles
+        achats = Purchase.objects.filter(summary=summary)
+        if achats.exists():
+            return Response({
+                'error': 'Ce résumé est lié à un ou plusieurs achats et ne peut pas être supprimé.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        titre = summary.titre
+        pdf_file = summary.pdf_file
+        nb_exercices = Exercise.objects.filter(summary=summary).count()
+
+        with transaction.atomic():
+            # Les exercices QCM pointent vers le résumé en CASCADE : on les
+            # supprime explicitement pour que le nettoyage soit visible et
+            # loggé plutôt que silencieux.
+            if nb_exercices:
+                Exercise.objects.filter(summary=summary).delete()
+
+            summary.delete()
+
+        # Supprimer le fichier PDF associé sur le disque (après le commit)
+        if pdf_file:
+            try:
+                pdf_file.delete(save=False)
+            except Exception as pdf_err:
+                logger.warning(f"⚠️ PDF non supprimé pour le résumé {summary_id}: {pdf_err}")
+
+        logger.info(
+            f"🗑️ Résumé {summary_id} « {titre} » supprimé par {request.user.username} "
+            f"({nb_exercices} exercice(s) lié(s) supprimé(s))"
+        )
+
+        return Response({
+            'message': 'Résumé supprimé avec succès',
+            'summary_id': summary_id,
+            'title': titre,
+            'deleted_exercises': nb_exercices,
+        }, status=status.HTTP_200_OK)
+
+    except Http404:
+        # get_object_or_404 : ne pas transformer le 404 en 500
+        return Response({
+            'error': 'Résumé introuvable'
+        }, status=status.HTTP_404_NOT_FOUND)
+    except Exception as e:
+        logger.error(f"Erreur suppression résumé: {str(e)}")
+        return Response({
+            'error': 'Erreur interne du serveur'
+        }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def get_summaries_for_validation_view(request):

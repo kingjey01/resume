@@ -61,6 +61,7 @@ urlpatterns = [
     # Validation des résumés (CP et Admin)
     path('summaries/<int:summary_id>/validate/', views.validate_summary_view, name='validate-summary'),
     path('summaries/<int:summary_id>/edit/', views.edit_summary_view, name='edit-summary'),
+    path('summaries/<int:summary_id>/delete/', views.delete_summary_view, name='delete-summary'),
     path('summaries/validation/', views.get_summaries_for_validation_view, name='summaries-validation'),
     
     # Exercices QCM
