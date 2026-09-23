@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:resume_plus_clean/models/summary.dart' as models;
 import 'package:resume_plus_clean/services/api_service.dart';
+import 'package:resume_plus_clean/services/audio_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:resume_plus_clean/widgets/secure_screen_wrapper.dart';
 import 'package:resume_plus_clean/widgets/audio_player_widget.dart';
@@ -321,6 +322,19 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     });
   }
 
+  /// Coupe la lecture audio du résumé dès qu'on ouvre une autre page.
+  ///
+  /// L'écran des détails reste MONTÉ sous la route poussée : son `dispose()`
+  /// — donc celui du lecteur audio — n'est jamais appelé, et la synthèse
+  /// vocale continuerait de lire le résumé par-dessus le QCM.
+  ///
+  /// `pause()` est sans effet si rien n'est en cours (garde interne au
+  /// service), l'appel peut donc être inconditionnel. Elle notifie `onPause`,
+  /// ce qui remet le bouton du lecteur sur « Reprendre ».
+  void _pauseReadingBeforeLeaving() {
+    AudioService().pause();
+  }
+
   /// Navigation vers l'écran du quiz personnalisé
   /// [exerciseId] : exercice déjà prêt → le quiz charge SES questions
   /// directement (ne repasse pas par la sélection de difficulté).
@@ -329,6 +343,9 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
       _isGeneratingExercise = false;
       _exerciseGenerationProgress = 1.0;
     });
+
+    // QCM lancé → la lecture du résumé ne doit pas continuer par-dessus.
+    _pauseReadingBeforeLeaving();
 
     Navigator.push(
       context,
@@ -374,6 +391,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
 
   void _navigateToQuiz(int exerciseId, {String difficulty = 'medium'}) {
     if (!mounted) return;
+    _pauseReadingBeforeLeaving();
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ExerciseQuizScreen(
@@ -526,6 +544,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   }
 
   Future<void> _navigateToSubscription() async {
+    _pauseReadingBeforeLeaving();
     final result = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => const ExerciseSubscriptionScreen()),
     );
@@ -694,6 +713,7 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     if (reference.isNotEmpty) {
       // Envoyer vers l'écran de statut et attendre le retour
       // PaymentStatusScreen fait pop(true) si succès, pop(false) sinon
+      _pauseReadingBeforeLeaving();
       final paid = await Navigator.of(context).push<bool>(
         MaterialPageRoute(
           builder: (_) => PaymentStatusScreen(
