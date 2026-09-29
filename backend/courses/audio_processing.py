@@ -252,14 +252,35 @@ class AudioProcessor:
                 file_path = session.audio_file.path if hasattr(session.audio_file, 'path') else None
                 
                 if file_path and os.path.exists(file_path):
-                    result = deepgram_service.transcribe_file(file_path, language='fr')
-                    
+                    # Pas de langue explicite : on utilise 'multi' (voir
+                    # DeepgramService.MODEL / DEFAULT_LANGUAGE). Forcer 'fr'
+                    # faisait abandonner la transcription à mi-fichier dès
+                    # que des voix parasites couvraient la scène (tâche 33).
+                    result = deepgram_service.transcribe_file(file_path)
+
                     if result['success']:
                         transcript_text = result['transcript']
                         confidence = result.get('confidence', 0.0)
                         duration = result.get('duration', 0.0)
+                        coverage = result.get('coverage', 0.0)
+                        covered_until = result.get('covered_until', 0.0)
                         print(f"✅ Transcription Deepgram réussie (confiance: {confidence:.2%})")
                         logger.info(f"✅ Transcription Deepgram réussie (confiance: {confidence:.2%})")
+                        logger.info(
+                            f"📊 Couverture audio: {coverage:.1f}% "
+                            f"(dernier mot à {covered_until:.1f}s sur {duration:.1f}s)"
+                        )
+                        # Une couverture partielle signifie que des passages
+                        # entiers du cours manquent : le résumé qui en découle
+                        # sera incomplet. On le rend visible au lieu de laisser
+                        # le résumé passer pour complet.
+                        if coverage and coverage < deepgram_service.SEUIL_COUVERTURE:
+                            logger.warning(
+                                f"⚠️ Transcription partielle pour la session "
+                                f"{session.id} : {coverage:.1f}% de l'audio "
+                                f"transcrit, {duration - covered_until:.0f}s "
+                                f"manquantes — le résumé généré sera incomplet."
+                            )
                     else:
                         logger.warning(f"⚠️ Échec Deepgram: {result['error']}")
                         transcription.error_message = result['error']
