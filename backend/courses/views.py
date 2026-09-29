@@ -1,4 +1,4 @@
-from rest_framework import generics, permissions, status, viewsets
+from rest_framework import exceptions, generics, permissions, status, viewsets
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
@@ -279,6 +279,49 @@ class SummaryDetailView(generics.RetrieveUpdateDestroyAPIView):
             course__promotions=profile.promotion,
             course__filieres=profile.filiere
         ).distinct()
+
+    # ── Règle métier : un résumé DÉJÀ ACHETÉ est intouchable ────────────────
+    #
+    # Cette vue générique accepte aussi PUT / PATCH / DELETE. Sans les deux
+    # gardes ci-dessous, elle offrait un contournement direct aux règles des
+    # endpoints dédiés (`validate_summary_view`, `delete_summary_view`) :
+    # un simple PATCH {"is_validated": false} invalidait un résumé vendu, et un
+    # DELETE le supprimait en cascade AVEC ses lignes d'achat (la trace
+    # financière disparaissait).
+    #
+    # Les règles appliquées sont EXACTEMENT celles des endpoints dédiés :
+    # mêmes refus, mêmes messages. Aucun comportement existant n'est retiré —
+    # seules ces deux opérations interdites sont désormais bloquées, ici comme
+    # là-bas. (L'application n'utilise ni PUT ni PATCH ni DELETE sur cette
+    # route : elle passe par `/edit/` et `/delete/`.)
+    def _refuser_si_resume_achete(self, summary, action):
+        """Lève une 400 si le résumé a une trace d'achat (même critère que
+        `delete_summary_view` : tout achat, quel que soit son statut)."""
+        if Purchase.objects.filter(summary=summary).exists():
+            raise exceptions.ValidationError({
+                'error': f'Ce résumé a déjà été acheté : il ne peut plus être {action}.'
+            })
+
+    def perform_update(self, serializer):
+        summary = serializer.instance
+        # `validated_data` ne contient que les champs réellement transmis.
+        nouvelle_validation = serializer.validated_data.get(
+            'is_validated', summary.is_validated
+        )
+        # Contrôle sur la TRANSITION validé → invalidé uniquement.
+        if summary.is_validated and not nouvelle_validation:
+            self._refuser_si_resume_achete(summary, 'invalidé')
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Mêmes règles que `delete_summary_view`.
+        if instance.is_validated:
+            raise exceptions.ValidationError({
+                'error': 'Ce résumé est validé. Invalidez-le d\'abord pour '
+                         'pouvoir le supprimer.'
+            })
+        self._refuser_si_resume_achete(instance, 'supprimé')
+        instance.delete()
 
 
 class SummaryAchetesView(generics.ListAPIView):
@@ -1387,9 +1430,32 @@ def validate_summary_view(request, summary_id):
         
         summary = get_object_or_404(Summary, id=summary_id)
         is_validated = request.data.get('is_validated', False)
-        
-        # Mettre à jour le statut de validation
         was_validated = summary.is_validated
+
+        # ── Règle métier : un résumé DÉJÀ ACHETÉ ne peut plus être invalidé ──
+        # Retirer la validation d'un résumé vendu le retirerait de la
+        # circulation pour les étudiants qui l'ont payé.
+        #
+        # Le critère de protection est volontairement le MÊME que celui de la
+        # suppression (delete_summary_view ci-dessous) : toute trace d'achat,
+        # quel que soit le statut du paiement. Deux notions différentes de
+        # « acheté » dans le même module seraient une source d'incohérence
+        # (suppression refusée mais invalidation acceptée sur le même résumé).
+        #
+        # Contrôle sur la TRANSITION (validé → invalidé) uniquement : une
+        # demande de validation, ou un appel qui ne change rien, garde
+        # exactement le comportement d'avant.
+        if was_validated and not is_validated:
+            if Purchase.objects.filter(summary=summary).exists():
+                logger.warning(
+                    f"⛔ Invalidation refusée : résumé {summary_id} déjà acheté "
+                    f"(demandée par {request.user.username})"
+                )
+                return Response({
+                    'error': 'Ce résumé a déjà été acheté : il ne peut plus être invalidé.'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Mettre à jour le statut de validation
         summary.is_validated = is_validated
         summary.save()
         
@@ -1636,6 +1702,19 @@ def get_summaries_for_validation_view(request):
                 Q(professeur__specialite__icontains=search_query)
             ).distinct()
         
+        # Résumés déjà achetés : le CP ne pouvait pas le savoir, alors que le
+        # backend refuse (à raison) de les invalider ou de les supprimer. On le
+        # lui expose pour que les boutons concernés soient bloqués dans l'UI au
+        # lieu d'échouer après coup.
+        #
+        # Champ AJOUTÉ à la réponse : aucun champ existant n'est modifié ni
+        # retiré. Une seule requête pour toute la liste (pas de N+1).
+        summaries = list(summaries)
+        ids_achetes = set(
+            Purchase.objects.filter(summary_id__in=[s.id for s in summaries])
+            .values_list('summary_id', flat=True)
+        )
+
         summaries_data = []
         for summary in summaries:
             summaries_data.append({
@@ -1649,7 +1728,10 @@ def get_summaries_for_validation_view(request):
                 'created_at': summary.created_at.isoformat(),
                 'updated_at': summary.updated_at.isoformat(),
                 'prix': float(summary.prix),
-                'is_free': summary.is_free
+                'is_free': summary.is_free,
+                # Règle métier : un résumé acheté ne peut plus être invalidé
+                # ni supprimé (cf. validate_summary_view / delete_summary_view).
+                'has_purchases': summary.id in ids_achetes
             })
         
         return Response({

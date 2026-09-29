@@ -46,7 +46,7 @@ with zipfile.ZipFile(AAB) as z:
         Dans un manifest protobuf, les valeurs d'attributs sont des chaines.
         La chaine lue est suivie des octets de longueur/type du protobuf, donc
         on ne garde que les caracteres alphanumeriques et les points
-        (ex. b'33"' -> '33', b'1.1.17(' -> '1.1.17').
+        (ex. b'34"' -> '34', b'1.1.18(' -> '1.1.18').
         """
         valeurs = []
         for m in re.finditer(motif, manifest):
@@ -63,15 +63,15 @@ with zipfile.ZipFile(AAB) as z:
     print(f'  versionCode lus : {vc}')
     print(f'  versionName lus : {vn}')
 
-    if '33' in vc:
-        print('  [OK] versionCode 33 present.')
+    if '34' in vc:
+        print('  [OK] versionCode 34 present.')
     else:
-        print(f'  [ALERTE] versionCode 33 NON trouve (lu: {vc})')
+        print(f'  [ALERTE] versionCode 34 NON trouve (lu: {vc})')
 
-    if '1.1.17' in vn:
-        print('  [OK] versionName 1.1.17 present.')
+    if '1.1.18' in vn:
+        print('  [OK] versionName 1.1.18 present.')
     else:
-        print(f'  [ALERTE] versionName 1.1.17 NON trouve (lu: {vn})')
+        print(f'  [ALERTE] versionName 1.1.18 NON trouve (lu: {vn})')
 
     # ── 3. Polices mathematiques embarquees ? ─────────────────────────
     print()

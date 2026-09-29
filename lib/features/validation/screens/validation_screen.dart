@@ -420,6 +420,15 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
     final authorType = summary['author_type'] ?? 'cp';
     final isAi = authorType == 'ai';
 
+    // Règle métier : un résumé DÉJÀ ACHETÉ ne peut plus être invalidé ni
+    // supprimé — il a été vendu, on ne le retire pas de la circulation.
+    // `has_purchases` est fourni par `GET /summaries/validation/` ; le backend
+    // reste l'autorité (il refuse l'opération même si l'appel venait d'ailleurs).
+    final hasPurchases = summary['has_purchases'] == true;
+    // Seule l'invalidation est bloquée : re-valider un résumé acheté qui ne
+    // serait plus publié reste possible.
+    final invalidationBloquee = isValidated && hasPurchases;
+
     final cardColor = Theme.of(context).colorScheme.surface;
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -504,7 +513,9 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
               ),
               // Suppression réservée aux résumés EN ATTENTE : un résumé déjà
               // validé/publié reste non supprimable (comportement inchangé).
-              if (!isValidated)
+              // Elle est également masquée pour un résumé déjà acheté, que le
+              // backend refuse de toute façon de supprimer.
+              if (!isValidated && !hasPurchases)
                 IconButton(
                   onPressed: () => _deleteSummary(summary),
                   icon: const Icon(Icons.delete_outline_rounded, size: 20),
@@ -538,10 +549,39 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
           Text(
             'Par ${summary['author_name'] ?? 'Inconnu'}',
             style: TextStyle(
-              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7), 
+              color: Theme.of(context).colorScheme.onSurface.withOpacity(0.7),
               fontSize: 12
             ),
           ),
+          // Résumé vendu : on explique pourquoi les actions de retrait sont
+          // bloquées, plutôt que de laisser l'utilisateur devant des boutons
+          // inertes ou devant une erreur du backend.
+          if (hasPurchases) ...[
+            const SizedBox(height: 10),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withOpacity(0.06),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  const Icon(Icons.lock_rounded, size: 14, color: AppTheme.primaryBlue),
+                  const SizedBox(width: 6),
+                  Expanded(
+                    child: Text(
+                      'Résumé déjà acheté : il ne peut plus être invalidé ni supprimé.',
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurface.withOpacity(0.75),
+                        fontSize: 11,
+                        height: 1.3,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: 14),
           // Action buttons
           Row(
@@ -569,9 +609,18 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
               const SizedBox(width: 10),
               Expanded(
                 child: ElevatedButton.icon(
-                  onPressed: () => _toggleValidation(summary),
+                  // « Invalider » est désactivé pour un résumé déjà acheté :
+                  // le cadenas et l'encart ci-dessus en donnent la raison.
+                  // « Valider » reste toujours possible.
+                  onPressed: invalidationBloquee
+                      ? null
+                      : () => _toggleValidation(summary),
                   icon: Icon(
-                    isValidated ? Icons.cancel_rounded : Icons.check_circle_rounded,
+                    invalidationBloquee
+                        ? Icons.lock_rounded
+                        : isValidated
+                            ? Icons.cancel_rounded
+                            : Icons.check_circle_rounded,
                     size: 16,
                   ),
                   label: Text(isValidated ? 'Invalider' : 'Valider'),
