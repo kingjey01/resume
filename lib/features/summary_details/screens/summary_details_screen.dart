@@ -5,8 +5,10 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:resume_plus_clean/models/summary.dart' as models;
+import 'package:resume_plus_clean/features/summaries/providers/seen_summaries_provider.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/audio_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
@@ -23,16 +25,16 @@ import 'package:resume_plus_clean/widgets/ai_content_view.dart';
 import 'package:resume_plus_clean/widgets/api_error_view.dart';
 import 'package:resume_plus_clean/mixins/error_handler_mixin.dart';
 
-class SummaryDetailsScreen extends StatefulWidget {
+class SummaryDetailsScreen extends ConsumerStatefulWidget {
   final models.Summary summary;
 
   const SummaryDetailsScreen({super.key, required this.summary});
 
   @override
-  State<SummaryDetailsScreen> createState() => _SummaryDetailsScreenState();
+  ConsumerState<SummaryDetailsScreen> createState() => _SummaryDetailsScreenState();
 }
 
-class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorHandlerMixin {
+class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> with ErrorHandlerMixin {
   final ApiService _apiService = ApiService();
   final StorageService _storageService = StorageService();
   
@@ -46,7 +48,18 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
   // Données complètes du résumé lorsqu'elles sont chargées depuis l'API
   String? _fetchedContent;
   String? _fetchedAuthor;
-  
+
+  // ─── Lecture audio à partir de la page affichée (tache34, point 2) ────────
+  /// Page du résumé actuellement affichée, remontée par [AiContentView].
+  /// C'est le point de départ de la lecture : « Écouter » depuis la page 5 lit
+  /// la page 5 puis continue jusqu'à la fin, sans repartir du début.
+  int _audioStartPage = 0;
+  /// Pages du résumé, découpées avec EXACTEMENT le même algorithme que
+  /// l'affichage (d'où l'appel à [AiContentView.splitIntoPages]) : c'est ce qui
+  /// garantit que l'index de page reçu correspond au texte lu.
+  List<String> _contentPages = const [];
+  String? _contentPagesSource;
+
   // Détermine si le résumé est accessible selon le rôle et l'achat
   bool get _hasAccess {
     // CP et ADMIN ont accès gratuit à tout
@@ -58,9 +71,45 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
     return widget.summary.isFree || _isActuallyPurchased;
   }
 
+  /// Contenu réellement affiché (version complète chargée depuis l'API quand
+  /// la liste n'en fournissait qu'un aperçu).
+  String get _summaryContent => _fetchedContent ?? widget.summary.content;
+
+  /// Pages du résumé, recalculées uniquement quand le contenu change (le
+  /// découpage est linéaire, inutile de le refaire à chaque `build`).
+  List<String> get _pages {
+    if (_contentPagesSource != _summaryContent) {
+      _contentPagesSource = _summaryContent;
+      _contentPages = AiContentView.splitIntoPages(_summaryContent);
+    }
+    return _contentPages;
+  }
+
+  /// Texte transmis au lecteur audio : de la page affichée jusqu'à la fin du
+  /// résumé. Sur la page 1 le texte est donc complet ; sur la page 5 il commence
+  /// à la page 5 — la lecture ne repart jamais du début.
+  String get _audioText {
+    final content = _summaryContent;
+    final pages = _pages;
+    if (pages.isEmpty) return content;
+    final start = max(0, min(_audioStartPage, pages.length - 1));
+    return pages.sublist(start).join('\n\n');
+  }
+
   @override
   void initState() {
     super.initState();
+    // Ouvrir le résumé vaut consultation : la pastille « non vu » des listes
+    // disparaît (tache34, point 1). Aucun appel réseau, aucune invalidation des
+    // providers de résumés — l'état est réactif.
+    //
+    // ⚠️ Différé après la frame : `markSeen` fait passer le provider à un
+    // nouvel état, et Riverpod interdit de modifier un provider pendant une
+    // phase du cycle de vie du widget (`initState` compris).
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      ref.read(seenSummariesProvider.notifier).markSeen(widget.summary.id);
+    });
     // Si le summary vient de Mes Achats, on sait déjà qu'il est acheté
     if (widget.summary.isPurchased) {
       _isActuallyPurchased = true;
@@ -895,7 +944,8 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
                           ),
                           padding: const EdgeInsets.all(16),
                           child: AudioPlayerWidget(
-                            text: _fetchedContent ?? widget.summary.content,
+                            // Lecture à partir de la page affichée (tache34).
+                            text: _audioText,
                             title: 'Écouter le résumé',
                             rate: 0.5,
                             pitch: 1.0,
@@ -946,7 +996,14 @@ class _SummaryDetailsScreenState extends State<SummaryDetailsScreen> with ErrorH
                                     ))
                                   else
                                     AiContentView(
-                                      content: _fetchedContent ?? widget.summary.content,
+                                      content: _summaryContent,
+                                      // La page affichée devient le point de
+                                      // départ de la prochaine lecture audio.
+                                      onPageChanged: (page) {
+                                        if (page != _audioStartPage) {
+                                          setState(() => _audioStartPage = page);
+                                        }
+                                      },
                                     ),
                                 ],
                               ),

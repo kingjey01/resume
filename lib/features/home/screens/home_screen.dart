@@ -41,7 +41,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
   bool _cpRequestPending = false;
   String? _cpRequestStatus; // pending / approved / rejected
   bool _cpRequestBlocked = false; // une demande active/approuvée existe pour la promotion
-  String _userPhone = ''; // téléphone du profil (prérempli dans la demande CP)
+  String _userPhone = ''; // téléphone du profil (préempli dans la demande CP)
+  // Le statut de la demande CP arrive dans un SECOND appel réseau, après le
+  // profil. Tant qu'il n'est pas connu, on n'affiche RIEN : sinon un étudiant
+  // déjà couvert voyait apparaître puis disparaître la bannière « Demander ».
+  bool _cpStatusLoaded = false;
 
   @override
   bool get wantKeepAlive => true;
@@ -112,15 +116,29 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
         _cpRequestBlocked = combinationBlocked;
         _cpRequestStatus = request != null ? request['status'] : null;
         _cpRequestPending = request != null && request['status'] == 'pending';
+        _cpStatusLoaded = true;
       });
     } catch (e) {
-      // Non bloquant : le bouton reste actif
+      // Non bloquant : on retombe sur « aucune demande connue », donc bannière
+      // visible et soumission possible — le backend reste l'autorité finale
+      // (il refuse une demande en double).
+      if (mounted) {
+        setState(() => _cpStatusLoaded = true);
+      }
       print('⚠️ Erreur chargement statut demande CP: $e');
     }
   }
 
+  /// Vrai si l'utilisateur ne peut plus faire de demande de CP : une demande
+  /// est en attente, ou la combinaison Université + Filière + Promotion est
+  /// déjà couverte (demande en attente/validée, ou CP existant).
+  ///
+  /// Dans ce cas la bannière n'est PAS affichée du tout — et non plus affichée
+  /// grisée (tache34, point 3).
+  bool get _cpRequestImpossible => _cpRequestPending || _cpRequestBlocked;
+
   /// Bannière "Demander à devenir CP" affichée pour les étudiants.
-  /// Si une demande est en attente, le bouton est remplacé par un message.
+  /// Absente dès qu'une demande ne peut plus être déposée.
   Widget _buildCPRequestBanner(BuildContext context) {
     final theme = Theme.of(context);
 
@@ -150,12 +168,8 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               ),
               shape: BoxShape.circle,
             ),
-            child: Icon(
-              _cpRequestBlocked
-                  ? Icons.lock_rounded
-                  : _cpRequestPending
-                      ? Icons.hourglass_top_rounded
-                      : Icons.workspace_premium_rounded,
+            child: const Icon(
+              Icons.workspace_premium_rounded,
               color: Colors.white,
               size: 22,
             ),
@@ -166,11 +180,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  _cpRequestBlocked
-                      ? 'Promotion déjà couverte'
-                      : _cpRequestPending
-                          ? 'Demande en cours de traitement'
-                          : 'Devenez Chef de Promotion',
+                  'Devenez Chef de Promotion',
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: AppTheme.primaryBlue,
@@ -178,11 +188,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  _cpRequestBlocked
-                      ? 'Une demande est déjà en cours ou validée pour votre promotion.'
-                      : _cpRequestPending
-                          ? 'Votre demande a été envoyée. Un administrateur la traitera prochainement.'
-                          : 'Créez des cours, enregistrez des séances et publiez des résumés pour les étudiants.',
+                  'Créez des cours, enregistrez des séances et publiez des résumés pour les étudiants.',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: theme.colorScheme.onSurface.withOpacity(0.6),
                     height: 1.4,
@@ -191,35 +197,33 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               ],
             ),
           ),
-          if (!_cpRequestPending && !_cpRequestBlocked) ...[
-            const SizedBox(width: 8),
-            InkWell(
-              onTap: _showCPRequestDialog,
-              borderRadius: BorderRadius.circular(10),
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                decoration: BoxDecoration(
-                  color: AppTheme.primaryBlue,
-                  borderRadius: BorderRadius.circular(10),
-                  boxShadow: [
-                    BoxShadow(
-                      color: AppTheme.primaryBlue.withOpacity(0.3),
-                      blurRadius: 8,
-                      offset: const Offset(0, 3),
-                    ),
-                  ],
-                ),
-                child: const Text(
-                  'Demander',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
+          const SizedBox(width: 8),
+          InkWell(
+            onTap: _showCPRequestDialog,
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue,
+                borderRadius: BorderRadius.circular(10),
+                boxShadow: [
+                  BoxShadow(
+                    color: AppTheme.primaryBlue.withOpacity(0.3),
+                    blurRadius: 8,
+                    offset: const Offset(0, 3),
                   ),
+                ],
+              ),
+              child: const Text(
+                'Demander',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
                 ),
               ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -227,7 +231,9 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
 
   /// Affiche le formulaire de demande pour devenir CP.
   Future<void> _showCPRequestDialog() async {
-    if (_cpRequestPending) return;
+    // Même règle que l'affichage de la bannière : on n'ouvre pas un formulaire
+    // dont la soumission serait refusée par le backend.
+    if (_cpRequestImpossible) return;
 
     final TextEditingController motivationCtrl = TextEditingController();
     final TextEditingController emailCtrl = TextEditingController(
@@ -510,6 +516,11 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
       if (prev != next) {
         print('🔄 [Home] Onglet Accueil sélectionné — rafraîchissement');
         _loadCourses();
+        // Le statut de la demande CP est rechargé ici aussi : sans cela, un
+        // étudiant dont la demande vient d'être validée (ou dont la promotion
+        // vient d'être couverte) continuait de voir la bannière « Demander »
+        // jusqu'au prochain redémarrage (tache34, point 3).
+        _loadCPRequestStatus();
         ref.invalidate(summariesProvider);
       }
     });
@@ -564,8 +575,18 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                 // Header bleu courbé
                 _buildCurvedHeader(context, topPadding),
 
-                // Bannière "Demander à devenir CP" (uniquement étudiants)
-                if (!_isLoadingProfile && _userRole != 'CP' && _userRole != 'ADMIN')
+                // Bannière "Demander à devenir CP" (uniquement étudiants).
+                //
+                // Elle disparaît COMPLÈTEMENT — au lieu d'être grisée — dès
+                // qu'une demande en attente existe ou que la promotion est déjà
+                // couverte (tache34, point 3). `_cpStatusLoaded` évite de
+                // l'afficher une fraction de seconde avant que le statut réel
+                // (chargé dans un second appel) ne soit connu.
+                if (!_isLoadingProfile &&
+                    _cpStatusLoaded &&
+                    !_cpRequestImpossible &&
+                    _userRole != 'CP' &&
+                    _userRole != 'ADMIN')
                   _buildCPRequestBanner(context),
 
               const SizedBox(height: 20),

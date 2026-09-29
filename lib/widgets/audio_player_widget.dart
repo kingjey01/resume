@@ -194,6 +194,52 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
     super.dispose();
   }
 
+  /// Bouton principal : « Écouter » → « Pause » → « Reprendre ».
+  /// Styles, couleurs et libellés strictement inchangés — seule la mise en page
+  /// de la zone qui les contient a été rendue responsive (tache34, point 4).
+  Widget _buildPlayPauseButton() {
+    return ElevatedButton.icon(
+      onPressed: _isInitialized ? _playPause : null,
+      icon: Icon(
+        _isPlaying && !_isPaused
+            ? Icons.pause
+            : Icons.play_arrow,
+      ),
+      label: Text(
+        _isPlaying && !_isPaused
+            ? 'Pause'
+            : _isPaused
+                ? 'Reprendre'
+                : 'Écouter',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: _isPlaying && !_isPaused
+            ? Colors.orange
+            : Colors.blue,
+        foregroundColor: Colors.white,
+      ),
+    );
+  }
+
+  /// Bouton d'arrêt, visible uniquement pendant (ou après) une lecture.
+  Widget _buildStopButton() {
+    return ElevatedButton.icon(
+      onPressed: _stop,
+      icon: const Icon(Icons.stop),
+      label: const Text(
+        'Arrêter',
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+      ),
+      style: ElevatedButton.styleFrom(
+        backgroundColor: Colors.red,
+        foregroundColor: Colors.white,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -251,47 +297,31 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
               const SizedBox(height: 12),
             ],
 
-            // Contrôles audio
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                // Bouton Play/Pause
-                ElevatedButton.icon(
-                  onPressed: _isInitialized ? _playPause : null,
-                  icon: Icon(
-                    _isPlaying && !_isPaused
-                        ? Icons.pause
-                        : Icons.play_arrow,
+            // Contrôles audio — zone responsive.
+            //
+            // `Wrap` aligne les boutons côte à côte tant que la largeur le
+            // permet, puis les empile verticalement dès qu'ils ne tiennent plus
+            // (petits écrans) : plus de débordement horizontal, et le contenu du
+            // résumé n'est plus décalé. `spacing` reprend exactement l'espace
+            // qui séparait les deux boutons ; `ConstrainedBox` garantit qu'un
+            // bouton seul ne peut jamais dépasser la largeur disponible.
+            LayoutBuilder(
+              builder: (context, constraints) => Wrap(
+                alignment: WrapAlignment.center,
+                spacing: 12,
+                runSpacing: 8,
+                children: [
+                  ConstrainedBox(
+                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                    child: _buildPlayPauseButton(),
                   ),
-                  label: Text(
-                    _isPlaying && !_isPaused
-                        ? 'Pause'
-                        : _isPaused
-                            ? 'Reprendre'
-                            : 'Écouter',
-                  ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: _isPlaying && !_isPaused
-                        ? Colors.orange
-                        : Colors.blue,
-                    foregroundColor: Colors.white,
-                  ),
-                ),
-
-                const SizedBox(width: 12),
-
-                // Bouton Stop
-                if (_isPlaying || _isPaused)
-                  ElevatedButton.icon(
-                    onPressed: _stop,
-                    icon: const Icon(Icons.stop),
-                    label: const Text('Arrêter'),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.red,
-                      foregroundColor: Colors.white,
+                  if (_isPlaying || _isPaused)
+                    ConstrainedBox(
+                      constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                      child: _buildStopButton(),
                     ),
-                  ),
-              ],
+                ],
+              ),
             ),
 
             // Indicateur d'état

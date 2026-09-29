@@ -1,31 +1,48 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import 'package:resume_plus_clean/models/summary.dart';
 import 'package:resume_plus_clean/features/summary_details/screens/summary_details_screen.dart';
+import 'package:resume_plus_clean/features/summaries/providers/seen_summaries_provider.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 
-class SummaryCard extends StatelessWidget {
+class SummaryCard extends ConsumerWidget {
   final Summary summary;
   final bool showAuthorBadge;
 
   const SummaryCard({super.key, required this.summary, this.showAuthorBadge = false});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
+    // « Déjà consulté ? » — état réactif partagé, propre à l'utilisateur
+    // connecté (tache34, point 1). Rien n'est stocké dans la carte elle-même.
+    final isSeen = ref.watch(seenSummariesProvider).contains(summary.id);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final isNarrow = constraints.maxWidth < 200;
-        return _buildCardContent(context, theme, isNarrow);
+        return _buildCardContent(context, theme, isNarrow, isSeen);
       },
     );
   }
 
-  Widget _buildCardContent(BuildContext context, ThemeData theme, bool isNarrow) {
-    return Container(
+  Widget _buildCardContent(BuildContext context, ThemeData theme, bool isNarrow, bool isSeen) {
+    final isDark = theme.brightness == Brightness.dark;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 200),
       decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
+        // Résumé non consulté : même principe que les notifications non lues —
+        // fond légèrement teinté (translucide) sous le contenu.
+        // `alphaBlend` plutôt qu'une couleur transparente : la carte reste
+        // opaque et lisible, seule la teinte change.
+        color: isSeen
+            ? theme.colorScheme.surface
+            : Color.alphaBlend(
+                AppTheme.primaryBlue.withValues(alpha: isDark ? 0.14 : 0.06),
+                theme.colorScheme.surface,
+              ),
         borderRadius: BorderRadius.circular(16),
         boxShadow: AppTheme.softShadow,
       ),
@@ -108,16 +125,39 @@ class SummaryCard extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Titre
-                    Text(
-                      summary.title,
-                      style: theme.textTheme.titleSmall?.copyWith(
-                        fontWeight: FontWeight.w600,
-                        color: theme.colorScheme.onSurface,
-                        fontSize: 13,
-                      ),
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
+                    // Titre + pastille « non consulté »
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            summary.title,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: theme.colorScheme.onSurface,
+                              fontSize: 13,
+                            ),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        // Même pastille que les notifications non lues : elle
+                        // disparaît dès que le résumé a été ouvert.
+                        if (!isSeen) ...[
+                          const SizedBox(width: 6),
+                          Padding(
+                            padding: const EdgeInsets.only(top: 4),
+                            child: Container(
+                              width: 8,
+                              height: 8,
+                              decoration: const BoxDecoration(
+                                color: AppTheme.primaryBlue,
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ],
                     ),
                     const SizedBox(height: 4),
                     // Matière

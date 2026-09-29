@@ -108,11 +108,123 @@ class AiContentView extends StatefulWidget {
   final String content;
   final bool isSelectable;
 
+  /// Appelé à chaque changement de page par l'utilisateur (flèches de
+  /// pagination). Permet à l'écran de détail de savoir quelle page est
+  /// affichée — c'est le point de départ de la lecture audio.
+  final ValueChanged<int>? onPageChanged;
+
   const AiContentView({
     super.key,
     required this.content,
     this.isSelectable = true,
+    this.onPageChanged,
   });
+
+  /// Nombre de caractères visés par page pour les découpages de repli.
+  /// Tant qu'il y a plus de 2000 caractères, il y a AU MOINS 2 pages.
+  static const int _charsPerPage = 1800;
+
+  /// Découpe [content] en pages — logique d'affichage PARTAGÉE.
+  ///
+  /// Exposée en `static` parce que l'écran de détail en a besoin pour connaître
+  /// le texte correspondant à la page affichée (lecture audio depuis la page
+  /// courante). Elle doit rester la SEULE source du découpage : dupliquer
+  /// l'algorithme ferait diverger l'index de page et le texte lu.
+  ///
+  /// Méthode 1 (propre) : par sections `##` quand elles existent.
+  /// Méthode 2 (fallback) : par blocs de ~1800 caractères, en respectant
+  /// les sauts de paragraphe pour ne pas couper en milieu de phrase.
+  static List<String> splitIntoPages(String rawContent) {
+    final pages = <String>[];
+    final content = normalizeMathBlocks(rawContent).trim();
+    if (content.isEmpty) return pages;
+
+    // ── Méthode 1 : découpage par sections ## ───────────────────
+    final sectionPattern = RegExp(r'^##\s+(.*)$', multiLine: true);
+    final matches = sectionPattern.allMatches(content).toList();
+
+    if (matches.length >= 2) {
+      // Assez de sections → page par section
+      for (int i = 0; i < matches.length; i++) {
+        final start = matches[i].start;
+        final end = (i + 1 < matches.length) ? matches[i + 1].start : content.length;
+        final section = content.substring(start, end).trim();
+
+        if (section.length < 300 && pages.isNotEmpty) {
+          // Trop petite → fusionner avec la page précédente
+          pages.last += '\n\n$section';
+        } else {
+          pages.add(section);
+        }
+      }
+    }
+
+    // ── Méthode 2 : découpage par caractères (fallback) ─────────
+    if (pages.length < 2 && content.length > _charsPerPage) {
+      pages.clear();
+      final paragraphs = content.split('\n\n');
+      String buffer = '';
+
+      for (final para in paragraphs) {
+        if (buffer.length + para.length > _charsPerPage && buffer.isNotEmpty) {
+          pages.add(buffer.trim());
+          buffer = '$para\n\n';
+        } else {
+          buffer += '$para\n\n';
+        }
+      }
+      if (buffer.trim().isNotEmpty) pages.add(buffer.trim());
+    }
+
+    // ── Méthode 3 : découpage par lignes simples ────────────────
+    // Contenu sans '##' ni '\n\n' (ex. une liste ou des **pseudo-titres**).
+    if (pages.length < 2 && content.length > _charsPerPage) {
+      final lines = content.split('\n');
+      if (lines.length > 1) {
+        pages.clear();
+        String buffer = '';
+        for (final line in lines) {
+          if (buffer.length + line.length > _charsPerPage && buffer.isNotEmpty) {
+            pages.add(buffer.trim());
+            buffer = '$line\n';
+          } else {
+            buffer += '$line\n';
+          }
+        }
+        if (buffer.trim().isNotEmpty) pages.add(buffer.trim());
+      }
+    }
+
+    // ── Méthode 4 : découpage par mots (un seul paragraphe géant) ─
+    if (pages.length < 2 && content.length > _charsPerPage) {
+      pages.clear();
+      String buffer = '';
+      for (final word in content.split(' ')) {
+        if (buffer.length + word.length > _charsPerPage && buffer.isNotEmpty) {
+          pages.add(buffer.trim());
+          buffer = '$word ';
+        } else {
+          buffer += '$word ';
+        }
+      }
+      if (buffer.trim().isNotEmpty) pages.add(buffer.trim());
+    }
+
+    // ── Dernier filet : découpage brut par caractères ────────────
+    // Garantit qu'aucun contenu long ne reste sur une seule page géante.
+    if (pages.length < 2 && content.length > _charsPerPage) {
+      pages.clear();
+      for (int i = 0; i < content.length; i += _charsPerPage) {
+        final end = i + _charsPerPage > content.length ? content.length : i + _charsPerPage;
+        pages.add(content.substring(i, end));
+      }
+    }
+
+    // ── Fallback final : tout en une seule page ─────────────────
+    if (pages.isEmpty) pages.add(content);
+
+    return pages;
+  }
 
   /// Style sheet Markdown complet (clair/sombre) utilisable par
   /// AiContentView ET TechBlockWidget pour un rendu identique.
@@ -220,105 +332,22 @@ class _AiContentViewState extends State<AiContentView> {
     }
   }
 
-  /// Découpe le contenu en pages.
-  ///
-  /// Méthode 1 (propre) : par sections `##` quand elles existent.
-  /// Méthode 2 (fallback) : par blocs de ~1800 caractères, en respectant
-  /// les sauts de paragraphe pour ne pas couper en milieu de phrase.
-  ///
-  /// Tant qu'il y a plus de 2000 caractères, il y a AU MOINS 2 pages.
-  static const int _charsPerPage = 1800;
-
+  /// Recalcule les pages à partir du contenu courant.
+  /// Le découpage lui-même vit dans [AiContentView.splitIntoPages] : il est
+  /// partagé avec l'écran de détail (lecture audio depuis la page affichée).
   void _splitContent() {
-    _pages.clear();
-    final content = AiContentView.normalizeMathBlocks(widget.content).trim();
-    if (content.isEmpty) return;
-
-    // ── Méthode 1 : découpage par sections ## ───────────────────
-    final sectionPattern = RegExp(r'^##\s+(.*)$', multiLine: true);
-    final matches = sectionPattern.allMatches(content).toList();
-
-    if (matches.length >= 2) {
-      // Assez de sections → page par section
-      for (int i = 0; i < matches.length; i++) {
-        final start = matches[i].start;
-        final end = (i + 1 < matches.length) ? matches[i + 1].start : content.length;
-        final section = content.substring(start, end).trim();
-
-        if (section.length < 300 && _pages.isNotEmpty) {
-          // Trop petite → fusionner avec la page précédente
-          _pages.last += '\n\n$section';
-        } else {
-          _pages.add(section);
-        }
-      }
-    }
-
-    // ── Méthode 2 : découpage par caractères (fallback) ─────────
-    if (_pages.length < 2 && content.length > _charsPerPage) {
-      _pages.clear();
-      final paragraphs = content.split('\n\n');
-      String buffer = '';
-
-      for (final para in paragraphs) {
-        if (buffer.length + para.length > _charsPerPage && buffer.isNotEmpty) {
-          _pages.add(buffer.trim());
-          buffer = '$para\n\n';
-        } else {
-          buffer += '$para\n\n';
-        }
-      }
-      if (buffer.trim().isNotEmpty) _pages.add(buffer.trim());
-    }
-
-    // ── Méthode 3 : découpage par lignes simples ────────────────
-    // Contenu sans '##' ni '\n\n' (ex. une liste ou des **pseudo-titres**).
-    if (_pages.length < 2 && content.length > _charsPerPage) {
-      final lines = content.split('\n');
-      if (lines.length > 1) {
-        _pages.clear();
-        String buffer = '';
-        for (final line in lines) {
-          if (buffer.length + line.length > _charsPerPage && buffer.isNotEmpty) {
-            _pages.add(buffer.trim());
-            buffer = '$line\n';
-          } else {
-            buffer += '$line\n';
-          }
-        }
-        if (buffer.trim().isNotEmpty) _pages.add(buffer.trim());
-      }
-    }
-
-    // ── Méthode 4 : découpage par mots (un seul paragraphe géant) ─
-    if (_pages.length < 2 && content.length > _charsPerPage) {
-      _pages.clear();
-      String buffer = '';
-      for (final word in content.split(' ')) {
-        if (buffer.length + word.length > _charsPerPage && buffer.isNotEmpty) {
-          _pages.add(buffer.trim());
-          buffer = '$word ';
-        } else {
-          buffer += '$word ';
-        }
-      }
-      if (buffer.trim().isNotEmpty) _pages.add(buffer.trim());
-    }
-
-    // ── Dernier filet : découpage brut par caractères ────────────
-    // Garantit qu'aucun contenu long ne reste sur une seule page géante.
-    if (_pages.length < 2 && content.length > _charsPerPage) {
-      _pages.clear();
-      for (int i = 0; i < content.length; i += _charsPerPage) {
-        final end = i + _charsPerPage > content.length ? content.length : i + _charsPerPage;
-        _pages.add(content.substring(i, end));
-      }
-    }
-
-    // ── Fallback final : tout en une seule page ─────────────────
-    if (_pages.isEmpty) _pages.add(content);
-
+    _pages
+      ..clear()
+      ..addAll(AiContentView.splitIntoPages(widget.content));
     if (_currentPage >= _pages.length) _currentPage = 0;
+  }
+
+  /// Change de page et prévient le parent — c'est ce qui permet à la lecture
+  /// audio de démarrer à la page affichée.
+  void _goToPage(int page) {
+    if (page < 0 || page >= _pages.length || page == _currentPage) return;
+    setState(() => _currentPage = page);
+    widget.onPageChanged?.call(_currentPage);
   }
 
   @override
@@ -365,7 +394,7 @@ class _AiContentViewState extends State<AiContentView> {
               _buildNavButton(
                 icon: Icons.arrow_back_ios_new_rounded,
                 onPressed: _currentPage > 0
-                    ? () => setState(() => _currentPage--)
+                    ? () => _goToPage(_currentPage - 1)
                     : null,
               ),
               Container(
@@ -386,7 +415,7 @@ class _AiContentViewState extends State<AiContentView> {
               _buildNavButton(
                 icon: Icons.arrow_forward_ios_rounded,
                 onPressed: _currentPage < _pages.length - 1
-                    ? () => setState(() => _currentPage++)
+                    ? () => _goToPage(_currentPage + 1)
                     : null,
               ),
             ],
