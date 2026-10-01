@@ -90,3 +90,17 @@ backup_*/
 
 # Extraits audio de diagnostic transcription
 backend/*.amr
+/*.amr
+
+# Notes d'infrastructure locales (IP publique et nom de domaine du serveur)
+vhost.md
+backend/vhost_443_resumecours_CORRIGE.conf
+# Extraits de logs de production (hôte, chemins et IP clientes)
+error_prod.md
+backend/production_error.md
+
+# Maquettes de design locales (captures d'écran)
+oaboarding/*.png
+
+# Fichier vide créé par erreur par une redirection shell
+android/app/error
