@@ -104,3 +104,8 @@ oaboarding/*.png
 
 # Fichier vide créé par erreur par une redirection shell
 android/app/error
+
+# Jetons d'authentification générés par backend/create_token_table.py.
+# Ne JAMAIS commiter : ils donnent un accès complet aux comptes de test.
+backend/tokens_resume_plus.json
+backend/tokens_resume_plus.txt
