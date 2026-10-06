@@ -316,7 +316,7 @@ class _GeneralOnboardingScreenState extends State<GeneralOnboardingScreen> {
           ),
           const SizedBox(height: 8),
           const Text(
-            'Explorez les résumés gratuits disponibles et profitez pleinement de Résumé Plus pour exceller dans vos études.',
+            'Explorez les résumés gratuits disponibles et profitez pleinement de Muhtasari+ pour exceller dans vos études.',
             textAlign: TextAlign.center,
             style: TextStyle(
               fontSize: 13,

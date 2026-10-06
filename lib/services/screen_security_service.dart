@@ -157,7 +157,7 @@ class ScreenSecurityService {
       try {
         await SystemChrome.setApplicationSwitcherDescription(
           const ApplicationSwitcherDescription(
-            label: 'Résumé+ (Sécurisé)',
+            label: 'Muhtasari+ (Sécurisé)',
             primaryColor: 0xFF1976D2,
           ),
         );
@@ -176,7 +176,7 @@ class ScreenSecurityService {
       try {
         await SystemChrome.setApplicationSwitcherDescription(
           const ApplicationSwitcherDescription(
-            label: 'Résumé+',
+            label: 'Muhtasari+',
             primaryColor: 0xFF1976D2,
           ),
         );

@@ -205,7 +205,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
           ],
         ),
         content: Text(
-          'Une nouvelle version de Résumé Plus est disponible sur le store.\n\n'
+          'Une nouvelle version de Muhtasari+ est disponible sur le store.\n\n'
           'Téléchargez-la pour profiter des dernières fonctionnalités.',
           style: const TextStyle(fontSize: 15, height: 1.4),
         ),
@@ -278,7 +278,7 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
                     ),
                     const SizedBox(height: 24),
                     const Text(
-                      'Résumé+',
+                      'Muhtasari+',
                       style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.5),
                     ),
                     const SizedBox(height: 8),

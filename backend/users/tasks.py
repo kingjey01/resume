@@ -45,8 +45,8 @@ Vous pouvez maintenant vous connecter à l'application et :
 - enregistrer des séances audio
 - publier des résumés pour les étudiants
 
-À très bientôt sur Résumé+ !
-L'équipe Résumé+
+À très bientôt sur Muhtasari+ !
+L'équipe Muhtasari+
 """
     else:
         subject = 'Votre demande CP a été refusée'
@@ -62,7 +62,7 @@ Commentaire de l'administrateur : {cp_request.admin_comment}
 Vous pouvez soumettre une nouvelle demande à tout moment depuis l'application.
 
 Cordialement,
-L'équipe Résumé+
+L'équipe Muhtasari+
 """
 
     try:
@@ -126,7 +126,7 @@ Motivation : {motivation}
 Connectez-vous à l'administration (https://votre-domaine/admin/users/cprequest/) pour approuver ou refuser cette demande.
 
 Cordialement,
-L'équipe Résumé+
+L'équipe Muhtasari+
 """
 
     try:

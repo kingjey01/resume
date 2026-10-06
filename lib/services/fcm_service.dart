@@ -32,7 +32,7 @@ class FcmService {
   // Canal de notifications locales pour foreground
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
     'resume_plus_notifications',
-    'Résumé+ Notifications',
+    'Muhtasari+ Notifications',
     description: 'Notifications pour les nouveaux résumés et exercices',
     importance: Importance.high,
     enableVibration: true,

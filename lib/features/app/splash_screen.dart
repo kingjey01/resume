@@ -61,7 +61,7 @@ class _SplashScreenAltState extends State<SplashScreenAlt> {
             ),
             const SizedBox(height: 24),
             const Text(
-              'Résumé+',
+              'Muhtasari+',
               style: TextStyle(fontSize: 32, fontWeight: FontWeight.w700, color: Colors.white, letterSpacing: -0.5),
             ),
             const SizedBox(height: 8),

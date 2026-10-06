@@ -98,7 +98,7 @@ class MyApp extends ConsumerWidget {
     });
 
     return MaterialApp(
-      title: 'Résumé+',
+      title: 'Muhtasari+',
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: themeMode,

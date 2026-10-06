@@ -201,7 +201,7 @@ class _ForceUpdateScreenState extends State<ForceUpdateScreen> {
 
                     // ── Pied de page ───────────────────────────
                     Text(
-                      'Résumé Plus v${_versionService.config?.latestVersion ?? ""}',
+                      'Muhtasari+ v${_versionService.config?.latestVersion ?? ""}',
                       style: TextStyle(
                         fontSize: 13,
                         color: Colors.white.withOpacity(0.4),

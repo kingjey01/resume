@@ -33,7 +33,7 @@ class AboutScreen extends StatelessWidget {
           ),
 
           // ─── Contenu ──────────────────────────────────────────────────────
-          // ─── Bannière Résumé+ (scrollable) ─────────────────────────────────
+          // ─── Bannière Muhtasari+ (scrollable) ──────────────────────────────
           SliverToBoxAdapter(
             child: Container(
               decoration: const BoxDecoration(
@@ -65,7 +65,7 @@ class AboutScreen extends StatelessWidget {
                       ),
                       const SizedBox(height: 10),
                       const Text(
-                        'Résumé+',
+                        'Muhtasari+',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 22,
@@ -117,7 +117,7 @@ class AboutScreen extends StatelessWidget {
                 title: "Objectif de l'application",
                 child: _buildParagraph(
                   theme,
-                  "Résumé+ est une application mobile intelligente conçue pour les étudiants et les chargés de promotion. "
+                  "Muhtasari+ est une application mobile intelligente conçue pour les étudiants et les chargés de promotion. "
                   "Elle exploite l'intelligence artificielle pour transformer automatiquement vos enregistrements audio de cours en résumés textuels clairs, "
                   "accessibles à tous et enrichis de quiz interactifs.",
                 ),
@@ -275,7 +275,7 @@ class AboutScreen extends StatelessWidget {
                   child: Column(
                     children: [
                       Text(
-                        '© 2024 Résumé+ · Tous droits réservés',
+                        '© 2024 Muhtasari+ · Tous droits réservés',
                         style: theme.textTheme.bodySmall?.copyWith(
                           color: theme.colorScheme.onSurface.withOpacity(0.4),
                         ),

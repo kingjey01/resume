@@ -77,6 +77,12 @@ Future<void> _declencherDemarrageLecture(WidgetTester tester) async {
   await tester.pump();
 }
 
+/// Boîte englobant les deux boutons, telle qu'elle est réellement peinte.
+Rect _boiteDesBoutons(WidgetTester tester) {
+  final boutons = find.byType(ElevatedButton);
+  return tester.getRect(boutons.at(0)).expandToInclude(tester.getRect(boutons.at(1)));
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -117,6 +123,39 @@ void main() {
     // L'un est AU-DESSUS de l'autre : plus aucun chevauchement horizontal.
     expect(arreter.top, greaterThanOrEqualTo(pause.bottom));
     expect(tester.takeException(), isNull);
+  });
+
+  // Tache37, point 2 : une fois empilés, les boutons doivent être centrés
+  // horizontalement dans leur conteneur — et non plus collés au bord gauche.
+  testWidgets('écran étroit : les boutons empilés sont centrés horizontalement',
+      (tester) async {
+    await _pomperLecteur(tester, largeur: 200);
+    await _declencherDemarrageLecture(tester);
+
+    final centreConteneur = tester.getCenter(find.byType(Card)).dx;
+
+    expect(
+      (_boiteDesBoutons(tester).center.dx - centreConteneur).abs(),
+      lessThan(1),
+      reason: 'les boutons empilés doivent être centrés, pas alignés à gauche',
+    );
+  });
+
+  testWidgets('écran large : les boutons côte à côte restent centrés',
+      (tester) async {
+    await _pomperLecteur(tester, largeur: 600);
+    await _declencherDemarrageLecture(tester);
+
+    final pause = tester.getRect(find.widgetWithText(ElevatedButton, 'Pause'));
+    final arreter = tester.getRect(find.widgetWithText(ElevatedButton, 'Arrêter'));
+
+    // Disposition en ligne conservée…
+    expect((arreter.top - pause.top).abs(), lessThan(1));
+    // …et couple de boutons centré sur l'axe horizontal du conteneur.
+    expect(
+      (_boiteDesBoutons(tester).center.dx - tester.getCenter(find.byType(Card)).dx).abs(),
+      lessThan(1),
+    );
   });
 
   testWidgets('aucun débordement, lecture arrêtée comme en cours, de 200 à 900 px',

@@ -173,7 +173,7 @@ class VersionService {
         onTimeout: () {
           print('⏱️ VersionService: timeout package_info_plus');
           return PackageInfo(
-            appName: 'Résumé+',
+            appName: 'Muhtasari+',
             packageName: 'com.resumeplus.app',
             version: '1.0.0',
             buildNumber: '1',
@@ -271,7 +271,7 @@ class VersionService {
   /// Retourne le message de mise à jour obligatoire.
   String get mandatoryMessage =>
       _cachedConfig?.mandatoryUpdateMessage ??
-      'Une nouvelle version de Résumé Plus est requise pour continuer.';
+      'Une nouvelle version de Muhtasari+ est requise pour continuer.';
 
   /// Retourne le message de maintenance.
   String get maintenanceMessage =>

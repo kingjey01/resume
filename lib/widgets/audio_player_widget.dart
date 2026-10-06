@@ -305,22 +305,31 @@ class _AudioPlayerWidgetState extends State<AudioPlayerWidget> {
             // résumé n'est plus décalé. `spacing` reprend exactement l'espace
             // qui séparait les deux boutons ; `ConstrainedBox` garantit qu'un
             // bouton seul ne peut jamais dépasser la largeur disponible.
+            //
+            // `SizedBox` est indispensable (tache37) : avec des contraintes
+            // lâches — celles que donne la `Column` ci-dessus — un `Wrap` se
+            // réduit à la largeur de son contenu. `WrapAlignment.center` n'a
+            // alors plus aucun espace libre à répartir, et le bloc se retrouve
+            // collé au bord gauche, y compris une fois les boutons empilés.
             LayoutBuilder(
-              builder: (context, constraints) => Wrap(
-                alignment: WrapAlignment.center,
-                spacing: 12,
-                runSpacing: 8,
-                children: [
-                  ConstrainedBox(
-                    constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                    child: _buildPlayPauseButton(),
-                  ),
-                  if (_isPlaying || _isPaused)
+              builder: (context, constraints) => SizedBox(
+                width: constraints.maxWidth,
+                child: Wrap(
+                  alignment: WrapAlignment.center,
+                  spacing: 12,
+                  runSpacing: 8,
+                  children: [
                     ConstrainedBox(
                       constraints: BoxConstraints(maxWidth: constraints.maxWidth),
-                      child: _buildStopButton(),
+                      child: _buildPlayPauseButton(),
                     ),
-                ],
+                    if (_isPlaying || _isPaused)
+                      ConstrainedBox(
+                        constraints: BoxConstraints(maxWidth: constraints.maxWidth),
+                        child: _buildStopButton(),
+                      ),
+                  ],
+                ),
               ),
             ),
 

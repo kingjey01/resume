@@ -56,9 +56,9 @@ class TermsOfServiceScreen extends StatelessWidget {
                   textColor: theme.colorScheme.onSurface,
                   title: '1. Acceptation des Conditions',
                   content: '''
-En utilisant l'application Résumé+, vous acceptez les présentes conditions d'utilisation. Si vous n'acceptez pas ces conditions, n'utilisez pas notre application.
+En utilisant l'application Muhtasari+, vous acceptez les présentes conditions d'utilisation. Si vous n'acceptez pas ces conditions, n'utilisez pas notre application.
 
-Ces conditions s'appliquent à tous les utilisateurs de Résumé+.
+Ces conditions s'appliquent à tous les utilisateurs de Muhtasari+.
                   ''',
                 ),
                 
@@ -66,7 +66,7 @@ Ces conditions s'appliquent à tous les utilisateurs de Résumé+.
                   textColor: theme.colorScheme.onSurface,
                   title: '2. Description du Service',
                   content: '''
-Résumé+ est une application mobile qui permet :
+Muhtasari+ est une application mobile qui permet :
 • D'accéder à des résumés de cours académiques
 • D'acheter des résumés collectifs
 • De souscrire à des abonnements pour accéder à du contenu premium
@@ -80,7 +80,7 @@ Notre service est destiné aux étudiants et enseignants.
                   textColor: theme.colorScheme.onSurface,
                   title: '3. Compte Utilisateur',
                   content: '''
-Pour utiliser Résumé+, vous devez :
+Pour utiliser Muhtasari+, vous devez :
 • Créer un compte avec des informations exactes
 • Maintenir vos informations à jour
 • Ne pas partager votre compte avec des tiers
@@ -109,7 +109,7 @@ Paiements :
                   textColor: theme.colorScheme.onSurface,
                   title: '5. Contenu et Propriété Intellectuelle',
                   content: '''
-Les résumés disponibles sur Résumé+ sont :
+Les résumés disponibles sur Muhtasari+ sont :
 • Créés par des Chefs de Promotion qualifiés
 • Validés par notre équipe éditoriale
 • Protégés par le droit d'auteur
@@ -164,7 +164,7 @@ Consultez notre politique de confidentialité pour plus de détails.
                   textColor: theme.colorScheme.onSurface,
                   title: '8. Disponibilité du Service',
                   content: '''
-Nous nous efforçons de maintenir Résumé+ disponible en permanence, mais :
+Nous nous efforçons de maintenir Muhtasari+ disponible en permanence, mais :
 • Le service peut être indisponible pour maintenance
 • Des interruptions peuvent survenir pour des raisons techniques
 • Nous ne garantissons pas une disponibilité à 100%
@@ -177,7 +177,7 @@ Nous ne sommes pas responsables des pertes dues à des interruptions de service.
                   textColor: theme.colorScheme.onSurface,
                   title: '9. Limitation de Responsabilité',
                   content: '''
-Résumé+ est fourni "en l'état". Nous ne garantissons pas :
+Muhtasari+ est fourni "en l'état". Nous ne garantissons pas :
 • L'exactitude de tous les résumés
 • L'absence d'erreurs dans le contenu
 • La compatibilité avec tous les appareils
