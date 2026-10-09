@@ -4,13 +4,10 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     integrations:
-      app_store_connect: resumeplus # ⚠️ Doit correspondre EXACTEMENT au nom dans Codemagic
+      app_store_connect: resumeplus
     environment:
       groups:
-        - code_signing_vars # Groupe contenant la variable CERTIFICATE_PRIVATE_KEY
-      ios_signing:
-        distribution_type: app_store
-        bundle_identifier: com.example.resumeplus.resumePlusClean
+        - code_signing_vars   # Contient CERTIFICATE_PRIVATE_KEY
       flutter: stable
       xcode: latest
       cocoapods: default
