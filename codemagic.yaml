@@ -4,15 +4,21 @@ workflows:
     max_build_duration: 120
     instance_type: mac_mini_m2
     integrations:
-      app_store_connect: resumeplus  # Doit correspondre au nom que vous avez donné lors de la configuration de la clé API dans Codemagic
+      app_store_connect: resumeplus   # ⚠️ Doit correspondre EXACTEMENT au nom dans Codemagic → Team settings → Integrations
     environment:
       ios_signing:
         distribution_type: app_store
-        bundle_identifier: com.example.resumeplus.resumePlusClean  # Remplacez par le Bundle ID que vous avez créé sur Apple, identique à celui de votre projet
+        bundle_identifier: com.example.resumeplus.resumePlusClean
       flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
+      - name: Fetch signing files
+        script: |
+          app-store-connect fetch-signing-files \
+            "com.example.resumeplus.resumePlusClean" \
+            --type IOS_APP_STORE \
+            --create
       - name: Set up code signing
         script: |
           xcode-project use-profiles
@@ -24,8 +30,7 @@ workflows:
           find . -name "Podfile" -execdir pod install \;
       - name: Flutter build ipa
         script: |
-          flutter build ipa --release \
-          --export-options-plist=/Users/builder/export_options.plist
+          flutter build ipa --release
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
@@ -33,5 +38,3 @@ workflows:
       app_store_connect:
         auth: integration
         submit_to_testflight: true
-        beta_groups:
-          - Testeurs_internes  # Le nom du groupe de testeurs dans TestFlight, à confirmer dans App Store Connect
