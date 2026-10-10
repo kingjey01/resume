@@ -9,8 +9,21 @@ workflows:
       flutter: stable
       xcode: latest
       cocoapods: default
+      ios_signing:
+        distribution_type: app_store
+        bundle_identifier: com.example.resumeplus.resumePlusClean
+        provisioning_profiles:
+          - "provider App store"
+        certificates:
+          - "resume key"
     scripts:
-      - name: Set up code signing
+      - name: Initialize keychain
+        script: |
+          keychain initialize
+      - name: Add certificates to keychain
+        script: |
+          keychain add-certificates
+      - name: Set up code signing settings on Xcode project
         script: |
           xcode-project use-profiles
       - name: Get Flutter packages
