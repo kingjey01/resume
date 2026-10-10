@@ -6,18 +6,10 @@ workflows:
     integrations:
       app_store_connect: resumeplus
     environment:
-      groups:
-        - code_signing_vars   # Contient CERTIFICATE_PRIVATE_KEY
       flutter: stable
       xcode: latest
       cocoapods: default
     scripts:
-      - name: Fetch signing files
-        script: |
-          app-store-connect fetch-signing-files \
-            "com.example.resumeplus.resumePlusClean" \
-            --type IOS_APP_STORE \
-            --create
       - name: Set up code signing
         script: |
           xcode-project use-profiles
