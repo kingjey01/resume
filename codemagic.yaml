@@ -1,7 +1,7 @@
 workflows:
   ios-release:
     name: iOS Release
-    max_build_duration: 120
+    max_build_duration: 90
     instance_type: mac_mini_m2
     integrations:
       app_store_connect: resumeplus
@@ -14,6 +14,12 @@ workflows:
           - "provider App store"
         certificates:
           - "resume key"
+    cache:
+      cache_paths:
+        - $HOME/.pub-cache
+        - $HOME/Library/Caches/CocoaPods
+        - $HOME/Library/Developer/Xcode/DerivedData
+        - $FLUTTER_ROOT/.pub-cache
     scripts:
       - name: Initialize keychain
         script: |
@@ -27,12 +33,10 @@ workflows:
       - name: Get Flutter packages
         script: |
           flutter pub get
-      - name: Clean iOS Pods
+      - name: Install iOS Pods
         script: |
           cd ios
-          rm -f Podfile.lock
-          rm -rf Pods
-          pod install --repo-update
+          pod install
       - name: Build ipa for distribution
         script: |
           xcode-project build-ipa \
