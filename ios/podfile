@@ -37,7 +37,6 @@ target 'Runner' do
   pod 'GoogleUtilities', :modular_headers => true
 
   flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
-
   target 'RunnerTests' do
     inherit! :search_paths
   end
