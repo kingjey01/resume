@@ -7,7 +7,7 @@ workflows:
       app_store_connect: resumeplus
     environment:
       flutter: stable
-      xcode: latest
+      xcode: 16.2  # ✅ Version stable forcée au lieu de "latest" (Xcode 26 instable)
       cocoapods: default
       ios_signing:
         provisioning_profiles:
