@@ -32,6 +32,10 @@ workflows:
       - name: Set up code signing settings on Xcode project
         script: |
           xcode-project use-profiles
+      - name: Disable Explicit Modules for Xcode 26
+        script: |
+          # Désactive les modules explicites pour éviter l'erreur ScanDependencies sur Xcode 26
+          sed -i '' 's/SWIFT_ENABLE_EXPLICIT_MODULES = YES/SWIFT_ENABLE_EXPLICIT_MODULES = NO/g' ios/Runner.xcodeproj/project.pbxproj
       - name: Build ipa for distribution
         script: |
           xcode-project build-ipa \
