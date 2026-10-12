@@ -3,8 +3,10 @@ workflows:
     name: iOS Release
     max_build_duration: 120
     instance_type: mac_mini_m2
+
     integrations:
       app_store_connect: resumeplus
+
     environment:
       flutter: stable
       xcode: latest
@@ -14,33 +16,112 @@ workflows:
           - "provider App store"
         certificates:
           - "resume key"
+
     scripts:
       - name: Initialize keychain
         script: |
           keychain initialize
+
       - name: Add certificates to keychain
         script: |
           keychain add-certificates
-      - name: Clean and Regenerate iOS Pods
+
+      - name: Locate Flutter project and install dependencies
         script: |
+          set -e
+
+          if [ -f "pubspec.yaml" ]; then
+            PROJECT_DIR="$PWD"
+          else
+            PUBSPEC_PATH="$(find . -maxdepth 5 -type f -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit)"
+            if [ -z "$PUBSPEC_PATH" ]; then
+              echo "ERROR: Aucun pubspec.yaml trouvé dans le dépôt."
+              echo "Contenu du répertoire courant :"
+              ls -la
+              exit 1
+            fi
+            PROJECT_DIR="$(cd "$(dirname "$PUBSPEC_PATH")" && pwd)"
+          fi
+
+          echo "Répertoire Flutter détecté : $PROJECT_DIR"
+          cd "$PROJECT_DIR"
+
+          if [ ! -d "ios" ]; then
+            echo "ERROR: Le dossier ios/ est absent de $PROJECT_DIR"
+            ls -la
+            exit 1
+          fi
+
+          flutter --version
           flutter clean
           flutter pub get
+
+          if [ ! -f "ios/Podfile" ]; then
+            echo "ERROR: ios/Podfile introuvable."
+            exit 1
+          fi
+
           cd ios
-          rm -f Podfile.lock
-          rm -rf Pods
           pod install --repo-update
+
       - name: Set up code signing settings on Xcode project
         script: |
+          set -e
+
+          if [ -f "pubspec.yaml" ]; then
+            PROJECT_DIR="$PWD"
+          else
+            PUBSPEC_PATH="$(find . -maxdepth 5 -type f -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit)"
+            if [ -z "$PUBSPEC_PATH" ]; then
+              echo "ERROR: Aucun pubspec.yaml trouvé pour configurer la signature."
+              exit 1
+            fi
+            PROJECT_DIR="$(cd "$(dirname "$PUBSPEC_PATH")" && pwd)"
+          fi
+
+          cd "$PROJECT_DIR"
+          test -d "ios/Runner.xcworkspace" || {
+            echo "ERROR: ios/Runner.xcworkspace introuvable dans $PROJECT_DIR"
+            exit 1
+          }
+
           xcode-project use-profiles
-      - name: Build ipa for distribution
+
+      - name: Build IPA and preserve diagnostic log
         script: |
+          set -o pipefail
+
+          if [ -f "pubspec.yaml" ]; then
+            PROJECT_DIR="$PWD"
+          else
+            PUBSPEC_PATH="$(find . -maxdepth 5 -type f -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit)"
+            if [ -z "$PUBSPEC_PATH" ]; then
+              echo "ERROR: Aucun pubspec.yaml trouvé pour la compilation."
+              exit 1
+            fi
+            PROJECT_DIR="$(cd "$(dirname "$PUBSPEC_PATH")" && pwd)"
+          fi
+
+          cd "$PROJECT_DIR"
+          if [ ! -d "ios/Runner.xcworkspace" ]; then
+            echo "ERROR: ios/Runner.xcworkspace introuvable dans $PROJECT_DIR"
+            echo "Contenu de ios/ :"
+            ls -la ios || true
+            exit 1
+          fi
+
           export SWIFT_ENABLE_EXPLICIT_MODULES=NO
+          mkdir -p /tmp/xcodebuild_logs
+          LOG_FILE="/tmp/xcodebuild_logs/codemagic-build-ipa-console.log"
+
           xcode-project build-ipa \
             --workspace ios/Runner.xcworkspace \
-            --scheme Runner
+            --scheme Runner 2>&1 | tee "$LOG_FILE"
+
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
+
     publishing:
       app_store_connect:
         auth: integration
