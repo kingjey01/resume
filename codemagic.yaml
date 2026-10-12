@@ -21,9 +21,6 @@ workflows:
       - name: Add certificates to keychain
         script: |
           keychain add-certificates
-      - name: Set up code signing settings on Xcode project
-        script: |
-          xcode-project use-profiles
       - name: Clean and Regenerate iOS Pods
         script: |
           flutter clean
@@ -32,6 +29,9 @@ workflows:
           rm -f Podfile.lock
           rm -rf Pods
           pod install --repo-update
+      - name: Set up code signing settings on Xcode project
+        script: |
+          xcode-project use-profiles
       - name: Build ipa for distribution
         script: |
           xcode-project build-ipa \
