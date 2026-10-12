@@ -372,6 +372,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;
 				VERSIONING_SYSTEM = "apple-generic";
 			};
 			name = Profile;
@@ -389,7 +390,8 @@
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+				TEST_HO
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;ST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
 			};
 			name = Debug;
 		};
@@ -404,7 +406,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.resumeplus.resumePlusClean.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+				TEST_HO
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;ST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
 			};
 			name = Release;
 		};
@@ -419,7 +422,8 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.example.resumeplus.resumePlusClean.RunnerTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_VERSION = 5.0;
-				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
+				TEST_HO
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;ST = "$(BUILT_PRODUCTS_DIR)/Runner.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Runner";
 			};
 			name = Profile;
 		};
@@ -552,7 +556,8 @@
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
-				VERSIONING_SYSTEM = "apple-generic";
+				VERSION
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;ING_SYSTEM = "apple-generic";
 			};
 			name = Debug;
 		};
@@ -573,7 +578,8 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SWIFT_OBJC_BRIDGING_HEADER = "Runner/Runner-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
-				VERSIONING_SYSTEM = "apple-generic";
+				VERSION
+				SWIFT_ENABLE_EXPLICIT_MODULES = NO;ING_SYSTEM = "apple-generic";
 			};
 			name = Release;
 		};
