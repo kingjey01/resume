@@ -32,11 +32,9 @@ workflows:
       - name: Set up code signing settings on Xcode project
         script: |
           xcode-project use-profiles
-      - name: Disable Explicit Modules in Xcode Project
-        script: |
-          sed -i '' 's/SWIFT_VERSION = 5.0;/SWIFT_VERSION = 5.0;\n\t\t\t\tSWIFT_ENABLE_EXPLICIT_MODULES = NO;/g' ios/Runner.xcodeproj/project.pbxproj
       - name: Build ipa for distribution
         script: |
+          export SWIFT_ENABLE_EXPLICIT_MODULES=NO
           xcode-project build-ipa \
             --workspace ios/Runner.xcworkspace \
             --scheme Runner
