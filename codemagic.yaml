@@ -26,7 +26,6 @@ workflows:
           xcode-project use-profiles
       - name: Clean and Regenerate iOS Pods
         script: |
-          cd ..
           flutter clean
           flutter pub get
           cd ios
