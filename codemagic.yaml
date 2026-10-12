@@ -24,15 +24,15 @@ workflows:
       - name: Set up code signing settings on Xcode project
         script: |
           xcode-project use-profiles
-      - name: Get Flutter packages
+      - name: Clean and Regenerate iOS Pods
         script: |
+          cd ..
+          flutter clean
           flutter pub get
-      - name: Clean and Update iOS Pods
-        script: |
           cd ios
           rm -f Podfile.lock
           rm -rf Pods
-          pod update
+          pod install --repo-update
       - name: Build ipa for distribution
         script: |
           xcode-project build-ipa \
