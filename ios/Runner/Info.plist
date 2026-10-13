@@ -80,6 +80,22 @@
 	     NE PAS LA RETIRER sans ajouter les quatre orientations ci-dessus. -->
 	<key>UIRequiresFullScreen</key>
 	<true/>
+	<!-- DÉCLARATION D'EXPORTATION (chiffrement).
+	     Elle répond une fois pour toutes à la question « Export Compliance »
+	     qu'App Store Connect pose sinon à CHAQUE build : tant qu'elle n'est pas
+	     répondue, le build reste en « Missing Compliance » et n'est pas
+	     installable via TestFlight.
+
+	     `false` = l'application n'utilise AUCUN chiffrement non exempté. C'est
+	     exact ici : HTTPS/TLS standard (exempté) et le trousseau iOS pour les
+	     jetons (flutter_secure_storage, pris en charge par le système). Aucun
+	     algorithme de chiffrement n'est implémenté dans l'application.
+
+	     Si un jour du chiffrement propre est ajouté au code, cette valeur doit
+	     repasser à `true` — c'est une déclaration réglementaire à Apple, pas un
+	     réglage de confort. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
