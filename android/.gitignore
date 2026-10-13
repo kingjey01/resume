@@ -11,3 +11,9 @@ GeneratedPluginRegistrant.java
 key.properties
 **/*.keystore
 **/*.jks
+
+# Sorties de compilation Gradle propres au module Android : rapports de
+# configuration, caches et binaires intermediaires. Le .gitignore de la racine
+# ne couvre que « /build/ » a la racine, pas celui-ci — d'ou ce dossier qui
+# apparaissait dans git status apres chaque build local.
+/build/
