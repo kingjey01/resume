@@ -75,6 +75,21 @@ workflows:
             exit 1
           fi
 
+          # CONTRÔLE DES ACCÈS SENSIBLES (ajouté après ITMS-90683).
+          # L'application lit la photothèque (photo de profil) et le microphone
+          # (enregistrement d'un cours). Sans la clé correspondante, App Store
+          # Connect refuse la livraison — et le binaire reste introuvable dans
+          # App Store Connect, ce qui ne dit pas pourquoi. Autant l'apprendre ici,
+          # en quelques secondes, plutôt qu'après un build et un envoi complets.
+          for cle in NSPhotoLibraryUsageDescription NSMicrophoneUsageDescription; do
+            if ! plutil -extract "$cle" raw ios/Runner/Info.plist >/dev/null 2>&1; then
+              echo "ERROR: $cle absent de ios/Runner/Info.plist."
+              echo "App Store Connect refusera la livraison (ITMS-90683)."
+              exit 1
+            fi
+          done
+          echo "Declarations d'acces sensibles : OK"
+
           flutter --version
 
           # SWIFT PACKAGE MANAGER DÉSACTIVÉ — C'EST LA CAUSE DE « no such module

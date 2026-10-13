@@ -24,6 +24,31 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- DÉCLARATIONS D'ACCÈS AUX DONNÉES SENSIBLES (ITMS-90683).
+	     Apple refuse la livraison si le binaire référence une API protégée
+	     sans la clé correspondante :
+
+	       ITMS-90683 — Missing purpose string in Info.plist. The Info.plist file
+	       for the « Runner.app » bundle should contain a
+	       NSPhotoLibraryUsageDescription key with a user-facing purpose string
+	       explaining clearly and completely why your app needs the data.
+
+	     Deux accès sont réellement utilisés par l'application :
+	       • photothèque — edit_profile_screen.dart, ImageSource.gallery, pour
+	         choisir la photo de profil (l'image choisie est envoyée au compte) ;
+	       • microphone — mobile_audio_recorder.dart, Permission.microphone,
+	         pour enregistrer un cours à transcrire et à résumer.
+
+	     Pas de NSCameraUsageDescription : l'application ne demande jamais
+	     ImageSource.camera — seuls la galerie et le microphone sont sollicités.
+	     Si Apple réclame un jour la caméra, la même clé s'ajoute en une ligne.
+
+	     La chaîne est AFFICHÉE À L'UTILISATEUR au moment de la demande : elle
+	     doit donc rester en français, comme le reste de l'application. -->
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Muhtasari+ ouvre votre photothèque uniquement lorsque vous appuyez sur « Changer la photo », pour vous laisser choisir la photo de votre profil. Seule l\'image que vous sélectionnez est envoyée à votre compte.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Muhtasari+ utilise le microphone pour enregistrer un cours, afin de le transcrire et d\'en produire un résumé. L\'enregistrement ne commence que lorsque vous appuyez sur « Enregistrer », et vous pouvez l\'arrêter à tout moment.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>
