@@ -1,0 +1,75 @@
+# Podfile — Muhtasari+ / resume_plus_clean
+#
+# LES QUATRE POINTS QUI ONT FAIT ÉCHOUER LE BUILD iOS. Ne pas les « nettoyer ».
+#
+# 1. LE FICHIER S'APPELLE « Podfile », AVEC UN P MAJUSCULE. Il était versionné
+#    sous le nom « podfile » : sur macOS le disque est insensible à la casse,
+#    donc `pod install` le trouvait — mais rien ne le garantit sur un runner
+#    monté en casse sensible, et CocoaPods cherche la casse exacte.
+#
+# 2. `use_modular_headers!` EST INDISPENSABLE AVEC `use_frameworks!`. Sans lui,
+#    Firebase n'expose pas de module map et Swift échoue sur
+#    `import FirebaseCore` — l'erreur exacte du dernier build :
+#        Runner/AppDelegate.swift:3:8: no such module 'FirebaseCore'
+#
+# 3. LA CIBLE DE DÉPLOIEMENT EST POSÉE SUR TOUS LES PODS, pas seulement sur
+#    l'application. Firebase 11 exige iOS 13+ ; un pod resté à 12.0 fait
+#    échouer l'édition de liens après une compilation réussie.
+#
+# 4. `SWIFT_ENABLE_EXPLICIT_MODULES = NO`. Xcode 26 active les modules Swift
+#    explicites par défaut ; les pods Flutter ne les gèrent pas encore et la
+#    résolution des modules échoue. On le désactive ici pour les pods, et dans
+#    Runner.xcodeproj pour l'application (mêmes réglages des deux côtés).
+
+platform :ios, '15.0'
+
+# CocoaPods analytics sends network stats synchronously affecting flutter build latency.
+ENV['COCOAPODS_DISABLE_STATS'] = 'true'
+
+project 'Runner', {
+  'Debug' => :debug,
+  'Profile' => :release,
+  'Release' => :release,
+}
+
+def flutter_root
+  generated_xcode_build_settings_path = File.expand_path(File.join('..', 'Flutter', 'Generated.xcconfig'), __FILE__)
+  unless File.exist?(generated_xcode_build_settings_path)
+    raise "#{generated_xcode_build_settings_path} must exist. If you're running pod install manually, make sure flutter pub get is executed first"
+  end
+
+  File.foreach(generated_xcode_build_settings_path) do |line|
+    matches = line.match(/FLUTTER_ROOT\=(.*)/)
+    return matches[1].strip if matches
+  end
+  raise "FLUTTER_ROOT not found in #{generated_xcode_build_settings_path}. Try deleting Generated.xcconfig, then run flutter pub get"
+end
+
+require File.expand_path(File.join('packages', 'flutter_tools', 'bin', 'podhelper'), flutter_root)
+
+flutter_ios_podfile_setup
+
+target 'Runner' do
+  use_frameworks!
+  use_modular_headers!
+
+  flutter_install_all_ios_pods File.dirname(File.realpath(__FILE__))
+  target 'RunnerTests' do
+    inherit! :search_paths
+  end
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    flutter_additional_ios_build_settings(target)
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+      config.build_settings['SWIFT_VERSION'] = '5.0'
+      # Le module doit exister pour que `import FirebaseCore` (et les autres
+      # modules de pods) soit trouvable depuis Swift.
+      config.build_settings['DEFINES_MODULE'] = 'YES'
+      # Voir le point 4 en tête de fichier.
+      config.build_settings['SWIFT_ENABLE_EXPLICIT_MODULES'] = 'NO'
+    end
+  end
+end

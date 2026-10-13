@@ -1,3 +1,21 @@
+# Codemagic — build iOS (IPA) de Muhtasari+ / resume_plus_clean
+#
+# CE QUI A CHANGÉ, ET POURQUOI
+#
+# Le build échouait sur « no such module 'FirebaseCore' » dans
+# ios/Runner/AppDelegate.swift. Ce n'est ni la signature ni le Swift : c'est
+# l'intégration des Pods. Deux causes possibles, traitées ensemble ici :
+#
+#   a) un Pods/ ou un Podfile.lock hérité d'un état antérieur — l'application
+#      était alors compilée contre une liste de plugins périmée ;
+#   b) un `pod install` qui n'intègre pas firebase_core alors que le paquet est
+#      bien déclaré dans pubspec.yaml.
+#
+# Les Pods sont donc réinstallés DE ZÉRO, et le workflow VÉRIFIE ensuite que
+# Firebase est réellement intégré. Si ce n'est pas le cas, il s'arrête tout de
+# suite en affichant la liste des plugins iOS que Flutter a détectés — au lieu
+# d'échouer cinq minutes plus tard sur une erreur Swift qui ne dit pas pourquoi.
+
 workflows:
   ios-release:
     name: iOS Release
@@ -26,91 +44,66 @@ workflows:
         script: |
           keychain add-certificates
 
-      - name: Locate Flutter project and install dependencies
+      - name: Get Flutter packages and install Pods
         script: |
           set -e
 
-          if [ -f "pubspec.yaml" ]; then
-            PROJECT_DIR="$PWD"
-          else
-            PUBSPEC_PATH="$(find . -maxdepth 5 -type f -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit)"
-            if [ -z "$PUBSPEC_PATH" ]; then
-              echo "ERROR: Aucun pubspec.yaml trouvé dans le dépôt."
-              echo "Contenu du répertoire courant :"
-              ls -la
-              exit 1
-            fi
-            PROJECT_DIR="$(cd "$(dirname "$PUBSPEC_PATH")" && pwd)"
-          fi
-
-          echo "Répertoire Flutter détecté : $PROJECT_DIR"
-          cd "$PROJECT_DIR"
-
-          if [ ! -d "ios" ]; then
-            echo "ERROR: Le dossier ios/ est absent de $PROJECT_DIR"
-            ls -la
-            exit 1
-          fi
+          # pubspec.yaml est à la racine du dépôt : le log de build le confirme
+          # (/Users/builder/clone/ios/Runner/AppDelegate.swift). Plus besoin de
+          # le chercher, donc plus de chemin qui puisse se tromper de dossier.
+          test -f pubspec.yaml || { echo "ERROR: pubspec.yaml absent de la racine."; exit 1; }
+          test -f ios/Podfile  || { echo "ERROR: ios/Podfile absent."; ls -la ios; exit 1; }
 
           flutter --version
           flutter clean
           flutter pub get
 
-          if [ ! -f "ios/Podfile" ]; then
-            echo "ERROR: ios/Podfile introuvable."
-            exit 1
-          fi
+          # RÉINSTALLATION COMPLÈTE DES PODS. Un Pods/ ou un Podfile.lock
+          # hérité ferait compiler l'application contre la liste de plugins
+          # d'hier — c'est exactement ce que produit « no such module
+          # 'FirebaseCore' » alors que firebase_core est dans pubspec.yaml.
+          rm -rf ios/Pods ios/Podfile.lock ios/.symlinks
 
           cd ios
           pod install --repo-update
+          cd ..
+
+          # CONTRÔLE 1 : Firebase est-il réellement intégré ?
+          if ! grep -q "FirebaseCore" ios/Podfile.lock; then
+            echo "ERROR: FirebaseCore absent de ios/Podfile.lock."
+            echo "Plugins iOS détectés par Flutter (.flutter-plugins-dependencies) :"
+            cat .flutter-plugins-dependencies || echo "(fichier absent)"
+            echo "Contenu de ios/Pods :"
+            ls ios/Pods || true
+            exit 1
+          fi
+
+          # CONTRÔLE 2 : l'espace de travail référence-t-il le projet Pods ?
+          # `xcodebuild -workspace ios/Runner.xcworkspace` ignore silencieusement
+          # les Pods si cette référence manque, et l'application ne voit alors
+          # aucun module de plugin.
+          if ! grep -q "Pods/Pods.xcodeproj" ios/Runner.xcworkspace/contents.xcworkspacedata; then
+            echo "ERROR: ios/Runner.xcworkspace ne référence pas Pods/Pods.xcodeproj."
+            cat ios/Runner.xcworkspace/contents.xcworkspacedata
+            exit 1
+          fi
+
+          echo "Pods intégrés :"
+          grep -n "Firebase" ios/Podfile.lock | head -20
 
       - name: Set up code signing settings on Xcode project
         script: |
           set -e
-
-          if [ -f "pubspec.yaml" ]; then
-            PROJECT_DIR="$PWD"
-          else
-            PUBSPEC_PATH="$(find . -maxdepth 5 -type f -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit)"
-            if [ -z "$PUBSPEC_PATH" ]; then
-              echo "ERROR: Aucun pubspec.yaml trouvé pour configurer la signature."
-              exit 1
-            fi
-            PROJECT_DIR="$(cd "$(dirname "$PUBSPEC_PATH")" && pwd)"
-          fi
-
-          cd "$PROJECT_DIR"
-          test -d "ios/Runner.xcworkspace" || {
-            echo "ERROR: ios/Runner.xcworkspace introuvable dans $PROJECT_DIR"
-            exit 1
-          }
-
           xcode-project use-profiles
 
       - name: Build IPA and preserve diagnostic log
         script: |
           set -o pipefail
 
-          if [ -f "pubspec.yaml" ]; then
-            PROJECT_DIR="$PWD"
-          else
-            PUBSPEC_PATH="$(find . -maxdepth 5 -type f -name pubspec.yaml -not -path '*/.dart_tool/*' -print -quit)"
-            if [ -z "$PUBSPEC_PATH" ]; then
-              echo "ERROR: Aucun pubspec.yaml trouvé pour la compilation."
-              exit 1
-            fi
-            PROJECT_DIR="$(cd "$(dirname "$PUBSPEC_PATH")" && pwd)"
-          fi
-
-          cd "$PROJECT_DIR"
-          if [ ! -d "ios/Runner.xcworkspace" ]; then
-            echo "ERROR: ios/Runner.xcworkspace introuvable dans $PROJECT_DIR"
-            echo "Contenu de ios/ :"
-            ls -la ios || true
-            exit 1
-          fi
-
+          # Xcode 26 active les modules Swift explicites par défaut ; les pods
+          # Flutter ne les gèrent pas encore (même réglage dans ios/Podfile).
           export SWIFT_ENABLE_EXPLICIT_MODULES=NO
+
           mkdir -p /tmp/xcodebuild_logs
           LOG_FILE="/tmp/xcodebuild_logs/codemagic-build-ipa-console.log"
 
