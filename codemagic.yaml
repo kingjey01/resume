@@ -137,9 +137,29 @@ workflows:
           mkdir -p /tmp/xcodebuild_logs
           LOG_FILE="/tmp/xcodebuild_logs/codemagic-build-ipa-console.log"
 
+          set +e
           xcode-project build-ipa \
             --workspace ios/Runner.xcworkspace \
             --scheme Runner 2>&1 | tee "$LOG_FILE"
+          statut=${PIPESTATUS[0]}
+          set -e
+
+          if [ "$statut" -ne 0 ]; then
+            # LE DÉTAIL N'EST PAS DANS LA CONSOLE, ET C'EST TOUT LE PROBLÈME.
+            # `xcode-project` n'affiche que ses grandes étapes ; l'erreur de
+            # compilation, elle, part dans ses propres journaux sous
+            # /tmp/xcodebuild_logs/. Sans ce bloc, un échec d'archive tient en
+            # trois lignes — « Failed to archive » — sans dire pourquoi, et il
+            # faut relancer un build entier pour apprendre quelque chose.
+            echo "===== xcodebuild a échoué (code $statut) — détail ci-dessous ====="
+            ls -la /tmp/xcodebuild_logs
+            for journal in /tmp/xcodebuild_logs/*.log; do
+              [ "$journal" = "$LOG_FILE" ] && continue
+              echo "----- $journal : 250 dernières lignes -----"
+              tail -250 "$journal"
+            done
+            exit "$statut"
+          fi
 
     artifacts:
       - build/ios/ipa/*.ipa
