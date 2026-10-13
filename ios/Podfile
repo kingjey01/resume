@@ -20,6 +20,17 @@
 #    explicites par défaut ; les pods Flutter ne les gèrent pas encore et la
 #    résolution des modules échoue. On le désactive ici pour les pods, et dans
 #    Runner.xcodeproj pour l'application (mêmes réglages des deux côtés).
+#
+# 5. CE PODFILE N'EST UTILISÉ QUE SI LE SWIFT PACKAGE MANAGER EST DÉSACTIVÉ.
+#    Flutter 3.47 active SPM par défaut pour iOS : les plugins qui le
+#    supportent — firebase_core, firebase_messaging, image_picker_ios… — ne
+#    passent alors PLUS par CocoaPods, et ce fichier n'installe que les six
+#    derniers. FirebaseCore disparaît de Podfile.lock et
+#    `import FirebaseCore` échoue dans AppDelegate.swift.
+#    D'où, côté intégration continue (et sur toute machine qui construit l'iOS) :
+#        flutter config --no-enable-swift-package-manager
+#    C'est ce que fait l'étape « Get Flutter packages and install Pods » de
+#    codemagic.yaml, qui vérifie ensuite que FirebaseCore est bien installé.
 
 platform :ios, '15.0'
 

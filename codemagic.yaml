@@ -55,6 +55,27 @@ workflows:
           test -f ios/Podfile  || { echo "ERROR: ios/Podfile absent."; ls -la ios; exit 1; }
 
           flutter --version
+
+          # SWIFT PACKAGE MANAGER DÉSACTIVÉ — C'EST LA CAUSE DE « no such module
+          # 'FirebaseCore' », et elle ne vient pas du projet.
+          #
+          # Flutter 3.47 gère les plugins iOS par SPM PAR DÉFAUT : `flutter
+          # config` affiche « --[no-]enable-swift-package-manager ... (defaults
+          # to on) ». Conséquence dans le log du 13/10 : Flutter détectait bien
+          # 17 plugins iOS (firebase_core et firebase_messaging compris), mais
+          # seuls 6 — ceux sans support SPM — passaient encore par CocoaPods :
+          #
+          #     Pod installation complete! There are 6 dependencies from the
+          #     Podfile and 6 total pods installed.
+          #
+          # FirebaseCore n'était donc plus dans Podfile.lock, et
+          # `import FirebaseCore` échouait dans AppDelegate.swift.
+          #
+          # Ce projet est intégré par CocoaPods (Podfile, pods Firebase, profil
+          # de signature) : on repasse TOUS les plugins par CocoaPods. C'est le
+          # seul réglage qui remet FirebaseCore dans Podfile.lock.
+          flutter config --no-enable-swift-package-manager
+
           flutter clean
           flutter pub get
 
@@ -68,9 +89,18 @@ workflows:
           pod install --repo-update
           cd ..
 
+          # COMBIEN DE PODS ? Un total anormalement bas — 6 — signait le passage
+          # des plugins par Swift Package Manager. On l'affiche à chaque build,
+          # pour que la prochaine régression de ce genre se voie d'un coup d'œil.
+          nb_pods=$(grep -c '^  - ' ios/Podfile.lock || echo 0)
+          echo "Pods installés : $nb_pods"
+
           # CONTRÔLE 1 : Firebase est-il réellement intégré ?
           if ! grep -q "FirebaseCore" ios/Podfile.lock; then
             echo "ERROR: FirebaseCore absent de ios/Podfile.lock."
+            echo "Si le nombre de pods ci-dessus est très bas, les plugins sont"
+            echo "repartis par Swift Package Manager : vérifier que l'étape a bien"
+            echo "exécuté 'flutter config --no-enable-swift-package-manager'."
             echo "Plugins iOS détectés par Flutter (.flutter-plugins-dependencies) :"
             cat .flutter-plugins-dependencies || echo "(fichier absent)"
             echo "Contenu de ios/Pods :"
