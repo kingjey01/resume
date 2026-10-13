@@ -1,1 +1,4 @@
+# Voir Release.xcconfig : l'include des Pods est ce qui rend les modules des
+# plugins visibles depuis Swift. Il manquait ici aussi.
+#include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
