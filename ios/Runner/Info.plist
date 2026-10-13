@@ -36,6 +36,25 @@
 	<array>
 		<string>UIInterfaceOrientationPortrait</string>
 	</array>
+	<!-- PLEIN ÉCRAN OBLIGATOIRE, ET C'EST CE QUI PERMET LE PORTRAIT SEUL.
+	     L'application se déclare compatible iPad (TARGETED_DEVICE_FAMILY = "1,2")
+	     tout en ne listant que le portrait. App Store Connect refuse alors
+	     l'envoi, APRÈS un build complet :
+
+	       code 90474 — Invalid bundle. The "UIInterfaceOrientationPortrait"
+	       orientations were provided for the UISupportedInterfaceOrientations
+	       Info.plist key ... but you need to include all of the
+	       "UIInterfaceOrientationPortrait, PortraitUpsideDown, LandscapeLeft,
+	       LandscapeRight" orientations to support iPad multitasking.
+
+	     Cette clé déclare que l'application a besoin de tout l'écran : elle
+	     renonce au multitâche iPad (Split View, Slide Over), et la règle des
+	     quatre orientations ne s'applique donc plus. C'est le choix retenu —
+	     l'interface est conçue pour un téléphone, en portrait.
+
+	     NE PAS LA RETIRER sans ajouter les quatre orientations ci-dessus. -->
+	<key>UIRequiresFullScreen</key>
+	<true/>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
