@@ -54,6 +54,27 @@ workflows:
           test -f pubspec.yaml || { echo "ERROR: pubspec.yaml absent de la racine."; exit 1; }
           test -f ios/Podfile  || { echo "ERROR: ios/Podfile absent."; ls -la ios; exit 1; }
 
+          # CONTRÔLE DES .xcconfig (ajouté après l'échec d'archivage du 13/10).
+          # Un fichier .xcconfig ne connaît QUE les commentaires « // ». Une ligne
+          # commençant par « # » est lue comme une directive du préprocesseur, et
+          # c'est alors TOUT le fichier qui devient illisible — y compris les
+          # `#include` des Pods, pourtant corrects :
+          #
+          #     error: unsupported preprocessor directive 'L'INCLUDE'
+          #     error: unexpected end-of-line after '#'
+          #     ** ARCHIVE FAILED **   (en 6 secondes)
+          #
+          # Le message ne parle pas de commentaires : sans ce garde-fou, on ne
+          # comprend l'erreur qu'en relisant le fichier ligne à ligne.
+          lignes_invalides=$(grep -nE '^#' ios/Flutter/Debug.xcconfig ios/Flutter/Release.xcconfig \
+                             | grep -vE '^[^:]+:[0-9]+:#[[:space:]]*include' || true)
+          if [ -n "$lignes_invalides" ]; then
+            echo "ERROR: commentaire en '#' dans un .xcconfig — la syntaxe est « // »."
+            echo "Ces lignes seront lues comme des directives et casseront l'archivage :"
+            echo "$lignes_invalides"
+            exit 1
+          fi
+
           flutter --version
 
           # SWIFT PACKAGE MANAGER DÉSACTIVÉ — C'EST LA CAUSE DE « no such module

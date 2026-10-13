@@ -1,4 +1,7 @@
-# Voir Release.xcconfig : l'include des Pods est ce qui rend les modules des
-# plugins visibles depuis Swift. Il manquait ici aussi.
+// Voir Release.xcconfig : l'include des Pods est ce qui rend les modules des
+// plugins visibles depuis Swift. Il manquait ici aussi.
+//
+// Rappel : commentaires en « // » uniquement — un « # » serait pris pour une
+// directive et ferait échouer tout le fichier.
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"

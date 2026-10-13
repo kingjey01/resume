@@ -1,16 +1,27 @@
-# L'INCLUDE DES PODS EST OBLIGATOIRE (tâche build iOS).
-#
-# Il avait disparu, et c'est la moitié du « no such module 'FirebaseCore' » :
-# sans cette ligne, la cible Runner ne reçoit AUCUN réglage de CocoaPods — ni
-# les chemins de frameworks (-F), ni les module maps. Les pods étaient bien
-# installés, mais l'application ne les voyait pas. CocoaPods le dit lui-même :
-#
-#   [!] CocoaPods did not set the base configuration of your project because
-#       your project already has a custom config set. [...] include the
-#       `Pods-Runner.profile.xcconfig` in your build configuration
-#       (`Flutter/Release.xcconfig`).
-#
-# `#include?` (avec le point d'interrogation) : optionnel, donc la compilation
-# ne casse pas si les Pods n'ont pas encore été installés.
+// L'INCLUDE DES PODS EST OBLIGATOIRE (build iOS).
+//
+// Il avait disparu, et c'est la moitié du « no such module 'FirebaseCore' » :
+// sans cette ligne, la cible Runner ne reçoit AUCUN réglage de CocoaPods — ni
+// les chemins de frameworks (-F), ni les module maps. Les pods étaient bien
+// installés, mais l'application ne les voyait pas. CocoaPods le dit lui-même :
+//
+//   [!] CocoaPods did not set the base configuration of your project because
+//       your project already has a custom config set. [...] include the
+//       `Pods-Runner.profile.xcconfig` in your build configuration
+//       (`Flutter/Release.xcconfig`).
+//
+// ATTENTION — DANS UN .xcconfig, LES COMMENTAIRES S'ÉCRIVENT « // ».
+// Le préprocesseur ne connaît que cette forme. Un commentaire écrit avec un
+// « # » est lu comme une directive, et c'est TOUT le fichier qui devient
+// illisible — y compris les `#include` ci-dessous, qui sont pourtant corrects :
+//
+//     error: unsupported preprocessor directive 'L'INCLUDE'
+//     error: unexpected end-of-line after '#'
+//     ** ARCHIVE FAILED **
+//
+// C'est exactement ce qui a fait échouer l'archivage du 13/10, en 6 secondes.
+//
+// `#include?` (avec le point d'interrogation) : optionnel, donc la compilation
+// ne casse pas si les Pods n'ont pas encore été installés.
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.release.xcconfig"
 #include "Generated.xcconfig"
