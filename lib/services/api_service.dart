@@ -832,6 +832,30 @@ class ApiService {
     }
   }
 
+  /// Télécharge un fichier du serveur et renvoie ses octets.
+  ///
+  /// POURQUOI NE PAS CONFIER L'URL AU LECTEUR : `audioplayers` remet l'URL à
+  /// AVPlayer (iOS), qui n'envoie AUCUN en-tête — ni jeton d'authentification,
+  /// ni origine. Et quand la réponse ne lui convient pas — fichier absent, page
+  /// d'erreur HTML, redirection, absence de support des requêtes « Range » — il
+  /// ne dit rien d'autre que :
+  ///
+  ///   AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null
+  ///
+  /// Impossible d'en déduire quoi que ce soit. En passant par Dio, la requête
+  /// porte le jeton de l'application et les mêmes délais que le reste de l'API,
+  /// et un échec devient un vrai code HTTP, affichable à l'utilisateur.
+  Future<Uint8List> telechargerFichier(String url) async {
+    final reponse = await _dio.get<List<int>>(
+      url,
+      options: Options(
+        responseType: ResponseType.bytes,
+        receiveTimeout: const Duration(minutes: 5),
+      ),
+    );
+    return Uint8List.fromList(reponse.data ?? const <int>[]);
+  }
+
   Future<Map<String, dynamic>> uploadAudioSummary(String audioPath, Map<String, dynamic> metadata) async {
     try {
       final formData = FormData();

@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
@@ -92,29 +95,71 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
     }
   }
 
+  /// Écrit les octets reçus dans un fichier temporaire AVEC UNE EXTENSION.
+  ///
+  /// AVPlayer déduit le format du média de l'EXTENSION DU FICHIER : un fichier
+  /// sans extension est refusé sans autre explication. C'est la cause du
+  /// « Unknown error » déjà rencontré à l'enregistrement.
+  Future<File> _ecrireFichierTemporaire(Uint8List octets, String url) async {
+    final fichier = File(
+      '${Directory.systemTemp.path}/session_'
+      '${DateTime.now().millisecondsSinceEpoch}.${_extensionDepuisUrl(url)}',
+    );
+    await fichier.writeAsBytes(octets, flush: true);
+    return fichier;
+  }
+
+  /// Extension de fichier déduite de l'URL du média.
+  String _extensionDepuisUrl(String url) {
+    final sansParametres = url.split('?').first;
+    final point = sansParametres.lastIndexOf('.');
+    if (point == -1) return 'm4a';
+    final extension = sansParametres.substring(point + 1).toLowerCase();
+    return (extension.isNotEmpty && extension.length <= 5) ? extension : 'm4a';
+  }
+
   Future<void> _playAudio(String audioUrl) async {
     try {
       if (_currentPlayingUrl == audioUrl && _isPlaying) {
         await _audioPlayer.pause();
       } else {
         await _audioPlayer.stop();
-        
+
         // Construire l'URL complète en utilisant le baseUrl de production
         final baseUrl = ApiService.baseUrl.replaceAll('/api', '');
-        final fullUrl = audioUrl.startsWith('http') 
-            ? audioUrl 
+        final fullUrl = audioUrl.startsWith('http')
+            ? audioUrl
             : '$baseUrl$audioUrl';
-        
-        print('Tentative de lecture: $fullUrl');
+
         SnackbarService.show('🎵 Lecture en cours...', isError: false);
-        
-        await _audioPlayer.play(UrlSource(fullUrl));
+
+        // TÉLÉCHARGER PUIS LIRE, au lieu de confier l'URL à AVPlayer.
+        //
+        // AVPlayer n'envoie aucun en-tête et, quand la réponse ne lui convient
+        // pas — fichier absent, page d'erreur HTML, absence de support des
+        // requêtes « Range » —, il répond seulement
+        // « AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null ».
+        // Via Dio, la requête porte le jeton de l'application, et un échec
+        // devient un code HTTP que l'on peut afficher.
+        final octets = await _apiService.telechargerFichier(fullUrl);
+        if (octets.isEmpty) {
+          throw Exception('le serveur a renvoyé un fichier vide');
+        }
+        final fichier = await _ecrireFichierTemporaire(octets, fullUrl);
+
+        await _audioPlayer.play(DeviceFileSource(fichier.path));
         setState(() {
           _currentPlayingUrl = audioUrl;
         });
       }
     } catch (e) {
-      SnackbarService.show('❌ Erreur de lecture: $e', isError: true);
+      // Le code HTTP est ce qui distingue « fichier absent » (404) de « accès
+      // refusé » (403) ou d'un serveur en erreur (500). « Unknown error » ne
+      // permettait aucune de ces distinctions.
+      final detail = (e is DioException && e.response?.statusCode != null)
+          ? 'le serveur a répondu ${e.response!.statusCode}'
+          : '$e';
+      SnackbarService.show('❌ Erreur de lecture : $detail', isError: true);
       setState(() {
         _isPlaying = false;
         _currentPlayingUrl = null;
