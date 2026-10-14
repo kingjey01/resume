@@ -43,18 +43,31 @@ class MobileAudioRecorder {
         return true;
       }
 
-      if (status.isDenied) {
-        onDebug?.call('📱 Demande de permission microphone...');
-        status = await Permission.microphone.request();
-        onDebug?.call('📱 Résultat de la demande: $status');
-        return status.isGranted;
+      // ON DEMANDE TOUJOURS, QUEL QUE SOIT L'ÉTAT DE DÉPART.
+      //
+      // Avant, la demande n'était faite que si le statut valait EXACTEMENT
+      // `isDenied`. Sur iOS, un accès jamais demandé peut remonter autre chose
+      // — `restricted`, par exemple — et le code retombait alors sur le
+      // `return false` final SANS avoir rien demandé. Résultat sur le
+      // téléphone : aucune boîte de dialogue, et l'écran affichait seulement
+      // « Impossible de démarrer l'enregistrement » — l'utilisateur n'avait
+      // aucune chance d'accorder l'accès.
+      //
+      // `request()` est sûr dans tous les cas : si l'accès est déjà accordé il
+      // ne fait rien, s'il est refusé définitivement il rend la main
+      // immédiatement sans dialogue.
+      onDebug?.call('📱 Demande de permission microphone...');
+      status = await Permission.microphone.request();
+      onDebug?.call('📱 Résultat de la demande: $status');
+
+      if (status.isGranted) {
+        return true;
       }
 
-      if (status.isPermanentlyDenied) {
-        onError?.call('Permission microphone refusée définitivement.');
-        return false;
-      }
-
+      onError?.call(status.isPermanentlyDenied
+          ? 'Accès au microphone refusé. Autorisez-le dans Réglages → '
+            'Muhtasari+ → Microphone.'
+          : 'Permission microphone non accordée.');
       return false;
     } catch (e) {
       onError?.call('Erreur permissions: $e');
