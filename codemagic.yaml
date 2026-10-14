@@ -90,6 +90,26 @@ workflows:
           done
           echo "Declarations d'acces sensibles : OK"
 
+          # CONTRÔLE DU FICHIER FIREBASE iOS (ajouté après le plantage au
+          # lancement signalé depuis l'iPhone : « resumeplus a quitté »).
+          #
+          # AppDelegate.swift appelle FirebaseApp.configure() AVANT que Flutter
+          # ne démarre. Sans GoogleService-Info.plist DANS LE BUNDLE, cette ligne
+          # lève une exception et l'application se ferme aussitôt.
+          #
+          # Le piège : le fichier peut être présent dans le dépôt SANS être
+          # membre de la cible Xcode — un fichier non membre n'est jamais copié
+          # dans le .app. C'était le cas ici : GoogleService-Info.plist
+          # n'apparaissait nulle part dans project.pbxproj, donc l'application
+          # n'avait jamais pu démarrer sur iOS.
+          test -f ios/Runner/GoogleService-Info.plist \
+            || { echo "ERROR: ios/Runner/GoogleService-Info.plist absent du depot."; exit 1; }
+          grep -q "GoogleService-Info.plist in Resources" ios/Runner.xcodeproj/project.pbxproj \
+            || { echo "ERROR: GoogleService-Info.plist n'est pas membre de la cible Runner."; \
+                 echo "Il ne sera pas copie dans le bundle, et l'app plantera au lancement."; \
+                 exit 1; }
+          echo "GoogleService-Info.plist : present dans le depot et dans la cible"
+
           flutter --version
 
           # SWIFT PACKAGE MANAGER DÉSACTIVÉ — C'EST LA CAUSE DE « no such module
