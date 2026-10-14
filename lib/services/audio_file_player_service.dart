@@ -1,5 +1,9 @@
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:audioplayers/audioplayers.dart';
+import 'package:resume_plus_clean/services/api_service.dart';
 // import 'dart:html' as html; // Web only - disabled for mobile build
 
 /// Service pour lire les fichiers audio enregistrés (pas TTS)
@@ -121,13 +125,54 @@ class AudioFilePlayerService {
         // await _webAudioElement!.play();
         onError?.call('Lecture web non disponible sur mobile');
       } else {
-        // Sur mobile
-        await _audioPlayer!.play(UrlSource(url));
+        // TÉLÉCHARGER PUIS LIRE, au lieu de confier l'URL au lecteur.
+        //
+        // `audioplayers` remet l'URL à AVPlayer, qui n'envoie aucun en-tête et
+        // réduit tout échec — fichier absent, page d'erreur HTML, absence de
+        // support des requêtes « Range » — au même message inexploitable :
+        //
+        //   AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null
+        //
+        // Via Dio, la requête porte le jeton de l'application, le fichier
+        // arrive en entier, et un échec devient un code HTTP affichable.
+        final urlComplete = url.startsWith('http')
+            ? url
+            : '${ApiService.baseUrl.replaceAll('/api', '')}$url';
+
+        final octets = await ApiService().telechargerFichier(urlComplete);
+        if (octets.isEmpty) {
+          throw Exception('le serveur a renvoyé un fichier vide');
+        }
+
+        // Le fichier DOIT porter son extension : AVPlayer déduit le format du
+        // média de l'extension, et refuse un fichier qui n'en a pas.
+        final fichier = File(
+          '${Directory.systemTemp.path}/file_attente_'
+          '${DateTime.now().millisecondsSinceEpoch}.${_extensionDepuisUrl(urlComplete)}',
+        );
+        await fichier.writeAsBytes(octets, flush: true);
+
+        await _audioPlayer!.play(DeviceFileSource(fichier.path));
       }
     } catch (e) {
-      print('❌ AudioFilePlayerService: Erreur de lecture: $e');
-      onError?.call('Erreur de lecture: $e');
+      // Le code HTTP distingue « fichier absent » (404) de « accès refusé »
+      // (403) ou d'un serveur en erreur (500) — ce que « Unknown error » ne
+      // permettait pas.
+      final detail = (e is DioException && e.response?.statusCode != null)
+          ? 'le serveur a répondu ${e.response!.statusCode}'
+          : '$e';
+      print('❌ AudioFilePlayerService: Erreur de lecture: $detail');
+      onError?.call('Erreur de lecture : $detail');
     }
+  }
+
+  /// Extension de fichier déduite de l'URL du média.
+  String _extensionDepuisUrl(String url) {
+    final sansParametres = url.split('?').first;
+    final point = sansParametres.lastIndexOf('.');
+    if (point == -1) return 'm4a';
+    final extension = sansParametres.substring(point + 1).toLowerCase();
+    return (extension.isNotEmpty && extension.length <= 5) ? extension : 'm4a';
   }
 
   /// Met en pause
