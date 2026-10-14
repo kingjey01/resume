@@ -81,7 +81,7 @@ workflows:
           # Connect refuse la livraison — et le binaire reste introuvable dans
           # App Store Connect, ce qui ne dit pas pourquoi. Autant l'apprendre ici,
           # en quelques secondes, plutôt qu'après un build et un envoi complets.
-          for cle in NSPhotoLibraryUsageDescription NSMicrophoneUsageDescription; do
+          for cle in NSPhotoLibraryUsageDescription NSMicrophoneUsageDescription NSAppleMusicUsageDescription; do
             if ! plutil -extract "$cle" raw ios/Runner/Info.plist >/dev/null 2>&1; then
               echo "ERROR: $cle absent de ios/Runner/Info.plist."
               echo "App Store Connect refusera la livraison (ITMS-90683)."

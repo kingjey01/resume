@@ -47,6 +47,24 @@
 	     doit donc rester en français, comme le reste de l'application. -->
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Muhtasari+ ouvre votre photothèque uniquement lorsque vous appuyez sur « Changer la photo », pour vous laisser choisir la photo de votre profil. Seule l\'image que vous sélectionnez est envoyée à votre compte.</string>
+	<!-- BIBLIOTHÈQUE MUSICALE — FILET DE SÉCURITÉ, PAS LE CORRECTIF.
+	     C'est pourtant cette clé que réclamait le plantage relevé sur l'iPhone :
+
+	       termination: namespace "TCC"
+	       "This app has crashed because it attempted to access
+	        privacy-sensitive data without a usage description. The app's
+	        Info.plist must contain an NSAppleMusicUsageDescription key"
+
+	     La cause réelle était le sélecteur de fichiers : `FileType.audio`
+	     ouvre la bibliothèque musicale sur iOS (voir record_audio_screen.dart,
+	     passé depuis à `FileType.custom`, qui ouvre les Fichiers et ne demande
+	     aucune autorisation).
+
+	     La clé reste déclarée par précaution : tant qu'un chemin de code peut
+	     atteindre la bibliothèque musicale, son absence tue l'application sans
+	     avertissement. Elle ne s'affiche que si cet accès est réellement tenté. -->
+	<key>NSAppleMusicUsageDescription</key>
+	<string>Muhtasari+ n\'accède à votre bibliothèque musicale que si vous choisissez d\'y prendre un fichier audio à importer. Le sélecteur de fichiers habituel ouvre vos documents et ne demande aucune autorisation.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Muhtasari+ utilise le microphone pour enregistrer un cours, afin de le transcrire et d\'en produire un résumé. L\'enregistrement ne commence que lorsque vous appuyez sur « Enregistrer », et vous pouvez l\'arrêter à tout moment.</string>
 	<key>UILaunchStoryboardName</key>

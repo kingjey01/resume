@@ -498,8 +498,27 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   /// Sélectionner un fichier audio depuis l'appareil
   Future<void> _pickAudioFile() async {
     try {
+      // `FileType.audio` EST UN PIÈGE SUR iOS — NE PAS Y REVENIR.
+      //
+      // Sur iOS, ce type n'ouvre PAS les Fichiers : file_picker présente le
+      // sélecteur de la BIBLIOTHÈQUE MUSICALE (MPMediaPickerController). Or
+      // toucher à la bibliothèque musicale exige une déclaration de confidentialité,
+      // et sans elle iOS tue l'application — c'est ce plantage, relevé sur
+      // l'iPhone :
+      //
+      //   termination: namespace "TCC"
+      //   "The app's Info.plist must contain an NSAppleMusicUsageDescription key"
+      //
+      // Deux raisons de préférer `FileType.custom` :
+      //   1. il ouvre le sélecteur de DOCUMENTS (Fichiers, iCloud, Téléchargements),
+      //      qui est ce qu'on veut pour un cours enregistré — le sélecteur
+      //      Musique, lui, ne montre que la musique synchronisée ;
+      //   2. il ne demande AUCUNE autorisation : plus de risque de plantage TCC.
       final result = await FilePicker.platform.pickFiles(
-        type: FileType.audio,
+        type: FileType.custom,
+        allowedExtensions: const [
+          'mp3', 'm4a', 'aac', 'wav', 'ogg', 'opus', 'amr', 'flac', 'caf', 'mp4',
+        ],
         allowMultiple: false,
       );
 
