@@ -81,6 +81,11 @@ class CourseListCreateView(generics.ListCreateAPIView):
         """Assigner automatiquement l'université, promotion et filière lors de la création"""
         profile = self.request.user.profile
         course = serializer.save(
+            # L'AUTEUR, ENREGISTRÉ À LA CRÉATION (2026-10-14) : c'est ce champ
+            # que `CanModifyObject` lit désormais pour autoriser la
+            # modification/suppression par le créateur. Sans lui, seul un
+            # administrateur pouvait supprimer un cours.
+            created_by=self.request.user,
             university=profile.universite.nom if profile.universite else '',
             filiere=profile.filiere.nom if profile.filiere else ''
         )

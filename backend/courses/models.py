@@ -86,6 +86,24 @@ class Course(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
+    # L'AUTEUR DU COURS (ajouté le 2026-10-14).
+    #
+    # SANS CE CHAMP, PERSONNE NE POUVAIT SUPPRIMER UN COURS SAUF UN ADMIN.
+    # `CanModifyObject` (courses/permissions.py) autorise « le créateur » en
+    # testant `obj.author_user` — un champ qui n'existe que sur les RÉSUMÉS
+    # (Summary, plus bas dans ce fichier). Sur un Course, le test était donc
+    # toujours faux, et la branche ne s'exécutait jamais : la suppression
+    # répondait le 403 par défaut de Django REST Framework, « Vous n'avez pas la
+    # permission d'effectuer cette action ».
+    #
+    # Les cours créés AVANT cette date restent sans auteur (NULL) : pour eux,
+    # seul un administrateur peut supprimer — ce qui est la règle qui
+    # s'appliquait déjà de fait.
+    created_by = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='created_courses',
+    )
+
     def __str__(self):
         uni = self.universites.first()
         fil = self.filieres.first()

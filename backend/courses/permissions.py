@@ -218,7 +218,21 @@ class CanModifyObject(permissions.BasePermission):
         # Le créateur peut modifier son propre contenu
         if hasattr(obj, 'author_user') and obj.author_user == request.user:
             return True
-            
+
+        # L'AUTEUR D'UN COURS — `created_by` (2026-10-14).
+        #
+        # `author_user` n'existe QUE sur les résumés : pour un Course, le test
+        # ci-dessus était toujours faux, et cette permission refusait donc tout
+        # non-administrateur — y compris l'auteur du cours, qui recevait le 403
+        # par défaut « Vous n'avez pas la permission d'effectuer cette action ».
+        # Le champ `created_by` est renseigné à la création (CourseListCreateView).
+        #
+        # `created_by_id` évite une requête supplémentaire, et `getattr` couvre
+        # les modèles qui n'ont pas le champ : ils gardent le comportement
+        # d'avant.
+        if getattr(obj, 'created_by_id', None) == request.user.id:
+            return True
+
         return False
 
 
