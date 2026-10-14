@@ -64,6 +64,27 @@ class MobileAudioRecorder {
         return true;
       }
 
+      // RECOURS : LE GREFFON QUI ENREGISTRE RÉELLEMENT.
+      //
+      // Sur iOS 17 et suivants, `permission_handler` interroge encore
+      // `AVAudioSession.recordPermission`, une API DÉPRÉCIÉE : elle peut
+      // répondre « refusé » sans jamais présenter la demande — ce qui donne
+      // exactement ce qui a été constaté, « Permission microphone non
+      // accordée » alors qu'aucune boîte de dialogue n'a été montrée.
+      //
+      // Le greffon `record` (record_darwin), lui, passe par l'API moderne
+      // `AVAudioApplication.requestRecordPermission`. Et c'est de toute façon
+      // LUI qui enregistrera : c'est donc à lui de demander l'accès.
+      try {
+        onDebug?.call('📱 Recours : demande d\'accès par le greffon d\'enregistrement');
+        if (await _recorder.hasPermission()) {
+          onDebug?.call('📱 Accès accordé par le greffon d\'enregistrement');
+          return true;
+        }
+      } catch (e) {
+        onDebug?.call('📱 Le greffon n\'a pas pu demander l\'accès: $e');
+      }
+
       onError?.call(status.isPermanentlyDenied
           ? 'Accès au microphone refusé. Autorisez-le dans Réglages → '
             'Muhtasari+ → Microphone.'
