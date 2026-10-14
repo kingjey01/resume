@@ -697,6 +697,56 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     await _audioRecorder.resumeRecording();
   }
 
+  /// Écrit les octets audio dans un fichier temporaire AVEC UNE EXTENSION.
+  ///
+  /// POURQUOI PAS `BytesSource` : sur iOS, `audioplayers` écrit les octets reçus
+  /// dans un fichier temporaire SANS extension. AVPlayer ne peut alors pas
+  /// déterminer le format et refuse de lire — c'est le plantage constaté :
+  ///
+  ///   PlatformException(DarwinAudioError, Failed to set source ...
+  ///   AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null)
+  ///
+  /// La seule différence avec un fichier qui se lit, c'est son nom : « .m4a »,
+  /// « .mp3 ». `Directory.systemTemp` est le dossier temporaire de
+  /// l'application, sur iOS comme sur Android.
+  Future<File> _fichierTemporaireAudio(Uint8List bytes, String? mimeType) async {
+    final fichier = File(
+      '${Directory.systemTemp.path}/lecture_'
+      '${DateTime.now().millisecondsSinceEpoch}.${_extensionAudio(mimeType)}',
+    );
+    await fichier.writeAsBytes(bytes, flush: true);
+    return fichier;
+  }
+
+  /// Extension de fichier correspondant au type MIME enregistré.
+  String _extensionAudio(String? mimeType) {
+    switch ((mimeType ?? '').toLowerCase()) {
+      case 'audio/mp4':
+      case 'audio/m4a':
+      case 'audio/x-m4a':
+        return 'm4a';
+      case 'audio/mpeg':
+      case 'audio/mp3':
+        return 'mp3';
+      case 'audio/aac':
+        return 'aac';
+      case 'audio/wav':
+      case 'audio/x-wav':
+      case 'audio/wave':
+        return 'wav';
+      case 'audio/caf':
+        return 'caf';
+      case 'audio/flac':
+        return 'flac';
+      case 'audio/ogg':
+        return 'ogg';
+      case 'audio/opus':
+        return 'opus';
+      default:
+        return 'm4a';
+    }
+  }
+
   /// Lecture de l'enregistrement audio local
   Future<void> _playRecording() async {
     if (_recordedBytes == null || _recordedBytes!.isEmpty) {
@@ -709,8 +759,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         _isPlaying = true;
       });
 
-      // Utiliser audioplayers pour lire les bytes audio
-      await _audioPlayer.play(BytesSource(_recordedBytes!));
+      // Lire depuis un FICHIER, et non depuis les octets : voir
+      // _fichierTemporaireAudio — `BytesSource` échoue sur iOS.
+      final fichier =
+          await _fichierTemporaireAudio(_recordedBytes!, _recordedMimeType);
+      await _audioPlayer.play(DeviceFileSource(fichier.path));
       SnackbarService.show('🎵 Lecture en cours...');
 
     } catch (e) {
@@ -728,8 +781,12 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         _isPlaying = true;
       });
 
-      // Utiliser audioplayers pour lire les bytes audio
-      await _audioPlayer.play(BytesSource(recording.bytes));
+      // Lire depuis un FICHIER, et non depuis les octets : `BytesSource` écrit
+      // un fichier sans extension, qu'AVPlayer refuse sur iOS. Voir
+      // _fichierTemporaireAudio.
+      final fichier =
+          await _fichierTemporaireAudio(recording.bytes, recording.mimeType);
+      await _audioPlayer.play(DeviceFileSource(fichier.path));
       SnackbarService.show('🎵 Lecture ${recording.course.nom}...');
 
     } catch (e) {
