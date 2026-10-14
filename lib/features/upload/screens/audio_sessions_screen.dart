@@ -3,6 +3,7 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:audioplayers/audioplayers.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/snackbar_service.dart';
@@ -141,13 +142,39 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
         // « AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null ».
         // Via Dio, la requête porte le jeton de l'application, et un échec
         // devient un code HTTP que l'on peut afficher.
+        final extension = _extensionDepuisUrl(fullUrl);
         final octets = await _apiService.telechargerFichier(fullUrl);
         if (octets.isEmpty) {
           throw Exception('le serveur a renvoyé un fichier vide');
         }
+
+        // LE SERVEUR PEUT RÉPONDRE 200 AVEC AUTRE CHOSE QUE L'AUDIO.
+        // Une page de connexion, une page d'erreur HTML : les lire comme un
+        // fichier audio fait échouer le lecteur avec « Unknown error », sans
+        // jamais dire que ce n'est pas de l'audio. Un '<' en premier octet est
+        // la signature d'un document HTML ou XML.
+        if (octets.first == 0x3C) {
+          throw Exception(
+            'le serveur a renvoyé du HTML (${octets.length} octets) au lieu de '
+            'l\'audio — le fichier n\'est pas accessible à cette adresse',
+          );
+        }
+
         final fichier = await _ecrireFichierTemporaire(octets, fullUrl);
 
-        await _audioPlayer.play(DeviceFileSource(fichier.path));
+        try {
+          await _audioPlayer.play(DeviceFileSource(fichier.path));
+        } on PlatformException {
+          // LE FICHIER EST ARRIVÉ, MAIS LE LECTEUR LE REFUSE : le problème est
+          // dans son CONTENU, pas dans le réseau. Le cas le plus fréquent ici
+          // est un envoi interrompu côté serveur — un fichier tronqué. Un m4a
+          // privé de sa fin ne se décode pas, et AVPlayer ne dit que
+          // « Unknown error ».
+          throw Exception(
+            'audio téléchargé (${octets.length} octets, .$extension) mais '
+            'refusé par le lecteur — fichier probablement incomplet',
+          );
+        }
         setState(() {
           _currentPlayingUrl = audioUrl;
         });
