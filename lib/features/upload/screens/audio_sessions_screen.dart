@@ -99,18 +99,62 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   /// Écrit les octets reçus dans un fichier temporaire AVEC UNE EXTENSION.
   ///
   /// AVPlayer déduit le format du média de l'EXTENSION DU FICHIER : un fichier
-  /// sans extension est refusé sans autre explication. C'est la cause du
-  /// « Unknown error » déjà rencontré à l'enregistrement.
-  Future<File> _ecrireFichierTemporaire(Uint8List octets, String url) async {
+  /// sans extension, ou mal nommé, est refusé sans autre explication.
+  Future<File> _ecrireFichierTemporaire(Uint8List octets, String extension) async {
     final fichier = File(
       '${Directory.systemTemp.path}/session_'
-      '${DateTime.now().millisecondsSinceEpoch}.${_extensionDepuisUrl(url)}',
+      '${DateTime.now().millisecondsSinceEpoch}.$extension',
     );
     await fichier.writeAsBytes(octets, flush: true);
     return fichier;
   }
 
-  /// Extension de fichier déduite de l'URL du média.
+  /// Extension RÉELLE, déduite des premiers octets du fichier.
+  ///
+  /// POURQUOI LE CONTENU ET NON L'URL (constat du 2026-10-14) : le même fichier
+  /// se lit sur Android et échoue sur iOS. La différence est là — ExoPlayer
+  /// inspecte le contenu pour choisir son décodeur, AVPlayer se fie à
+  /// l'EXTENSION du fichier. Un nom qui ne reflète pas le format (renommé au
+  /// dépôt, extension perdue, conteneur différent) passe donc sur Android et
+  /// échoue sur iOS avec « Unknown error ».
+  ///
+  /// Renvoie `null` si la signature est inconnue : l'appelant retombe alors sur
+  /// l'extension de l'URL.
+  String? _extensionDepuisContenu(Uint8List octets) {
+    if (octets.length < 12) return null;
+
+    // Conteneur MP4 / M4A : « ftyp » aux octets 4 à 7.
+    if (octets[4] == 0x66 && octets[5] == 0x74 &&
+        octets[6] == 0x79 && octets[7] == 0x70) {
+      return 'm4a';
+    }
+    // WAV : « RIFF ».
+    if (octets[0] == 0x52 && octets[1] == 0x49 &&
+        octets[2] == 0x46 && octets[3] == 0x46) {
+      return 'wav';
+    }
+    // Ogg / Opus : « OggS ».
+    if (octets[0] == 0x4F && octets[1] == 0x67 &&
+        octets[2] == 0x67 && octets[3] == 0x53) {
+      return 'ogg';
+    }
+    // AMR : « #!AMR ».
+    if (octets[0] == 0x23 && octets[1] == 0x21 &&
+        octets[2] == 0x41 && octets[3] == 0x4D) {
+      return 'amr';
+    }
+    // MP3 avec étiquette ID3, ou première trame MPEG (0xFF 0xEx/0xFx).
+    if (octets[0] == 0x49 && octets[1] == 0x44 && octets[2] == 0x33) {
+      return 'mp3';
+    }
+    if (octets[0] == 0xFF && (octets[1] & 0xE0) == 0xE0) {
+      return ((octets[1] & 0xF6) == 0xF0) ? 'aac' : 'mp3';
+    }
+    return null;
+  }
+
+  /// Extension de fichier déduite de l'URL du média — dernier recours, quand la
+  /// signature du contenu n'est pas reconnue.
   String _extensionDepuisUrl(String url) {
     final sansParametres = url.split('?').first;
     final point = sansParametres.lastIndexOf('.');
@@ -142,7 +186,6 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
         // « AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null ».
         // Via Dio, la requête porte le jeton de l'application, et un échec
         // devient un code HTTP que l'on peut afficher.
-        final extension = _extensionDepuisUrl(fullUrl);
         final octets = await _apiService.telechargerFichier(fullUrl);
         if (octets.isEmpty) {
           throw Exception('le serveur a renvoyé un fichier vide');
@@ -160,19 +203,22 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
           );
         }
 
-        final fichier = await _ecrireFichierTemporaire(octets, fullUrl);
+        // L'EXTENSION VIENT DU CONTENU, ET NON DE L'URL : c'est elle qu'AVPlayer
+        // lit pour choisir son décodeur. Le nom stocké par le serveur peut ne
+        // pas refléter le format réel — et c'est ce qui fait qu'un même fichier
+        // se lit sur Android (qui inspecte le contenu) et échoue sur iOS.
+        final extension =
+            _extensionDepuisContenu(octets) ?? _extensionDepuisUrl(fullUrl);
+        final fichier = await _ecrireFichierTemporaire(octets, extension);
 
         try {
           await _audioPlayer.play(DeviceFileSource(fichier.path));
         } on PlatformException {
           // LE FICHIER EST ARRIVÉ, MAIS LE LECTEUR LE REFUSE : le problème est
-          // dans son CONTENU, pas dans le réseau. Le cas le plus fréquent ici
-          // est un envoi interrompu côté serveur — un fichier tronqué. Un m4a
-          // privé de sa fin ne se décode pas, et AVPlayer ne dit que
-          // « Unknown error ».
+          // dans son CONTENU, pas dans le réseau.
           throw Exception(
-            'audio téléchargé (${octets.length} octets, .$extension) mais '
-            'refusé par le lecteur — fichier probablement incomplet',
+            'audio téléchargé (${octets.length} octets, format détecté '
+            '.$extension) mais refusé par le lecteur',
           );
         }
         setState(() {
