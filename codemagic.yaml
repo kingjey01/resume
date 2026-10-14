@@ -217,6 +217,22 @@ workflows:
             exit "$statut"
           fi
 
+          # CE QUE LE BINAIRE CONTIENT RÉELLEMENT. Un Info.plist correct dans le
+          # dépôt ne prouve rien : c'est le seul contrôle qui compte, et il a
+          # fallu un plantage au lancement pour s'en rendre compte (voir
+          # GoogleService-Info.plist). On lit donc l'Info.plist EMBARQUÉ dans
+          # l'IPA, pas celui du dépôt.
+          ipa=$(ls build/ios/ipa/*.ipa 2>/dev/null | head -1)
+          if [ -n "$ipa" ]; then
+            echo "=== Info.plist embarque dans $(basename "$ipa") ==="
+            unzip -p "$ipa" "Payload/Runner.app/Info.plist" | plutil -p - \
+              | grep -E "UsageDescription|ITSAppUsesNonExemptEncryption|UIRequiresFullScreen" || true
+            echo "=== fichiers embarques (extrait) ==="
+            unzip -l "$ipa" | grep -E "GoogleService|Runner.app/Info.plist" || true
+          else
+            echo "AVERTISSEMENT: aucun IPA trouve pour verifier son contenu."
+          fi
+
     artifacts:
       - build/ios/ipa/*.ipa
       - /tmp/xcodebuild_logs/*.log
