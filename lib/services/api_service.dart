@@ -56,7 +56,20 @@ class ApiService {
   // Upload audio (fichiers longs, limite métier 3 h) — voir uploadAudio() :
   // le garde-fou anti-blocage annule la requête si plus aucun octet n'est
   // transmis pendant ce délai (liaison réellement coupée en plein envoi).
-  static const Duration _uploadStallLimit = Duration(seconds: 60);
+  // 60 s → 5 MINUTES (2026-10-15).
+  //
+  // CE GARDE-FOU SURVEILLE LES *ÉVÉNEMENTS DE PROGRESSION*, pas la liaison.
+  // Or ces événements peuvent être rares : Dio les émet quand il remet les
+  // données à la couche HTTP de Dart, et la dernière poignée d'octets attend
+  // que le socket se vide. Sur une liaison lente, cet intervalle peut dépasser
+  // une minute alors que l'envoi se poursuit normalement — le garde-fou
+  // annulerait alors un transfert SAIN.
+  //
+  // Son rôle est de détecter une liaison morte, pas de borner la durée d'un
+  // envoi : sendTimeout est justement neutralisé pour cette requête. Cinq
+  // minutes remplissent ce rôle sans condamner un gros fichier sur un réseau
+  // mobile — et la limite métier est de 3 heures d'audio, soit ~170 Mo.
+  static const Duration _uploadStallLimit = Duration(minutes: 5);
   // Fenêtre d'attente de la réponse serveur après envoi complet du corps.
   static const Duration _uploadResponseTimeout = Duration(minutes: 10);
 
