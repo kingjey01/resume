@@ -70,7 +70,14 @@ class ApiService {
           // Timeouts indispensables : sans eux, une requête vers un serveur
           // lent/indisponible attend INDÉFINIMENT (app figée au démarrage /
           // blocage à la vérification OTP, sans message d'erreur).
-          connectTimeout: const Duration(seconds: 10),
+          // connectTimeout PORTÉ DE 10 s À 30 s (2026-10-15) : dans Dio 5 il
+          // n'existe que sur BaseOptions, donc la requête d'upload ne peut pas
+          // le surcharger. Or c'était le SEUL délai court restant sur cet envoi
+          // — sendTimeout y est neutralisé et receiveTimeout porté à 10 minutes.
+          // Sur un réseau mobile, ouvrir la connexion (radio, TLS) peut à lui
+          // seul dépasser dix secondes. 30 s reste une borne : au-delà, le
+          // serveur est réellement injoignable.
+          connectTimeout: const Duration(seconds: 30),
           sendTimeout: const Duration(seconds: 15),
           receiveTimeout: const Duration(seconds: 20),
         )),
@@ -762,14 +769,36 @@ class ApiService {
     Timer? stallTimer;
     var sendCompleted = false;
 
+    // CE QUI A ÉTÉ TRANSMIS, ET DEPUIS QUAND (diagnostic 2026-10-15).
+    //
+    // Le serveur est mis hors de cause : un POST de 5 Mo limité à 100 Ko/s
+    // (50 s d'envoi) y passe sans erreur. Reste à savoir QUI ferme la
+    // connexion en plein envoi — l'application, ou la plateforme. Ces trois
+    // valeurs le disent :
+    //   • 0 octet transmis            → la requête n'est jamais partie
+    //     (connexion, TLS, réseau) ;
+    //   • quelques centaines de Ko    → l'envoi a commencé puis s'est arrêté ;
+    //   • total atteint               → tout est parti, l'échec est après.
+    // Et le temps écoulé distingue le garde-fou anti-blocage (60 s) de toute
+    // autre cause, plus rapide.
+    var octetsTransmis = 0;
+    var octetsTotal = 0;
+    var annuleParGardeFou = false;
+    final debutEnvoi = DateTime.now();
+
+    Duration ecoule() => DateTime.now().difference(debutEnvoi);
+
     void armStallGuard() {
       stallTimer?.cancel();
       stallTimer = Timer(_uploadStallLimit, () {
-        cancelToken.cancel('Aucune donnée transmise depuis $_uploadStallLimit');
+        annuleParGardeFou = true;
+        cancelToken.cancel('garde-fou');
       });
     }
 
     void handleSendProgress(int sent, int total) {
+      octetsTransmis = sent;
+      octetsTotal = total;
       if (!sendCompleted) {
         if (total > 0 && sent >= total) {
           // Corps entièrement envoyé : on attend désormais la réponse.
@@ -802,7 +831,10 @@ class ApiService {
         options: Options(
           headers: {'Content-Type': 'multipart/form-data'},
           // sendTimeout : 0 = désactivé pour cette requête (géré par le
-          // garde-fou). connectTimeout (10 s) reste celui par défaut.
+          // garde-fou). connectTimeout, lui, n'est PAS réglable ici : dans Dio
+          // 5 il n'existe que sur BaseOptions, donc il se règle sur l'instance
+          // entière (voir connectTimeout plus haut). C'était le seul délai
+          // court encore actif sur cet envoi.
           sendTimeout: Duration.zero,
           receiveTimeout: _uploadResponseTimeout,
         ),
@@ -818,9 +850,23 @@ class ApiService {
     } catch (e) {
       if (e is ApiException) rethrow;
       if (e is DioException && e.type == DioExceptionType.cancel) {
-        // Annulation par le garde-fou : plus aucune donnée transmise.
+        // LE MESSAGE DIT MAINTENANT COMBIEN D'OCTETS SONT PARTIS, ET EN COMBIEN
+        // DE TEMPS. C'est ce qui distingue les causes, qui étaient jusqu'ici
+        // confondues derrière « plus aucune donnée transmise » :
+        //   • « 0 / 3 000 000 »  → la requête n'est jamais partie ;
+        //   • « 850 000 / 3 000 000 » → l'envoi a commencé puis s'est arrêté ;
+        //   • « 3 000 000 / 3 000 000 » → tout est parti, l'échec est après.
+        // Et « garde-fou » signale les 60 s sans progression — sans ce mot,
+        // l'annulation vient d'ailleurs.
+        final transmis = octetsTotal > 0
+            ? '$octetsTransmis / $octetsTotal octets'
+            : '$octetsTransmis octets';
+        final motif = annuleParGardeFou
+            ? 'garde-fou : ${_uploadStallLimit.inSeconds} s sans progression'
+            : 'cause inconnue';
         throw ApiException(
-          'L\'envoi du fichier a été interrompu : plus aucune donnée transmise. '
+          'L\'envoi du fichier a été interrompu ($motif) — $transmis '
+          'transmis en ${ecoule().inSeconds} s. '
           'Vérifiez votre connexion et réessayez.',
           type: ApiExceptionType.network,
           originalError: e,
