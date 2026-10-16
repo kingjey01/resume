@@ -96,6 +96,25 @@
 	     l'interface est conçue pour un téléphone, en portrait.
 
 	     NE PAS LA RETIRER sans ajouter les quatre orientations ci-dessus. -->
+	<!-- ENREGISTREMENT EN ARRIÈRE-PLAN (tâche 40, étape A).
+	     Sans cette déclaration, iOS SUSPEND l'application environ 30 secondes
+	     après qu'elle passe en arrière-plan ou que le téléphone est verrouillé :
+	     l'enregistreur perd le micro et la requête d'envoi reste figée en plein
+	     vol. C'est la règle par défaut d'iOS, pas un défaut de l'application.
+
+	     `audio` est le mode prévu par Apple pour les applications qui
+	     enregistrent ou lisent du son : il maintient l'application vivante
+	     pendant l'enregistrement. C'est ce qui permet de lancer un enregistrement,
+	     de verrouiller le téléphone, puis de le retrouver intact.
+
+	     À SAVOIR : ce mode autorise aussi la lecture audio en arrière-plan. Et il
+	     ne garantit PAS un envoi lancé sans enregistrement actif — iOS peut
+	     toujours suspendre l'application dans ce cas, d'où l'envoi reprenable
+	     prévu à l'étape C. -->
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>audio</string>
+	</array>
 	<key>UIRequiresFullScreen</key>
 	<true/>
 	<!-- DÉCLARATION D'EXPORTATION (chiffrement).

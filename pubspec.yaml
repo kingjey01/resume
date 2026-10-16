@@ -2,7 +2,7 @@ name: resume_plus_clean
 description: "Une application pour résumer des cours - Version propre."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 
-version: 1.1.20+49
+version: 1.1.20+50
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -66,6 +66,9 @@ dependencies:
 
   # Notifications
   flutter_local_notifications: ^18.0.1
+  # Service de premier plan Android (tache 40) : maintient l enregistrement et
+  # l envoi vivants quand l application passe en arriere-plan.
+  flutter_foreground_task: ^11.0.3
 
   # Badge sur icône d'application (implémentation via MethodChannel)
 

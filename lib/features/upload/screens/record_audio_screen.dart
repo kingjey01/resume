@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
+import 'package:resume_plus_clean/services/background_task_service.dart';
 import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/services/audio_draft_service.dart';
 import 'package:resume_plus_clean/models/course.dart';
@@ -699,14 +700,29 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     }
 
     final success = await _audioRecorder.startRecording();
-    
+
     if (!success) {
       SnackbarService.show('❌ Impossible de démarrer l\'enregistrement', isError: true);
+      return;
     }
+
+    // LE SERVICE DE PREMIER PLAN, DÈS QUE L'ENREGISTREMENT COMMENCE (tâche 40).
+    // Il doit être lancé PENDANT que l'application est au premier plan : Android
+    // refuse de démarrer un service de type microphone depuis l'arrière-plan.
+    // Lancé ici, il prend le relais au moment où l'utilisateur verrouille son
+    // téléphone ou change d'application.
+    await BackgroundTaskService.demarrer(
+      titre: 'Enregistrement en cours',
+      texte: 'Votre cours est enregistré, même en arrière-plan.',
+    );
   }
 
   Future<void> _stopRecording() async {
     await _audioRecorder.stopRecording();
+    // L'enregistrement est terminé : plus rien à protéger de la mise en
+    // arrière-plan (tâche 40). L'envoi, lui, a son propre service — voir
+    // _uploadAudio, qui le relance avec sa propre notification.
+    await BackgroundTaskService.arreter();
   }
 
   Future<void> _pauseRecording() async {
@@ -921,6 +937,15 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         metadata['professeur_nom'] = profName;
       }
 
+      // LE MÊME SERVICE, POUR L'ENVOI (tâche 40). Sans lui, Android peut geler
+      // le processus en plein transfert : un envoi de 65 Mo qui dure cinq
+      // minutes survivrait mal à un verrouillage d'écran. La notification
+      // change simplement de texte, puisque c'est le même service qui tourne.
+      await BackgroundTaskService.demarrer(
+        titre: 'Envoi en cours',
+        texte: 'Votre enregistrement est envoyé au serveur.',
+      );
+
       final response = await _apiService.uploadAudio(
         audioBytes: _recordedBytes!,
         // Le fichier sur le disque, quand il existe : l'envoi part alors du
@@ -1044,9 +1069,15 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     } catch (e) {
       SnackbarService.show('❌ Erreur d\'upload: $e', isError: true);
     } finally {
-      setState(() {
-        _isUploading = false;
-      });
+      // L'envoi est terminé — abouti ou non : plus rien à maintenir vivant
+      // (tâche 40). Le `finally` garantit l'arrêt même en cas d'erreur, sinon
+      // la notification resterait à l'écran indéfiniment.
+      await BackgroundTaskService.arreter();
+      if (mounted) {
+        setState(() {
+          _isUploading = false;
+        });
+      }
     }
   }
 

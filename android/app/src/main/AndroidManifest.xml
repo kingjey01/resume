@@ -11,6 +11,17 @@
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.VIBRATE" />
 
+    <!-- TÂCHE 40 — ENREGISTREMENT ET ENVOI EN ARRIÈRE-PLAN.
+         Depuis Android 9, une application en arrière-plan perd l'accès au
+         microphone, et son processus peut être gelé : l'enregistrement s'arrête
+         et l'envoi meurt avec lui. Un service de premier plan, signalé par une
+         notification persistante, est la voie prévue par la plateforme.
+         `FOREGROUND_SERVICE_MICROPHONE` est exigé depuis Android 14 pour un
+         service qui enregistre, `FOREGROUND_SERVICE_DATA_SYNC` pour l'envoi. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <!-- Permissions badges d'icône (ShortcutBadger) pour les lanceurs -->
     <uses-permission android:name="com.sec.android.provider.badge.permission.READ" />
     <uses-permission android:name="com.sec.android.provider.badge.permission.WRITE" />
@@ -77,6 +88,16 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
+
+        <!-- TÂCHE 40 — LE SERVICE DE PREMIER PLAN (paquet flutter_foreground_task).
+             Son NOM est imposé par le paquet : ne pas le renommer.
+             `foregroundServiceType` doit couvrir ce que le service fait —
+             `microphone` pour l'enregistrement, `dataSync` pour l'envoi — sinon
+             Android 14 refuse de le démarrer. -->
+        <service
+            android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
+            android:foregroundServiceType="microphone|dataSync"
+            android:exported="false" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

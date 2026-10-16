@@ -104,8 +104,18 @@ class MobileAudioRecorder {
       return 'recording_$timestamp.wav';
     }
     
-    final tempDir = await getTemporaryDirectory();
-    return '${tempDir.path}/recording_$timestamp.m4a';
+    // LES DOCUMENTS, PAS LE TEMPORAIRE (tâche 40, §4).
+    //
+    // L'enregistrement allait dans le dossier TEMPORAIRE, que le système peut
+    // purger à tout moment — au moindre manque de place, ou après quelques
+    // jours. Un enregistrement de cours interrompu, ou dont l'envoi échoue,
+    // pouvait donc disparaître sans que personne ne l'ait demandé.
+    //
+    // Les documents de l'application ne sont jamais purgés par le système :
+    // le fichier survit à une interruption, et il est encore là pour la
+    // reprise d'envoi de l'étape C.
+    final dossier = await getApplicationDocumentsDirectory();
+    return '${dossier.path}/recording_$timestamp.m4a';
   }
 
   /// Diagnostic des capacités d'enregistrement

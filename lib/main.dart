@@ -10,6 +10,7 @@ import 'package:resume_plus_clean/services/screen_security_service.dart';
 import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:intl/intl.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -26,6 +27,13 @@ import 'package:resume_plus_clean/features/exercises/providers/personalized_exer
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Canal de communication du service de premier plan (tâche 40). À ouvrir ici,
+  // avant tout démarrage de service : c'est ce que le paquet attend, et sans lui
+  // le service ne peut pas dialoguer avec l'application. Sans effet tant qu'un
+  // service n'est pas démarré — donc inoffensif sur iOS et sur le web.
+  FlutterForegroundTask.initCommunicationPort();
+
   Intl.defaultLocale = 'fr_FR';
   await initializeDateFormatting('fr_FR', null);
 
