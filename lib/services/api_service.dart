@@ -56,20 +56,32 @@ class ApiService {
   // Upload audio (fichiers longs, limite métier 3 h) — voir uploadAudio() :
   // le garde-fou anti-blocage annule la requête si plus aucun octet n'est
   // transmis pendant ce délai (liaison réellement coupée en plein envoi).
-  // 60 s → 5 MINUTES (2026-10-15).
+  // 60 s → 5 min → 30 MINUTES (2026-10-16), LA CAUSE RÉELLE DE L'ÉCHEC.
   //
-  // CE GARDE-FOU SURVEILLE LES *ÉVÉNEMENTS DE PROGRESSION*, pas la liaison.
-  // Or ces événements peuvent être rares : Dio les émet quand il remet les
-  // données à la couche HTTP de Dart, et la dernière poignée d'octets attend
-  // que le socket se vide. Sur une liaison lente, cet intervalle peut dépasser
-  // une minute alors que l'envoi se poursuit normalement — le garde-fou
-  // annulerait alors un transfert SAIN.
+  // CE GARDE-FOU MESURE LA DURÉE TOTALE DE L'ENVOI, PAS UNE PANNE.
   //
-  // Son rôle est de détecter une liaison morte, pas de borner la durée d'un
-  // envoi : sendTimeout est justement neutralisé pour cette requête. Cinq
-  // minutes remplissent ce rôle sans condamner un gros fichier sur un réseau
-  // mobile — et la limite métier est de 3 heures d'audio, soit ~170 Mo.
-  static const Duration _uploadStallLimit = Duration(minutes: 5);
+  // Dio rapporte la progression quand il remet le corps à la couche HTTP de
+  // Dart. Pour un corps gardé en mémoire (`MultipartFile.fromBytes`), il le
+  // remet d'un coup : la progression bondit près du total, puis plus rien
+  // jusqu'à ce que le socket se vide. Le minuteur, armé une seule fois, court
+  // donc pendant TOUT le transfert — et annule un envoi parfaitement sain qui
+  // dépasse la fenêtre.
+  //
+  // LA PREUVE, chiffrée : le même fichier de 65 Mo, envoyé par curl en dehors
+  // du serveur, aboutit en **306,9 s** (HTTP 401, corps entièrement reçu).
+  // L'application, elle, s'arrêtait à **300 s** avec 33 octets manquants —
+  // soit le même trajet, à la même vitesse (~215 Ko/s), six secondes trop tôt.
+  // Le serveur n'a jamais failli : c'est cette fenêtre qui était trop courte.
+  //
+  // 30 minutes couvrent la limite métier (3 h d'audio, ~170 Mo) au débit
+  // observé. Contrepartie assumée : une liaison réellement morte n'est
+  // signalée qu'au bout de 30 minutes.
+  //
+  // AMÉLIORATION DURABLE À PRÉVOIR : envoyer le fichier depuis le disque
+  // (`MultipartFile.fromFile`) plutôt qu'en mémoire. La progression suivrait
+  // alors le réseau — le système ne pouvant pas tamponner 65 Mo — et une
+  // fenêtre courte redeviendrait un vrai détecteur de panne.
+  static const Duration _uploadStallLimit = Duration(minutes: 30);
   // Fenêtre d'attente de la réponse serveur après envoi complet du corps.
   static const Duration _uploadResponseTimeout = Duration(minutes: 10);
 
