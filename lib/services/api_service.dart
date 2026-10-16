@@ -782,6 +782,7 @@ class ApiService {
   ///    stocker le fichier et répondre après réception complète du corps.
   Future<Map<String, dynamic>> uploadAudio({
     required Uint8List audioBytes,
+    String? audioFilePath,
     required String fileName,
     required String mimeType,
     Map<String, dynamic>? metadata,
@@ -840,10 +841,39 @@ class ApiService {
 
     try {
       final formData = FormData();
-      formData.files.add(MapEntry(
-        'audio_file',
-        MultipartFile.fromBytes(audioBytes, filename: fileName),
-      ));
+
+      // ENVOYER DEPUIS LE FICHIER QUAND IL EXISTE (2026-10-16).
+      //
+      // La progression de Dio compte ce qu'il remet à la couche HTTP de Dart.
+      // Avec un corps en mémoire (`fromBytes`), il le remet d'un bloc : la
+      // progression bondit près du total, puis se tait jusqu'à ce que le socket
+      // se vide. Le garde-fou anti-blocage mesurait donc la DURÉE TOTALE de
+      // l'envoi au lieu d'une panne — un fichier de 65 Mo a été coupé à 300 s
+      // alors que le MÊME fichier aboutissait en 306,9 s par curl.
+      //
+      // Lu depuis le disque, le corps ne peut PAS être tamponné en entier : la
+      // lecture avance au rythme du réseau, la progression suit la liaison, et
+      // le garde-fou retrouve son rôle — signaler une liaison morte.
+      // L'application y gagne aussi tout le poids du fichier en mémoire.
+      var audioJoint = false;
+      if (audioFilePath != null && audioFilePath.isNotEmpty) {
+        try {
+          formData.files.add(MapEntry(
+            'audio_file',
+            await MultipartFile.fromFile(audioFilePath, filename: fileName),
+          ));
+          audioJoint = true;
+        } catch (_) {
+          // Fichier disparu ou illisible, ou plateforme sans accès au disque
+          // (web) : on retombe sur les octets, exactement comme avant.
+        }
+      }
+      if (!audioJoint) {
+        formData.files.add(MapEntry(
+          'audio_file',
+          MultipartFile.fromBytes(audioBytes, filename: fileName),
+        ));
+      }
       if (metadata != null) {
         metadata.forEach((key, value) {
           formData.fields.add(MapEntry(key, value.toString()));

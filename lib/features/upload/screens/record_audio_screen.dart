@@ -65,6 +65,17 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   bool _isResolvingProfessor = false;
   final TextEditingController _professorNameController = TextEditingController();
   Uint8List? _recordedBytes;
+  // LE FICHIER SUR LE DISQUE, QUAND IL EXISTE (2026-10-16).
+  //
+  // L'enregistreur écrit un .m4a et l'import fournit un chemin : dans les deux
+  // cas le fichier est déjà là. L'envoyer DEPUIS LE DISQUE plutôt que depuis
+  // une copie en mémoire rend la progression fiable — le système ne peut pas
+  // tamponner un gros fichier, donc la lecture avance au rythme du réseau et
+  // le garde-fou anti-blocage redevient un vrai détecteur de panne.
+  //
+  // Reste `null` pour un brouillon restauré (octets seuls, sans fichier) :
+  // l'envoi retombe alors sur les octets, comme avant.
+  String? _recordedFilePath;
   String? _recordedMimeType;
   int _recordDuration = 0;
   bool _isPlaying = false;
@@ -187,6 +198,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
 
     if (audioBytes != null) {
       _recordedBytes = audioBytes;
+      // Le brouillon peut désigner son fichier : on le retient pour que
+      // l'envoi parte du disque, comme pour un enregistrement ou un import.
+      _recordedFilePath = draft.audioFilePath;
       _recordedMimeType = draft.mimeType ?? 'audio/m4a';
     }
 
@@ -341,6 +355,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     if (!mounted) return;
     setState(() {
       _recordedBytes = bytes;
+      // L'enregistreur a écrit un .m4a sur le disque : on retient son chemin
+      // pour envoyer DEPUIS LE DISQUE (voir _recordedFilePath).
+      _recordedFilePath = _audioRecorder.currentPath;
       _recordedMimeType = mimeType;
     });
     // Sauvegarder automatiquement le brouillon (le future est mémorisé
@@ -609,6 +626,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
 
         setState(() {
           _recordedBytes = bytes;
+          _recordedFilePath = pickedFile.path;
           _recordedMimeType = mimeType;
           _recordDuration = duration?.inSeconds ?? 0;
           _recordingState = RecordingState.stopped;
@@ -627,6 +645,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         // mais avec un avertissement
         setState(() {
           _recordedBytes = bytes;
+          _recordedFilePath = pickedFile.path;
           _recordedMimeType = 'audio/${pickedFile.extension?.toLowerCase() ?? 'wav'}';
           _recordDuration = 0;
           _recordingState = RecordingState.stopped;
@@ -651,6 +670,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     _stopPlayback();
     setState(() {
       _recordedBytes = null;
+      _recordedFilePath = null;
       _recordedMimeType = null;
       _recordDuration = 0;
       _recordingState = RecordingState.idle;
@@ -903,6 +923,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
 
       final response = await _apiService.uploadAudio(
         audioBytes: _recordedBytes!,
+        // Le fichier sur le disque, quand il existe : l'envoi part alors du
+        // fichier et non de la copie en mémoire (voir ApiService.uploadAudio).
+        audioFilePath: _recordedFilePath,
         fileName: fileName,
         mimeType: _recordedMimeType ?? 'audio/wav',
         metadata: metadata,
@@ -1002,6 +1025,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       if (mounted) {
         setState(() {
           _recordedBytes = null;
+          _recordedFilePath = null;
           _recordedMimeType = null;
           _recordDuration = 0;
           _recordingState = RecordingState.idle;
@@ -1888,6 +1912,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                     _stopPlayback();
                     setState(() {
                       _recordedBytes = null;
+                      _recordedFilePath = null;
                       _recordedMimeType = null;
                       _recordDuration = 0;
                       _recordingState = RecordingState.idle;
