@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:typed_data';
 import 'package:dio/dio.dart';
+import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:resume_plus_clean/models/summary.dart' as model;
 import 'package:resume_plus_clean/services/storage_service.dart';
@@ -82,6 +83,12 @@ class ApiService {
   // alors le réseau — le système ne pouvant pas tamponner 65 Mo — et une
   // fenêtre courte redeviendrait un vrai détecteur de panne.
   static const Duration _uploadStallLimit = Duration(minutes: 30);
+
+  // NOMBRE DE TENTATIVES POUR UN ENVOI (tâche 40, étape C). Une liaison mobile
+  // qui lâche, un écran verrouillé, un changement de réseau : trois essais
+  // couvrent ces cas sans transformer une erreur métier en acharnement. Chaque
+  // essai renvoie LA MÊME clé d'idempotence, donc aucun doublon n'est possible.
+  static const int _uploadMaxTentatives = 3;
   // Fenêtre d'attente de la réponse serveur après envoi complet du corps.
   static const Duration _uploadResponseTimeout = Duration(minutes: 10);
 
@@ -787,11 +794,12 @@ class ApiService {
     required String mimeType,
     Map<String, dynamic>? metadata,
     void Function(int sent, int total)? onSendProgress,
+    String? idempotenceKey,
   }) async {
     // Garde-fou : chaque octet transmis relance le délai ; il est désarmé dès
     // que le corps est entièrement envoyé (le receiveTimeout prend le relais
     // pour l'attente de la réponse serveur).
-    final cancelToken = CancelToken();
+    var cancelToken = CancelToken();
     Timer? stallTimer;
     var sendCompleted = false;
 
@@ -880,22 +888,70 @@ class ApiService {
         });
       }
 
-      final response = await _dio.post(
-        '/courses/sessions/upload-audio/',
-        data: formData,
-        options: Options(
-          headers: {'Content-Type': 'multipart/form-data'},
-          // sendTimeout : 0 = désactivé pour cette requête (géré par le
-          // garde-fou). connectTimeout, lui, n'est PAS réglable ici : dans Dio
-          // 5 il n'existe que sur BaseOptions, donc il se règle sur l'instance
-          // entière (voir connectTimeout plus haut). C'était le seul délai
-          // court encore actif sur cet envoi.
-          sendTimeout: Duration.zero,
-          receiveTimeout: _uploadResponseTimeout,
-        ),
-        cancelToken: cancelToken,
-        onSendProgress: handleSendProgress,
-      );
+      // CLÉ D'IDEMPOTENCE (tâche 40, étape C). Elle est produite UNE fois pour
+      // cette tentative d'envoi et renvoyée à l'identique à chaque reprise : le
+      // serveur y reconnaît un envoi déjà enregistré et rend SA session au lieu
+      // d'en créer une seconde. Sans elle, une réponse perdue après un
+      // verrouillage d'écran produirait un doublon.
+      final cleIdempotence = (idempotenceKey != null && idempotenceKey.isNotEmpty)
+          ? idempotenceKey
+          : const Uuid().v4();
+      formData.fields.add(MapEntry('idempotence_key', cleIdempotence));
+
+      // REPRISE AUTOMATIQUE (tâche 40, étape C).
+      //
+      // Un envoi de plusieurs mégaoctets peut être coupé par un verrouillage
+      // d'écran, un changement de réseau ou une liaison qui lâche. Jusqu'ici,
+      // cela condamnait l'envoi : l'utilisateur devait relancer à la main, et
+      // risquait un doublon côté serveur.
+      //
+      // On rejoue donc la MÊME tentative — même clé d'idempotence, donc aucun
+      // doublon possible — avec une attente croissante. Sur iOS, l'attente est
+      // suspendue avec l'application et reprend au déverrouillage : l'envoi
+      // repart de lui-même, sans que l'utilisateur ait rien à faire.
+      late Response<dynamic> response;
+      for (var essai = 1; ; essai++) {
+        // UN JETON NEUF À CHAQUE TENTATIVE : un jeton annulé le reste, et le
+        // garde-fou de la tentative précédente aurait donc condamné toutes les
+        // suivantes. On repart aussi d'une progression vierge, pour que le
+        // message d'erreur décrive la tentative en cours et non l'ancienne.
+        cancelToken = CancelToken();
+        sendCompleted = false;
+        octetsTransmis = 0;
+        octetsTotal = 0;
+        annuleParGardeFou = false;
+        try {
+          response = await _dio.post(
+            '/courses/sessions/upload-audio/',
+            data: formData,
+            options: Options(
+              headers: {'Content-Type': 'multipart/form-data'},
+              // sendTimeout : 0 = désactivé pour cette requête (géré par le
+              // garde-fou). connectTimeout, lui, n'est PAS réglable ici : dans
+              // Dio 5 il n'existe que sur BaseOptions, donc il se règle sur
+              // l'instance entière (voir connectTimeout plus haut).
+              sendTimeout: Duration.zero,
+              receiveTimeout: _uploadResponseTimeout,
+            ),
+            cancelToken: cancelToken,
+            onSendProgress: handleSendProgress,
+          );
+          break;
+        } catch (e) {
+          if (essai >= _uploadMaxTentatives || !_envoiMeriteReprise(e)) {
+            rethrow;
+          }
+          final attente = Duration(seconds: essai == 1 ? 5 : 20);
+          stallTimer?.cancel();
+          stallTimer = null;
+          debugPrint(
+            '↻ Envoi interrompu (tentative $essai/$_uploadMaxTentatives) : '
+            'nouvelle tentative dans ${attente.inSeconds} s, '
+            'clé $cleIdempotence.',
+          );
+          await Future.delayed(attente);
+        }
+      }
 
       if (response.statusCode == 201) {
         return {'success': true, 'message': response.data['message'], 'session': response.data['session']};
@@ -946,6 +1002,23 @@ class ApiService {
   /// Impossible d'en déduire quoi que ce soit. En passant par Dio, la requête
   /// porte le jeton de l'application et les mêmes délais que le reste de l'API,
   /// et un échec devient un vrai code HTTP, affichable à l'utilisateur.
+  /// Une erreur qui MÉRITE d'être rejouée.
+  ///
+  /// Liaison coupée, délai dépassé, serveur en erreur : la même tentative peut
+  /// aboutir. En revanche une erreur MÉTIER — fichier refusé, accès interdit,
+  /// requête invalide — donnerait exactement le même résultat : la rejouer ne
+  /// ferait que retarder le message à l'utilisateur.
+  static bool _envoiMeriteReprise(Object e) {
+    if (e is ApiException) {
+      return e.type == ApiExceptionType.network ||
+          e.type == ApiExceptionType.timeout ||
+          e.type == ApiExceptionType.server;
+    }
+    // Erreur brute de Dio (connexion interrompue, réponse jamais reçue) : c'est
+    // précisément le cas d'un verrouillage d'écran en plein envoi.
+    return e is DioException;
+  }
+
   Future<Uint8List> telechargerFichier(String url) async {
     final reponse = await _dio.get<List<int>>(
       url,

@@ -675,12 +675,46 @@ def upload_audio_session(request):
                     )
                     logger.info(f"🎓 Professeur auto-résolu via Dispense: {resolved_professeur_text}")
         
+        # IDEMPOTENCE (tâche 40, étape C) — AVANT TOUTE CRÉATION.
+        #
+        # Un envoi de plusieurs mégaoctets peut être coupé par un verrouillage
+        # d'écran ou une coupure réseau APRÈS que le serveur a créé la session
+        # mais AVANT que l'application n'ait reçu la réponse. L'application
+        # rejoue alors la même tentative, avec la MÊME clé : on retrouve ici la
+        # session déjà créée et on la renvoie, plutôt que d'en fabriquer une
+        # seconde — un doublon que la tâche interdit explicitement.
+        cle_idempotence = (request.data.get('idempotence_key') or '').strip()
+        if cle_idempotence:
+            deja = Session.objects.filter(idempotence_key=cle_idempotence).first()
+            if deja:
+                logger.info(
+                    f"♻️ [Upload] Reprise détectée (clé {cle_idempotence}) : "
+                    f"session {deja.id} déjà enregistrée, aucune création."
+                )
+                return Response({
+                    'success': True,
+                    'deja_recu': True,
+                    'message': 'Cet enregistrement avait déjà été enregistré. '
+                               'Aucun doublon n\'a été créé.',
+                    'session': {
+                        'id': deja.id,
+                        'course_name': deja.course.nom,
+                        'date': deja.date,
+                        'professeur': deja.professeur,
+                        'processing_status': deja.processing_status,
+                        'audio_duration': deja.audio_duration,
+                        'audio_file': deja.audio_file.url if deja.audio_file else None,
+                    }
+                }, status=status.HTTP_201_CREATED)
+
         session_data = {
             'course': course.id,
             'date': timezone.now(),
             'professeur': resolved_professeur_text if resolved_professeur_text else '',
             'audio_file': audio_file
         }
+        if cle_idempotence:
+            session_data['idempotence_key'] = cle_idempotence
         if resolved_professeur_fk:
             session_data['professeur_fk'] = resolved_professeur_fk
         

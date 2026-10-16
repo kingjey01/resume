@@ -95,7 +95,11 @@ class SessionCreateSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Session
-        fields = ['course', 'date', 'professeur', 'professeur_fk', 'audio_file']
+        # `idempotence_key` : fournie par l'application, une fois par envoi, pour
+        # qu'une reprise retrouve sa session au lieu d'en créer une seconde
+        # (tâche 40, étape C). Voir la vue d'upload.
+        fields = ['course', 'date', 'professeur', 'professeur_fk', 'audio_file',
+                  'idempotence_key']
         extra_kwargs = {
             'professeur_fk': {'required': False, 'allow_null': True},
             'professeur': {'required': False, 'allow_blank': True},

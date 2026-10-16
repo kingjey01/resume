@@ -158,6 +158,27 @@ class Session(models.Model):
     error_message = models.TextField(blank=True, null=True, help_text="Message d'erreur en cas d'échec")
     submitted_at = models.DateTimeField(blank=True, null=True, help_text="Date de soumission au traitement")
     processed_at = models.DateTimeField(blank=True, null=True, help_text="Date de fin de traitement")
+
+    # CLÉ D'IDEMPOTENCE (tâche 40, étape C).
+    #
+    # Un envoi de plusieurs mégaoctets peut être interrompu par un verrouillage
+    # d'écran ou une coupure réseau APRÈS que le serveur a créé la session mais
+    # AVANT que l'application n'ait reçu la réponse. L'application rejoue alors
+    # la même tentative — et sans cette clé, le serveur créerait une SECONDE
+    # session pour le même enregistrement : un doublon, exactement ce que la
+    # tâche interdit.
+    #
+    # La clé est produite par l'application, une fois par envoi, et renvoyée à
+    # l'identique à chaque reprise. Le serveur la retrouve et rend SA session
+    # au lieu d'en créer une autre. `unique=True` garantit qu'une même clé ne
+    # peut désigner deux sessions, même si deux reprises arrivent en même temps.
+    #
+    # Nullable : les envois d'anciennes versions de l'application n'en portent
+    # pas, et Postgres autorise plusieurs NULL dans un index unique.
+    idempotence_key = models.CharField(
+        max_length=64, blank=True, null=True, unique=True,
+        help_text="Identifiant d'envoi fourni par l'application, contre les doublons",
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     
