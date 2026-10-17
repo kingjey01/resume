@@ -10,6 +10,11 @@ import 'package:resume_plus_clean/models/promotion.dart';
 import 'package:resume_plus_clean/models/filiere.dart';
 import 'package:resume_plus_clean/utils/logger.dart';
 import 'package:resume_plus_clean/exceptions/api_exception.dart';
+// IMPORT CONDITIONNEL : `background_downloader` ne prend en charge qu'Android et
+// iOS. Cette forme évite de l'importer sur le web, où il casserait la
+// compilation ; le repli renvoie simplement `null`.
+import 'background_upload_stub.dart'
+    if (dart.library.io) 'background_upload_io.dart';
 import 'package:resume_plus_clean/services/demo_data_service.dart';
 
 /// Page d'achats paginée (TACHE4 : affichage progressif des résumés achetés).
@@ -859,6 +864,50 @@ class ApiService {
     }
 
     try {
+      // CLÉ D'IDEMPOTENCE (tâche 40, étape C) : produite UNE fois pour cette
+      // tentative, et utilisée par les DEUX chemins d'envoi ci-dessous.
+      final cleIdempotence = (idempotenceKey != null && idempotenceKey.isNotEmpty)
+          ? idempotenceKey
+          : const Uuid().v4();
+
+      // ENVOI D'ARRIÈRE-PLAN — iOS SEULEMENT (tâche 40).
+      //
+      // Sur iOS, verrouiller le téléphone suspend l'application : un envoi de
+      // plusieurs minutes ne peut y survivre que confié au `URLSession`
+      // d'arrière-plan, où le SYSTÈME poursuit le transfert à notre place.
+      // Sur Android et sur le web, la fonction renvoie `null` et l'on garde le
+      // chemin Dio ci-dessous — Android étant déjà protégé par le service de
+      // premier plan (étape B).
+      final jeton = _currentAccessToken ?? await _storageService.accessToken;
+      final reponseArrierePlan = await uploadEnArrierePlan(
+        url: '$baseUrl/courses/sessions/upload-audio/',
+        filePath: audioFilePath,
+        bytes: audioBytes,
+        fileName: fileName,
+        mimeType: mimeType,
+        fields: {
+          for (final entree in (metadata ?? const {}).entries)
+            entree.key: entree.value.toString(),
+          'idempotence_key': cleIdempotence,
+        },
+        headers: {
+          if (jeton != null && jeton.isNotEmpty) 'Authorization': 'Bearer $jeton',
+        },
+        onProgress: onSendProgress,
+      );
+      if (reponseArrierePlan != null) {
+        if (reponseArrierePlan['success'] == true) {
+          return reponseArrierePlan;
+        }
+        throw ApiException(
+          (reponseArrierePlan['error'] ??
+                  reponseArrierePlan['detail'] ??
+                  "L'envoi a échoué.")
+              .toString(),
+          type: ApiExceptionType.server,
+        );
+      }
+
       final formData = FormData();
 
       // ENVOYER DEPUIS LE FICHIER QUAND IL EXISTE (2026-10-16).
@@ -899,14 +948,6 @@ class ApiService {
         });
       }
 
-      // CLÉ D'IDEMPOTENCE (tâche 40, étape C). Elle est produite UNE fois pour
-      // cette tentative d'envoi et renvoyée à l'identique à chaque reprise : le
-      // serveur y reconnaît un envoi déjà enregistré et rend SA session au lieu
-      // d'en créer une seconde. Sans elle, une réponse perdue après un
-      // verrouillage d'écran produirait un doublon.
-      final cleIdempotence = (idempotenceKey != null && idempotenceKey.isNotEmpty)
-          ? idempotenceKey
-          : const Uuid().v4();
       formData.fields.add(MapEntry('idempotence_key', cleIdempotence));
 
       // REPRISE AUTOMATIQUE (tâche 40, étape C).
