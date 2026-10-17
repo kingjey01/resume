@@ -2035,7 +2035,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Ne fermez pas cette page',
+                  // L'envoi repart de lui-même en cas de coupure (étape C),
+                  // mais sur iOS il est suspendu tant que l'écran est verrouillé :
+                  // mieux vaut le dire, pour que l'attente soit comprise.
+                  'Ne fermez pas cette page et ne verrouillez pas votre téléphone',
+                  textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppTheme.textLight,
                     fontSize: 11,

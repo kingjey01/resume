@@ -80,6 +80,33 @@ class CourseListCreateView(generics.ListCreateAPIView):
     def perform_create(self, serializer):
         """Assigner automatiquement l'université, promotion et filière lors de la création"""
         profile = self.request.user.profile
+
+        # PAS DE DOUBLON DE COURS (règle métier, 2026-10-17).
+        #
+        # Un cours ne doit pas être créé deux fois. La comparaison ignore la
+        # casse et les espaces de bord, et porte sur le PÉRIMÈTRE où un cours a
+        # un sens : la même université, la même filière et la même promotion.
+        #
+        # Ce périmètre n'est pas un détail : sans lui, « Droit civil » ne
+        # pourrait plus être créé dans deux filières différentes — ce qui serait
+        # faux, et bloquerait des cours légitimes. On refuse donc le doublon
+        # réel, pas deux homonymes.
+        nom = (serializer.validated_data.get('nom') or '').strip()
+        if nom:
+            doubles = Course.objects.filter(nom__iexact=nom)
+            if profile.universite:
+                doubles = doubles.filter(universites=profile.universite)
+            if profile.filiere:
+                doubles = doubles.filter(filieres=profile.filiere)
+            if profile.promotion:
+                doubles = doubles.filter(promotions=profile.promotion)
+            existant = doubles.first()
+            if existant:
+                raise exceptions.ValidationError({
+                    'nom': f'Le cours « {existant.nom} » existe déjà dans votre '
+                           'établissement, pour cette filière et cette promotion.'
+                })
+
         course = serializer.save(
             # L'AUTEUR, ENREGISTRÉ À LA CRÉATION (2026-10-14) : c'est ce champ
             # que `CanModifyObject` lit désormais pour autoriser la

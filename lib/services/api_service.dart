@@ -197,6 +197,17 @@ class ApiService {
           if (val is List && val.isNotEmpty) return val.first.toString();
         }
       }
+
+      // ERREUR DE CHAMP — ex. {"nom": ["Le cours « X » existe déjà…"]}.
+      //
+      // Une ValidationError de DRF sur un champ porte la clé DU CHAMP, pas
+      // `detail` : sans ce repli, un refus parfaitement explicite du serveur
+      // (doublon de cours, par exemple) s'affichait à l'écran comme « une
+      // erreur inattendue ». On prend la première valeur lisible de la réponse.
+      for (final valeur in data.values) {
+        if (valeur is String && valeur.isNotEmpty) return valeur;
+        if (valeur is List && valeur.isNotEmpty) return valeur.first.toString();
+      }
     }
     return null;
   }
