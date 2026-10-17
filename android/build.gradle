@@ -23,6 +23,50 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// ALIGNER JAVA ET KOTLIN DANS CHAQUE MODULE — sinon le build Android s'arrête :
+//
+//     Execution failed for task ':screen_protector:compileReleaseKotlin'.
+//     > Inconsistent JVM-target compatibility detected for tasks
+//       'compileReleaseJavaWithJavac' (17) and 'compileReleaseKotlin' (21).
+//
+// Les modules des plugins Flutter ne déclarent ni l'un ni l'autre : leur Java
+// suit le défaut d'Android Gradle Plugin (17) et leur Kotlin suit le JDK qui
+// fait tourner Gradle — 21 avec le JDK installé ici, 25 avec celui d'Android
+// Studio. Deux cibles différentes dans un même module, et Gradle refuse.
+//
+// On ne fixe donc AUCUNE valeur en dur : chaque module garde la cible Java
+// qu'il a déjà (11 pour l'application, 17 par défaut pour les plugins) et son
+// Kotlin s'aligne dessus. L'application n'est pas touchée, les plugins cessent
+// de se contredire.
+//
+// `projectsEvaluated` ET NON `afterEvaluate` : la ligne
+// `project.evaluationDependsOn(":app")` ci-dessus fait évaluer le module `:app`
+// pendant l'évaluation du projet racine. Un `afterEvaluate` sur `:app` lèverait
+// donc « Cannot run Project.afterEvaluate(Closure) when the project is already
+// evaluated ». Ici, tous les modules sont évalués et aucune tâche n'a encore
+// été exécutée : c'est le bon moment.
+gradle.projectsEvaluated {
+    subprojects.each { projet ->
+        def extensionAndroid = projet.extensions.findByName("android")
+        if (extensionAndroid == null) { return }
+        def cibleJava = extensionAndroid.compileOptions.targetCompatibility
+        // Repli sur 17 si le module ne déclare rien : c'est la cible Java que
+        // l'AGP applique lui-même à ces modules — celle de l'erreur d'origine
+        // (« compileReleaseJavaWithJavac (17) »).
+        def cible = (cibleJava == null) ? "17" : cibleJava.toString()
+        // Les tâches sont visées PAR LEUR NOM (compileDebugKotlin,
+        // compileReleaseKotlin…) plutôt que par la classe
+        // `org.jetbrains.kotlin.gradle.tasks.KotlinCompile` : le greffon Kotlin
+        // est appliqué dans les sous-modules, sa classe n'est pas forcément sur
+        // le classpath du script racine.
+        projet.tasks.matching { t ->
+            t.name.startsWith("compile") && t.name.endsWith("Kotlin")
+        }.configureEach { t ->
+            t.kotlinOptions.jvmTarget = cible
+        }
+    }
+}
+
 tasks.register("clean", Delete) {
     delete rootProject.buildDir
 }
