@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- PUSH NOTIFICATIONS (tâche 55).
+
+	     `development` correspond aux builds de développement et à TestFlight en
+	     signature automatique. Pour un build de DISTRIBUTION (App Store), c'est
+	     le profil de provisionnement qui impose `production` : Xcode fusionne
+	     l'entitlement du profil avec celui-ci, et c'est la valeur du profil qui
+	     l'emporte. Rien à changer ici au moment de publier. -->
+	<key>aps-environment</key>
+	<string>development</string>
+</dict>
+</plist>

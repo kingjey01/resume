@@ -114,6 +114,12 @@
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>audio</string>
+		<!-- PUSH EN ARRIÈRE-PLAN (tâche 55). Sans cette valeur, une notification
+		     reçue application en arrière-plan n'est pas remise à Dart : le
+		     gestionnaire `onBackgroundMessage` ne s'exécute jamais. La capacité
+		     Xcode (com.apple.BackgroundModes) ne suffit pas — elle n'active que
+		     l'interface ; c'est CETTE liste que lit iOS. -->
+		<string>remote-notification</string>
 	</array>
 	<key>UIRequiresFullScreen</key>
 	<true/>

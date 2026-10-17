@@ -54,6 +54,24 @@ class FcmService {
     // 2. Demander les permissions
     await _requestPermissions();
 
+    // 2 bis. TOKEN APNs (iOS) — tâche 55.
+    //
+    // Firebase ne peut pas fabriquer de jeton FCM tant qu'iOS ne lui a pas remis
+    // le jeton APNs. S'il est absent, tout envoi push échoue SILENCIEUSEMENT
+    // (le serveur croit avoir envoyé). On le signale donc au diagnostic, sans
+    // imprimer le jeton entier — quelques caractères suffisent à savoir s'il
+    // est là.
+    if (!kIsWeb && defaultTargetPlatform == TargetPlatform.iOS) {
+      try {
+        final apnsToken = await _messaging.getAPNSToken();
+        debugPrint(apnsToken == null
+            ? '⚠️ [FCM] Token APNs ABSENT : Firebase ne pourra pas remettre de jeton'
+            : '📱 [FCM] Token APNs reçu : …${apnsToken.substring(apnsToken.length - 8)}');
+      } catch (e) {
+        debugPrint('⚠️ [FCM] Token APNs indisponible : $e');
+      }
+    }
+
     // 3. Configurer les notifications locales (foreground Android)
     await _setupLocalNotifications();
 
