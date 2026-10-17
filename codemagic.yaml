@@ -30,8 +30,23 @@ workflows:
       xcode: latest
       cocoapods: default
       ios_signing:
+        # UN SEUL PROFIL, ET LE BON (tâche 55/56).
+        #
+        # Le build précédent a échoué parce qu'il a retenu un profil créé AVANT
+        # l'activation de Push sur l'App ID :
+        #
+        #   Provisioning profile "muhtasari AppStore" doesn't include the Push
+        #   Notifications capability / the aps-environment entitlement.
+        #
+        # `muhtasari AppStore V2` est le profil régénéré avec la capacité Push.
+        # On ne liste QUE lui : laisser figurer les anciens laisserait
+        # `xcode-project use-profiles` choisir un profil incomplet.
+        #
+        # À VÉRIFIER dans Codemagic : ce profil doit être présent dans les
+        # identités de signature iOS, sous ce nom exact.
         provisioning_profiles:
-          - "provider App store"
+          - "muhtasari AppStore V2"
+        # Le certificat ne dépend pas du Bundle ID : inchangé.
         certificates:
           - "resume key"
 
