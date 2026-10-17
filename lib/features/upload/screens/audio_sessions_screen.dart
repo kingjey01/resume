@@ -20,6 +20,9 @@ class AudioSessionsScreen extends StatefulWidget {
 class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTickerProviderStateMixin {
   final ApiService _apiService = ApiService();
   final AudioPlayer _audioPlayer = AudioPlayer();
+  // Abonnements du lecteur, annulés à la fermeture de l'écran.
+  StreamSubscription<PlayerState>? _subEtat;
+  StreamSubscription<void>? _subFin;
   late TabController _tabController;
   
   List<dynamic> _sessions = [];
@@ -27,6 +30,8 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   bool _isLoading = true;
   String? _currentPlayingUrl;
   bool _isPlaying = false;
+  // Voir _playAudio : empêche deux préparations de lecture simultanées.
+  bool _lectureEnPreparation = false;
   Set<int> _processingSessionIds = {};
   String _currentFilter = 'all';
   Timer? _autoRefreshTimer;
@@ -51,13 +56,24 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   }
 
   void _setupAudioPlayer() {
-    _audioPlayer.onPlayerStateChanged.listen((PlayerState state) {
+    // Purge du cache des lectures, faite à l'ouverture et jamais pendant une
+    // lecture (tâche 41 : ne pas supprimer un fichier que le lecteur utilise).
+    _purgerCacheAncien();
+
+    // LES ABONNEMENTS SONT CONSERVÉS POUR ÊTRE ANNULÉS À LA FERMETURE.
+    // Un lecteur qui émet après la disparition de l'écran appelle `setState`
+    // sur un State détruit — c'est l'une des causes des erreurs « au changement
+    // d'écran » signalées dans la tâche 41. Le garde `mounted` couvre en plus
+    // la fenêtre où l'écran est en cours de destruction.
+    _subEtat = _audioPlayer.onPlayerStateChanged.listen((PlayerState state) {
+      if (!mounted) return;
       setState(() {
         _isPlaying = state == PlayerState.playing;
       });
     });
 
-    _audioPlayer.onPlayerComplete.listen((event) {
+    _subFin = _audioPlayer.onPlayerComplete.listen((event) {
+      if (!mounted) return;
       setState(() {
         _isPlaying = false;
         _currentPlayingUrl = null;
@@ -73,6 +89,10 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
       final result = await _apiService.getSessionsQueue();
 
       if (result['success'] == true) {
+        // La réponse peut arriver APRÈS la fermeture de l'écran (changement
+        // d'onglet pendant un rafraîchissement) : setState sur un State détruit
+        // lève une exception. On vérifie donc l'écran avant d'écrire.
+        if (!mounted) return;
         setState(() {
           _sessions = result['sessions'] ?? [];
           _stats = result['stats'] ?? {};
@@ -84,6 +104,7 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
       }
     } catch (e) {
       print('❌ Erreur chargement sessions: $e');
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
       });
@@ -96,15 +117,78 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
     }
   }
 
-  /// Écrit les octets reçus dans un fichier temporaire AVEC UNE EXTENSION.
+  /// CACHE DE LECTURE — un fichier stable par enregistrement.
   ///
-  /// AVPlayer déduit le format du média de l'EXTENSION DU FICHIER : un fichier
-  /// sans extension, ou mal nommé, est refusé sans autre explication.
-  Future<File> _ecrireFichierTemporaire(Uint8List octets, String extension) async {
-    final fichier = File(
-      '${Directory.systemTemp.path}/session_'
-      '${DateTime.now().millisecondsSinceEpoch}.$extension',
-    );
+  /// CE QUI CAUSAIT `FileSystemException: writeFrom failed` (tâche 41) : chaque
+  /// lecture téléchargeait l'audio et l'écrivait sous un NOUVEAU nom horodaté,
+  /// sans jamais supprimer les précédents. Un enregistrement de 65 Mo relu
+  /// quelques fois remplissait donc le dossier temporaire de l'application, et
+  /// l'écriture suivante échouait — « writeFrom failed », exactement l'erreur
+  /// signalée, et intermittente par nature.
+  ///
+  /// Avec ce cache : un seul fichier par enregistrement, réutilisé d'une lecture
+  /// à l'autre. Plus d'écriture répétée, plus d'accumulation — et surtout plus
+  /// de téléchargement quand le fichier est déjà là (tâche 41, §2 et §6).
+  Directory get _dossierCache =>
+      Directory('${Directory.systemTemp.path}/lectures_muhtasari');
+
+  /// Clé stable, tirée du NOM DU FICHIER dans l'URL (les paramètres changent).
+  String _cleDeCache(String url) {
+    final nom = url.split('?').first.split('/').last;
+    final propre = nom.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+    return propre.isEmpty ? 'audio' : propre;
+  }
+
+  String _baseDeCle(String cle) =>
+      cle.contains('.') ? cle.substring(0, cle.lastIndexOf('.')) : cle;
+
+  /// Lecture déjà en cache, quelle que soit l'extension retenue à l'écriture.
+  File? _fichierEnCache(String cle) {
+    try {
+      if (!_dossierCache.existsSync()) return null;
+      final base = _baseDeCle(cle);
+      for (final entree in _dossierCache.listSync()) {
+        if (entree is! File) continue;
+        final nom = entree.uri.pathSegments.last;
+        final nomBase = nom.contains('.')
+            ? nom.substring(0, nom.lastIndexOf('.'))
+            : nom;
+        if (nomBase == base && entree.lengthSync() > 0) return entree;
+      }
+    } catch (_) {
+      // Un cache illisible n'empêche pas de retélécharger.
+    }
+    return null;
+  }
+
+  /// Supprime les lectures en cache depuis plus de sept jours.
+  ///
+  /// Appelée à l'ouverture de l'écran, jamais pendant une lecture : on ne
+  /// supprime pas un fichier que le lecteur utilise (tâche 41, contraintes).
+  void _purgerCacheAncien() {
+    try {
+      if (!_dossierCache.existsSync()) return;
+      final limite = DateTime.now().subtract(const Duration(days: 7));
+      for (final entree in _dossierCache.listSync()) {
+        if (entree is File && entree.statSync().modified.isBefore(limite)) {
+          entree.deleteSync();
+        }
+      }
+    } catch (_) {
+      // Sans conséquence : au pire, le cache reste un peu plus longtemps.
+    }
+  }
+
+  /// Écrit les octets dans le cache, sous un nom STABLE, avec l'extension
+  /// réelle du contenu — AVPlayer la lit pour choisir son décodeur.
+  Future<File> _ecrireDansCache(
+      String cle, Uint8List octets, String extension) async {
+    if (!_dossierCache.existsSync()) {
+      await _dossierCache.create(recursive: true);
+    }
+    final fichier = File('${_dossierCache.path}/${_baseDeCle(cle)}.$extension');
+    // Une écriture ratée (stockage plein, sandbox) est dite clairement à
+    // l'appelant, qui affichera un message compréhensible.
     await fichier.writeAsBytes(octets, flush: true);
     return fichier;
   }
@@ -164,6 +248,11 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   }
 
   Future<void> _playAudio(String audioUrl) async {
+    // ANTI-DOUBLE-APPUI (tâche 41, §6). Deux appuis rapides lanceraient deux
+    // téléchargements vers LE MÊME fichier de cache : une écriture concurrente
+    // — dont « FileSystemException: writeFrom failed » était le symptôme.
+    if (_lectureEnPreparation) return;
+    _lectureEnPreparation = true;
     try {
       if (_currentPlayingUrl == audioUrl && _isPlaying) {
         await _audioPlayer.pause();
@@ -186,39 +275,59 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
         // « AVPlayerItem.Status.failed on setSourceUrl: Unknown error, null ».
         // Via Dio, la requête porte le jeton de l'application, et un échec
         // devient un code HTTP que l'on peut afficher.
-        final octets = await _apiService.telechargerFichier(fullUrl);
-        if (octets.isEmpty) {
-          throw Exception('le serveur a renvoyé un fichier vide');
-        }
+        // 1. DÉJÀ EN CACHE ? On lit, sans toucher au réseau (tâche 41, §2) :
+        //    un fichier présent localement ne doit pas être retéléchargé.
+        final cle = _cleDeCache(fullUrl);
+        var fichier = _fichierEnCache(cle);
 
-        // LE SERVEUR PEUT RÉPONDRE 200 AVEC AUTRE CHOSE QUE L'AUDIO.
-        // Une page de connexion, une page d'erreur HTML : les lire comme un
-        // fichier audio fait échouer le lecteur avec « Unknown error », sans
-        // jamais dire que ce n'est pas de l'audio. Un '<' en premier octet est
-        // la signature d'un document HTML ou XML.
-        if (octets.first == 0x3C) {
-          throw Exception(
-            'le serveur a renvoyé du HTML (${octets.length} octets) au lieu de '
-            'l\'audio — le fichier n\'est pas accessible à cette adresse',
-          );
-        }
+        if (fichier == null) {
+          final octets = await _apiService.telechargerFichier(fullUrl);
+          if (octets.isEmpty) {
+            throw Exception('le serveur a renvoyé un fichier vide');
+          }
 
-        // L'EXTENSION VIENT DU CONTENU, ET NON DE L'URL : c'est elle qu'AVPlayer
-        // lit pour choisir son décodeur. Le nom stocké par le serveur peut ne
-        // pas refléter le format réel — et c'est ce qui fait qu'un même fichier
-        // se lit sur Android (qui inspecte le contenu) et échoue sur iOS.
-        final extension =
-            _extensionDepuisContenu(octets) ?? _extensionDepuisUrl(fullUrl);
-        final fichier = await _ecrireFichierTemporaire(octets, extension);
+          // LE SERVEUR PEUT RÉPONDRE 200 AVEC AUTRE CHOSE QUE L'AUDIO.
+          // Une page de connexion, une page d'erreur HTML : les lire comme un
+          // fichier audio fait échouer le lecteur avec « Unknown error », sans
+          // jamais dire que ce n'est pas de l'audio. Un '<' en premier octet
+          // est la signature d'un document HTML ou XML.
+          if (octets.first == 0x3C) {
+            throw Exception(
+              'le serveur a renvoyé du HTML (${octets.length} octets) au lieu '
+              'de l\'audio — le fichier n\'est pas accessible à cette adresse',
+            );
+          }
+
+          // L'EXTENSION VIENT DU CONTENU, ET NON DE L'URL : c'est elle
+          // qu'AVPlayer lit pour choisir son décodeur. Le nom stocké par le
+          // serveur peut ne pas refléter le format réel — et c'est ce qui fait
+          // qu'un même fichier se lit sur Android (qui inspecte le contenu) et
+          // échoue sur iOS.
+          final extension =
+              _extensionDepuisContenu(octets) ?? _extensionDepuisUrl(fullUrl);
+          try {
+            fichier = await _ecrireDansCache(cle, octets, extension);
+          } catch (e) {
+            // L'ÉCRITURE LOCALE ÉCHOUE (stockage plein, accès refusé) : c'est
+            // l'erreur « writeFrom failed » signalée. On la nomme, au lieu de
+            // la laisser remonter sous la forme d'une exception inconnue.
+            throw Exception(
+              'Impossible d\'écrire le fichier de lecture (stockage plein ou '
+              'accès refusé). Libérez de l\'espace puis réessayez. ($e)',
+            );
+          }
+        }
 
         try {
           await _audioPlayer.play(DeviceFileSource(fichier.path));
         } on PlatformException {
-          // LE FICHIER EST ARRIVÉ, MAIS LE LECTEUR LE REFUSE : le problème est
-          // dans son CONTENU, pas dans le réseau.
+          // LE FICHIER EST LÀ, MAIS LE LECTEUR LE REFUSE : le problème est son
+          // CONTENU, pas le réseau. On nomme le fichier, qui reste vérifiable
+          // même lorsqu'il venait du cache.
           throw Exception(
-            'audio téléchargé (${octets.length} octets, format détecté '
-            '.$extension) mais refusé par le lecteur',
+            'audio refusé par le lecteur '
+            '(${fichier.path.split('/').last}) — format non pris en charge '
+            'ou fichier incomplet',
           );
         }
         setState(() {
@@ -233,10 +342,14 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
           ? 'le serveur a répondu ${e.response!.statusCode}'
           : '$e';
       SnackbarService.show('❌ Erreur de lecture : $detail', isError: true);
-      setState(() {
-        _isPlaying = false;
-        _currentPlayingUrl = null;
-      });
+      if (mounted) {
+        setState(() {
+          _isPlaying = false;
+          _currentPlayingUrl = null;
+        });
+      }
+    } finally {
+      _lectureEnPreparation = false;
     }
   }
 
@@ -420,6 +533,8 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   @override
   void dispose() {
     _autoRefreshTimer?.cancel();
+    _subEtat?.cancel();
+    _subFin?.cancel();
     _tabController.dispose();
     _audioPlayer.dispose();
     super.dispose();
