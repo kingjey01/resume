@@ -1179,6 +1179,11 @@ def _expirer_transcriptions_bloquees(base_queryset):
     """
     from datetime import timedelta
     from django.db.models import Q
+    # `timezone` n'est importé que LOCALEMENT dans la vue d'upload : sans cet
+    # import, le helper levait « name 'timezone' is not defined » et la file
+    # entière répondait une erreur. L'import est donc fait ici, au plus près de
+    # son usage, comme ailleurs dans ce fichier.
+    from django.utils import timezone
 
     limite = timezone.now() - timedelta(
         minutes=DELAI_MAX_TRANSCRIPTION_SANS_PROGRESSION)
