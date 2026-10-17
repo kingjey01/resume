@@ -702,6 +702,57 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
     );
   }
 
+  /// Supprime un enregistrement de la file, après confirmation (tâche 42, §2).
+  ///
+  /// Le fichier de lecture mis en cache est supprimé AUSSI : sinon il resterait
+  /// sur l'appareil, rattaché à un enregistrement qui n'existe plus.
+  Future<void> _supprimerSession(
+      Map<String, dynamic> session, int sessionId) async {
+    final confirme = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Supprimer cet enregistrement ?'),
+        content: const Text(
+          'Le fichier sera supprimé du serveur et de cet appareil. '
+          'Cette action est définitive.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Annuler'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            style: TextButton.styleFrom(foregroundColor: AppTheme.error),
+            child: const Text('Supprimer'),
+          ),
+        ],
+      ),
+    );
+    if (confirme != true) return;
+
+    try {
+      await _apiService.supprimerSessionAudio(sessionId);
+
+      // LE CACHE LOCAL AUSSI (voir _fichierEnCache) : un fichier oublié
+      // occuperait l'espace de l'appareil pour rien.
+      final url = (session['audio_file'] ?? '').toString();
+      if (url.isNotEmpty) {
+        try {
+          _fichierEnCache(_cleDeCache(url))?.deleteSync();
+        } catch (_) {
+          // Sans conséquence : la purge à l'ouverture le fera.
+        }
+      }
+
+      if (!mounted) return;
+      await _loadSessions();
+      SnackbarService.show('Enregistrement supprimé.');
+    } catch (e) {
+      SnackbarService.show('Suppression impossible : $e', isError: true);
+    }
+  }
+
   Widget _buildSessionCard(Map<String, dynamic> session) {
     final audioUrl = session['audio_file'] as String?;
     final sessionId = session['id'] as int?;
@@ -901,7 +952,25 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
                     ),
                   ),
                 const SizedBox(width: 8),
-                
+
+                // SUPPRIMER (tâche 42, §2) — seulement « En attente » ou
+                // « En échec » : les deux états où le serveur l'autorise. Une
+                // transcription en cours ou un enregistrement déjà traité ne se
+                // suppriment pas d'un glissement de doigt.
+                if (sessionId != null && (status == 'pending' || status == 'failed'))
+                  OutlinedButton(
+                    onPressed: isProcessing
+                        ? null
+                        : () => _supprimerSession(session, sessionId),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: AppTheme.error,
+                      side: BorderSide(color: AppTheme.error.withOpacity(0.6)),
+                      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                    ),
+                    child: const Icon(Icons.delete_outline_rounded, size: 18),
+                  ),
+
                 if (status == 'pending' || status == 'processing')
                   Expanded(
                     child: ElevatedButton.icon(
@@ -933,6 +1002,7 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 8),
                         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+
                       ),
                     ),
                   ),

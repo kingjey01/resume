@@ -27,6 +27,8 @@ urlpatterns = [
     path('sessions/audio/queue/', views.get_sessions_queue, name='get_sessions_queue'),
     path('sessions/<int:session_id>/process-audio/', views.process_audio_session, name='process_audio_session'),
     path('sessions/<int:session_id>/retry/', views.retry_failed_session, name='retry_failed_session'),
+    # TÂCHE 42, §2 — suppression d'un audio « En attente » ou « En échec ».
+    path('sessions/<int:session_id>/supprimer-audio/', views.supprimer_session_audio, name='supprimer_session_audio'),
     path('sessions/<int:session_id>/audio-file/', views.get_audio_file, name='get_audio_file'),
     path('sessions/<int:session_id>/serve-audio/', views.serve_audio_file, name='serve_audio_file'),
     path('sessions/audio/stats/', views.get_audio_processing_stats, name='get_audio_processing_stats'),

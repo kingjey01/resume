@@ -1150,6 +1150,57 @@ def retry_failed_session(request, session_id):
         )
 
 
+# DÉLAI MAXIMAL SANS PROGRESSION AVANT DE DÉCLARER UNE TRANSCRIPTION EN ÉCHEC
+# (tâche 42, §1). Constante explicite : c'est un choix métier, pas un détail —
+# une transcription qui n'a pas bougé depuis dix minutes est considérée comme
+# bloquée, et l'utilisateur peut la relancer (route `retry_failed_session`).
+DELAI_MAX_TRANSCRIPTION_SANS_PROGRESSION = 10  # minutes
+
+
+def _expirer_transcriptions_bloquees(base_queryset):
+    """Passe en ÉCHEC les transcriptions sans progression depuis dix minutes.
+
+    DISTINGUER UN TRAITEMENT BLOQUÉ D'UN TRAITEMENT ACTIF : une session ne sort
+    de `pending`/`processing` qu'en atteignant un nouvel état (`transcribed`,
+    `summarized`) ou `failed`. On mesure donc le temps écoulé depuis
+    `submitted_at` — le moment où le traitement a effectivement commencé — et,
+    pour une session jamais soumise, depuis sa création. Tant qu'elle avance,
+    elle change d'état et échappe à ce filtre ; seule une session immobile est
+    expirée.
+
+    POURQUOI À LA LECTURE, et non par une tâche planifiée : le seul instant où
+    cet état importe est celui où la file est consultée. Le marquage y est donc
+    immédiat et ne dépend pas de Celery beat. Le défaut est borné (`[:500]`) :
+    on ne bloque pas la requête sur un arriéré anormal.
+
+    `update()` n'est pas utilisable sur le queryset fourni : il porte un
+    `distinct()` (filtrage par relations plusieurs-à-plusieurs). On passe donc
+    par les identifiants.
+    """
+    from datetime import timedelta
+    from django.db.models import Q
+
+    limite = timezone.now() - timedelta(
+        minutes=DELAI_MAX_TRANSCRIPTION_SANS_PROGRESSION)
+    bloquees = base_queryset.filter(
+        processing_status__in=['pending', 'processing'],
+    ).filter(
+        Q(submitted_at__lt=limite) |
+        Q(submitted_at__isnull=True, created_at__lt=limite)
+    )
+    ids = list(bloquees.values_list('id', flat=True)[:500])
+    if not ids:
+        return 0
+    return Session.objects.filter(id__in=ids).update(
+        processing_status='failed',
+        error_message=(
+            "Traitement interrompu : aucune progression depuis "
+            f"{DELAI_MAX_TRANSCRIPTION_SANS_PROGRESSION} minutes. "
+            "Vous pouvez relancer la transcription."
+        ),
+    )
+
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def get_sessions_queue(request):
@@ -1171,7 +1222,15 @@ def get_sessions_queue(request):
         # Admin peut voir toutes les sessions
         if profile.is_admin:
             base_queryset = Session.objects.filter(audio_file__isnull=False).exclude(audio_file='')
-        
+
+        # EXPIRATION DES TRANSCRIPTIONS BLOQUÉES (tâche 42, §1). Faite AVANT les
+        # statistiques : l'échec doit déjà être compté quand la file s'affiche.
+        expirees = _expirer_transcriptions_bloquees(base_queryset)
+        if expirees:
+            logger.info(
+                "⏱️ %s transcription(s) expirée(s) après %s minutes sans progression.",
+                expirees, DELAI_MAX_TRANSCRIPTION_SANS_PROGRESSION)
+
         # Filtrer par statut si spécifié
         status_filter = request.query_params.get('status', None)
         
@@ -1207,6 +1266,67 @@ def get_sessions_queue(request):
             {'error': f'Erreur lors de la récupération: {str(e)}'}, 
             status=status.HTTP_500_INTERNAL_SERVER_ERROR
         )
+
+
+@api_view(['DELETE'])
+@permission_classes([permissions.IsAuthenticated])
+def supprimer_session_audio(request, session_id):
+    """Supprime un audio de la file d'attente (tâche 42, §2).
+
+    SEULEMENT « EN ATTENTE » OU « ÉCHEC ». Une transcription en cours ne doit pas
+    être supprimée sous les pieds du traitement — on ne saurait plus quel
+    résultat rattacher à quoi — et un enregistrement déjà traité porte un résumé
+    qui se détruirait d'un geste mal placé.
+
+    PÉRIMÈTRE IDENTIQUE À LA FILE : la session doit appartenir à l'université,
+    la promotion et la filière du demandeur (ou l'utilisateur être administrateur).
+    Une session invisible dans la file ne peut pas être supprimée par son
+    identifiant.
+
+    LE FICHIER EST SUPPRIMÉ AVANT LA LIGNE : dans l'autre ordre, une erreur
+    laisserait un fichier orphelin sur le disque, sans plus rien pour le
+    désigner. Un fichier déjà absent n'empêche pas la suppression.
+    """
+    try:
+        profile = request.user.profile
+    except Exception:
+        return Response({'error': 'Profil introuvable.'},
+                        status=status.HTTP_403_FORBIDDEN)
+
+    base = Session.objects.all()
+    if not profile.is_admin:
+        base = base.filter(
+            course__universites=profile.universite,
+            course__promotions=profile.promotion,
+            course__filieres=profile.filiere,
+        )
+    session = base.filter(id=session_id).distinct().first()
+
+    if session is None:
+        return Response({'error': 'Enregistrement introuvable.'},
+                        status=status.HTTP_404_NOT_FOUND)
+
+    if session.processing_status not in ('pending', 'failed'):
+        return Response({
+            'error': "Seul un enregistrement « En attente » ou « En échec » peut "
+                     "être supprimé. Celui-ci est en cours de traitement ou déjà "
+                     "traité."
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        if session.audio_file:
+            session.audio_file.delete(save=False)
+    except Exception as erreur:
+        # Le fichier a peut-être déjà disparu du disque : la ligne, elle, doit
+        # pouvoir partir. On le signale sans bloquer.
+        logger.warning("⚠️ Fichier audio non supprimé (session %s) : %s",
+                       session.id, erreur)
+
+    session.delete()
+    return Response({
+        'success': True,
+        'message': "Enregistrement supprimé.",
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])

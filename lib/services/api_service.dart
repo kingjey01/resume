@@ -1148,6 +1148,24 @@ class ApiService {
     }
   }
 
+  /// Supprime un enregistrement de la file d'attente (tâche 42, §2).
+  ///
+  /// Le serveur n'accepte que les statuts « En attente » et « En échec » : une
+  /// transcription en cours ne se supprime pas sous les pieds du traitement, et
+  /// un enregistrement déjà traité porte un résumé. Le refus revient sous forme
+  /// de 400 avec un message explicite, que l'appelant affiche tel quel.
+  Future<void> supprimerSessionAudio(int sessionId) async {
+    try {
+      await _dio.delete('/sessions/$sessionId/supprimer-audio/');
+    } catch (e) {
+      throw ApiException(
+        getErrorMessage(e),
+        type: ApiExceptionType.unknown,
+        originalError: e,
+      );
+    }
+  }
+
   Future<List<dynamic>> getAudioSessionsDetailed() async {
     try {
       final response = await _dio.get('/courses/sessions/detailed/');
