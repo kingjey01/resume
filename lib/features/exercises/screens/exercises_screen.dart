@@ -632,6 +632,9 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
     final peutGenerer = quota['peut_generer'] == true;
     final raison = quota['raison_blocage'] as String?;
     final message = quota['message_blocage'] as String?;
+    // Le plafond journalier ne se contourne pas par un renouvellement : on ne
+    // propose donc jamais « Renouveler » dans ce cas (tâche 57).
+    final estPlafondJournalier = raison == 'daily_quota_exhausted';
     final service = quota['service']?.toString();
     final dateDebut = _formatIsoDate(quota['date_debut'] as String?);
     final dateFin = _formatIsoDate(quota['date_fin'] as String?);
@@ -764,7 +767,7 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
                         color: AppTheme.error, size: 34),
                     const SizedBox(height: 10),
                     Text(
-                      raison == 'daily_quota_exhausted'
+                      estPlafondJournalier
                           ? 'Plafond journalier atteint'
                           : 'Quota mensuel épuisé',
                       style: Theme.of(context)
@@ -775,33 +778,40 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      message ??
-                          'Vous ne pouvez plus générer de QCM pour le moment.',
+                      estPlafondJournalier
+                          ? 'Revenez demain pour générer de nouveaux QCM. '
+                              'Le plafond se réinitialise chaque jour.'
+                          : message ??
+                              'Vous ne pouvez plus générer de QCM pour le moment.',
                       textAlign: TextAlign.center,
                       style: const TextStyle(
                           color: AppTheme.textSecondary, fontSize: 13),
                     ),
-                    const SizedBox(height: 14),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _navigateToSubscription,
-                        icon: const Icon(Icons.diamond_rounded,
-                            size: 18, color: Colors.white),
-                        label: const Text(
-                          'Renouveler l\'abonnement',
-                          style: TextStyle(
-                              color: Colors.white, fontWeight: FontWeight.w600),
-                        ),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: AppTheme.error,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(12)),
-                          elevation: 0,
+                    // Renouvellement proposé UNIQUEMENT pour le quota mensuel.
+                    if (!estPlafondJournalier) ...[
+                      const SizedBox(height: 14),
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _navigateToSubscription,
+                          icon: const Icon(Icons.diamond_rounded,
+                              size: 18, color: Colors.white),
+                          label: const Text(
+                            'Renouveler l\'abonnement',
+                            style: TextStyle(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600),
+                          ),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: AppTheme.error,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(12)),
+                            elevation: 0,
+                          ),
                         ),
                       ),
-                    ),
+                    ],
                   ],
                 ),
               ),

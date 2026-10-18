@@ -311,16 +311,26 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
         if (e is ApiException &&
             (e.code == 'quota_exhausted' ||
                 e.code == 'daily_quota_exhausted')) {
+          final estPlafondJournalier = e.code == 'daily_quota_exhausted';
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-              content: Text(e.message),
+              content: Text(
+                estPlafondJournalier
+                    ? 'Plafond journalier atteint. Revenez demain pour '
+                        'générer de nouveaux QCM.'
+                    : e.message,
+              ),
               backgroundColor: AppTheme.error,
               duration: const Duration(seconds: 6),
-              action: SnackBarAction(
-                label: 'Renouveler',
-                textColor: Colors.white,
-                onPressed: _navigateToSubscription,
-              ),
+              // Pas de renouvellement pour un plafond journalier : il ne se
+              // contourne pas et le reset est automatique le lendemain.
+              action: estPlafondJournalier
+                  ? null
+                  : SnackBarAction(
+                      label: 'Renouveler',
+                      textColor: Colors.white,
+                      onPressed: _navigateToSubscription,
+                    ),
             ),
           );
         } else {

@@ -163,7 +163,7 @@ def quota_snapshot(sub, now=None):
         raison = 'daily_quota_exhausted'
         message = (
             "Plafond journalier de générations QCM atteint. "
-            "Revenez demain ou renouvelez votre abonnement."
+            "Revenez demain pour générer de nouveaux QCM."
         )
 
     # La prochaine réinitialisation n'a de sens que si l'abonnement couvre
