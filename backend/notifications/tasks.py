@@ -33,21 +33,59 @@ def _get_fcm_app():
 
 
 def _is_invalid_token_error(exception):
-    """Returns True if the FCM error means the token is invalid/expired and must be deleted."""
+    """True si l'erreur FCM désigne un JETON périmé qu'il faut supprimer.
+
+    ATTENTION — CLASSER UNE ERREUR NE DOIT JAMAIS FAIRE ÉCHOUER L'ENVOI.
+
+    `messaging.InvalidArgumentError` N'EXISTE PAS : la classe vit dans
+    `firebase_admin.exceptions`. La chercher dans `messaging` levait un
+    AttributeError, qui n'était pas attrapé (seul `ImportError` l'était) et qui
+    tuait TOUTE la tâche d'envoi dès qu'un seul jeton échouait — d'où l'absence
+    totale de notifications, alors que le serveur croyait avoir envoyé.
+    """
     if exception is None:
         return False
     try:
+        from firebase_admin import exceptions as fb_exceptions
         from firebase_admin import messaging
-        if isinstance(exception, messaging.UnregisteredError):
+
+        def _est(nom, module):
+            """`isinstance` qui tolère une classe absente de la version installée.
+
+            On n'accède JAMAIS directement à l'attribut : une seule classe
+            manquante aurait interrompu toute la classification — c'est le défaut
+            d'origine, et il ne doit pas pouvoir revenir sous une autre forme.
+            """
+            classe = getattr(module, nom, None)
+            return classe is not None and isinstance(exception, classe)
+
+        # JETON INCONNU : application désinstallée, jeton périmé ou réinitialisé.
+        if _est('UnregisteredError', messaging):
             return True
-        # InvalidArgumentError covers INVALID_ARGUMENT from FCM
-        if isinstance(exception, messaging.InvalidArgumentError):
+
+        # JETON ÉMIS POUR UNE AUTRE APPLICATION du projet.
+        if _est('SenderIdMismatchError', messaging):
             return True
-    except ImportError:
+
+        # CONFIGURATION, ET NON JETON : clé APNs absente ou invalide. Supprimer
+        # le jeton ici effacerait des jetons parfaitement valides, et le vrai
+        # problème — la clé — resterait invisible. On le laisse donc apparaître
+        # dans le journal au lieu de le classer comme jeton invalide.
+        if _est('ThirdPartyAuthError', messaging):
+            return False
+
+        # Toute autre erreur d'argument : jeton malformé.
+        if _est('InvalidArgumentError', fb_exceptions):
+            return True
+    except Exception:
+        # FILET : une classe absente ou un import cassé ne doit jamais empêcher
+        # l'envoi. On retombe sur l'analyse du code d'erreur ci-dessous.
         pass
-    # Fallback: check error code string
+
+    # Repli : le code textuel de l'erreur FCM.
     code = getattr(exception, 'code', '') or ''
-    return 'registration-token-not-registered' in str(code) or 'invalid-argument' in str(code)
+    return ('registration-token-not-registered' in str(code)
+            or 'invalid-argument' in str(code))
 
 
 @shared_task(bind=True, max_retries=3, default_retry_delay=30)
