@@ -5,6 +5,7 @@ Endpoints pour génération, soumission et historique.
 import random
 import threading
 import logging
+from django.db import IntegrityError
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, permissions
@@ -14,6 +15,12 @@ from rest_framework.response import Response
 from .models import Summary, UserPersonalizedExercise, UserPersonalizedAttempt
 from .personalized_exercise_generator import generate_personalized_exercise
 from .permissions import HasActiveSubscription, user_can_access_summary
+from .qcm_quota import (
+    consommer_quota,
+    get_active_subscription,
+    quota_snapshot,
+    rembourser_quota,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +44,9 @@ def generate_personalized_exercise_view(request, summary_id):
 
     Retourne le statut de génération avec progress polling possible.
     """
+    quota_abonnement_id = None
+    quota_consomme_le = None
+    generation_lancee = False
     try:
         # Paramètres
         difficulty = request.data.get('difficulty', 'medium')
@@ -61,11 +71,13 @@ def generate_personalized_exercise_view(request, summary_id):
             }, status=status.HTTP_403_FORBIDDEN)
 
         # Vérifier abonnement exercices
-        if not has_exercise_subscription(user):
+        abonnement = get_active_subscription(user)
+        if abonnement is None:
             return Response({
                 'error': 'Abonnement exercices requis',
                 'subscription_required': True,
-                'code': 'subscription_required'
+                'code': 'subscription_required',
+                'quota': quota_snapshot(None),
             }, status=status.HTTP_403_FORBIDDEN)
 
         # Chercher l'exercice existant POUR CE NIVEAU uniquement.
@@ -86,32 +98,40 @@ def generate_personalized_exercise_view(request, summary_id):
                     'questions_count': existing.questions_count,
                     'regenerated_count': existing.regenerated_count,
                     'created_at': existing.created_at.isoformat(),
-                    'message': 'Exercice personnalisé disponible'
+                    'message': 'Exercice personnalisé disponible',
+                    'quota': quota_snapshot(abonnement),
                 }, status=status.HTTP_200_OK)
 
             elif existing.status == 'generating':
+                # Réponse idempotente : une nouvelle tentative réseau sur une
+                # génération déjà lancée NE consomme PAS une seconde unité.
                 return Response({
                     'status': 'generating',
                     'exercise_id': existing.id,
                     'difficulty': existing.difficulty,
-                    'message': 'Génération en cours...'
+                    'message': 'Génération en cours...',
+                    'quota': quota_snapshot(abonnement),
                 }, status=status.HTTP_202_ACCEPTED)
 
-            elif existing.status in ('failed', 'pending'):
-                # Relancer la génération (jamais créer un doublon du même niveau)
-                existing.status = 'generating'
-                existing.seed = random.randint(1, 1000000)
-                existing.save()
-                _launch_generation(existing, user.id, summary_id, difficulty, existing.seed)
-                return Response({
-                    'status': 'generating',
-                    'exercise_id': existing.id,
-                    'difficulty': difficulty,
-                    'message': 'Nouvelle génération lancée après échec'
-                }, status=status.HTTP_202_ACCEPTED)
+        # À partir d'ici, une NOUVELLE génération va réellement démarrer
+        # (création, relance après échec ou régénération) : le quota est
+        # consommé avant de lancer le thread. En cas d'échec de génération,
+        # `_launch_generation` le rembourse.
+        quota_ok, quota, abonnement_id = consommer_quota(user)
+        if not quota_ok:
+            code = quota.get('raison_blocage') or 'quota_exhausted'
+            return Response({
+                'error': quota.get('message_blocage')
+                         or 'Quota de générations QCM épuisé.',
+                'code': code,
+                'quota_exhausted': code == 'quota_exhausted',
+                'quota': quota,
+            }, status=status.HTTP_403_FORBIDDEN)
+        quota_consomme_le = timezone.now()
+        quota_abonnement_id = abonnement_id
 
-        # Régénération demandée : relancer UNIQUEMENT l'exercice de ce niveau
         if existing and regenerate:
+            # Régénération demandée : relancer UNIQUEMENT l'exercice de ce niveau
             existing.status = 'generating'
             existing.seed = random.randint(1, 1000000)  # Nouveau seed pour variation
             existing.regenerated_count += 1
@@ -121,20 +141,57 @@ def generate_personalized_exercise_view(request, summary_id):
                 f"🔄 Régénération exercice perso #{exercise.id} pour user={user.id} "
                 f"(difficulty={difficulty}, regenerate=True)"
             )
+        elif existing and existing.status in ('failed', 'pending'):
+            # Relancer la génération (jamais créer un doublon du même niveau)
+            existing.status = 'generating'
+            existing.seed = random.randint(1, 1000000)
+            existing.save()
+            exercise = existing
+            logger.info(
+                f"♻️ Relance exercice perso #{exercise.id} après échec "
+                f"(difficulty={difficulty}) pour user={user.id}"
+            )
         else:
             # Nouvel exercice pour ce niveau (les autres niveaux restent intacts)
             seed = random.randint(1, 1000000)
-            exercise = UserPersonalizedExercise.objects.create(
-                user=user,
-                summary=summary,
-                difficulty=difficulty,
-                seed=seed,
-                status='generating'
-            )
+            try:
+                exercise = UserPersonalizedExercise.objects.create(
+                    user=user,
+                    summary=summary,
+                    difficulty=difficulty,
+                    seed=seed,
+                    status='generating'
+                )
+            except IntegrityError:
+                # Requête concurrente : l'exercice de ce niveau vient d'être
+                # créé par un autre appel. On rend l'unité réservée.
+                rembourser_quota(abonnement_id, quota_consomme_le)
+                quota_abonnement_id = None  # déjà remboursé : pas de second remboursement
+                concurrent = UserPersonalizedExercise.objects.filter(
+                    user=user, summary=summary, difficulty=difficulty
+                ).first()
+                if concurrent is None:
+                    raise
+                return Response({
+                    'status': concurrent.status,
+                    'exercise_id': concurrent.id,
+                    'difficulty': concurrent.difficulty,
+                    'message': 'Génération déjà lancée',
+                    'quota': quota_snapshot(get_active_subscription(user)),
+                }, status=(
+                    status.HTTP_200_OK
+                    if concurrent.status == 'completed'
+                    else status.HTTP_202_ACCEPTED
+                ))
             logger.info(f"🆕 Nouvel exercice perso créé #{exercise.id} (difficulty={difficulty}) pour user={user.id}")
 
         # Lancer génération en background
-        _launch_generation(exercise, user.id, summary_id, difficulty, exercise.seed)
+        _launch_generation(
+            exercise, user.id, summary_id, difficulty, exercise.seed,
+            quota_abonnement_id=abonnement_id,
+            quota_consomme_le=quota_consomme_le,
+        )
+        generation_lancee = True
 
         return Response({
             'status': 'generating',
@@ -142,7 +199,8 @@ def generate_personalized_exercise_view(request, summary_id):
             'difficulty': difficulty,
             'regenerated_count': exercise.regenerated_count,
             'seed': exercise.seed,
-            'message': 'Génération lancée en arrière-plan'
+            'message': 'Génération lancée en arrière-plan',
+            'quota': quota,
         }, status=status.HTTP_202_ACCEPTED)
 
     except Summary.DoesNotExist:
@@ -151,6 +209,10 @@ def generate_personalized_exercise_view(request, summary_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
+        # Si l'erreur survient après la réservation mais avant que le thread
+        # ne prenne la main, l'unité ne doit pas rester débitée.
+        if quota_abonnement_id and not generation_lancee:
+            rembourser_quota(quota_abonnement_id, quota_consomme_le)
         logger.error(f"❌ Erreur génération exercice perso: {e}")
         return Response(
             {'error': 'Erreur interne du serveur'},
@@ -158,24 +220,48 @@ def generate_personalized_exercise_view(request, summary_id):
         )
 
 
-def _launch_generation(exercise, user_id, summary_id, difficulty, seed):
-    """Lance la génération en thread background."""
+def _launch_generation(exercise, user_id, summary_id, difficulty, seed,
+                       quota_abonnement_id=None, quota_consomme_le=None):
+    """Lance la génération en thread background.
+
+    `quota_abonnement_id` / `quota_consomme_le` identifient la réservation
+    faite dans la vue. Si la génération n'aboutit pas à un exercice complet,
+    l'unité est rendue : le quota ne doit pas être débité pour un échec.
+    """
     def run_gen():
         try:
-            generate_personalized_exercise(
+            resultat = generate_personalized_exercise(
                 user_id=user_id,
                 summary_id=summary_id,
                 difficulty=difficulty,
                 seed=seed,
                 existing_exercise=exercise
             )
+            exercice_genere = resultat[0] if resultat else None
+            if (
+                quota_abonnement_id
+                and (exercice_genere is None or exercice_genere.status != 'completed')
+            ):
+                rembourser_quota(quota_abonnement_id, quota_consomme_le)
+                logger.info(
+                    f"↩️ Quota remboursé (génération sans résultat) "
+                    f"abonnement={quota_abonnement_id}"
+                )
         except Exception as e:
             logger.error(f"❌ Erreur thread génération: {e}")
             exercise.status = 'failed'
             exercise.save()
+            if quota_abonnement_id:
+                rembourser_quota(quota_abonnement_id, quota_consomme_le)
 
-    thread = threading.Thread(target=run_gen, daemon=True)
-    thread.start()
+    try:
+        thread = threading.Thread(target=run_gen, daemon=True)
+        thread.start()
+    except Exception:
+        # Le thread n'a pas démarré : la réservation est annulée.
+        if quota_abonnement_id:
+            rembourser_quota(quota_abonnement_id, quota_consomme_le)
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -536,6 +622,7 @@ def check_personalized_exercise_exists(request, summary_id):
 
         # Dernier exercice consulté (ou le plus récent si jamais consulté)
         exercise = exercises.order_by('-last_accessed_at', '-created_at').first()
+        quota = quota_snapshot(get_active_subscription(request.user))
 
         if exercise:
             return Response({
@@ -548,12 +635,14 @@ def check_personalized_exercise_exists(request, summary_id):
                 'regenerated_count': exercise.regenerated_count,
                 'created_at': exercise.created_at.isoformat(),
                 'can_regenerate': exercise.status == 'completed',
-                'attempts_count': exercise.attempts.count()
+                'attempts_count': exercise.attempts.count(),
+                'quota': quota,
             }, status=status.HTTP_200_OK)
         else:
             return Response({
                 'exists': False,
-                'message': 'Aucun exercice personnalisé pour ce résumé'
+                'message': 'Aucun exercice personnalisé pour ce résumé',
+                'quota': quota,
             }, status=status.HTTP_200_OK)
 
     except Summary.DoesNotExist:

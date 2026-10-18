@@ -18,7 +18,7 @@ class _EditSummaryScreenState extends State<EditSummaryScreen> {
   late TextEditingController _prixController;
   bool _isSaving = false;
 
-  double _minimumPrice = 3000; // Valeur par défaut en attendant l'API
+  double _minimumPrice = 300; // Valeur par défaut en attendant l'API
 
   @override
   void initState() {

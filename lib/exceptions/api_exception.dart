@@ -20,12 +20,18 @@ class ApiException implements Exception {
   final ApiExceptionType type;
   final int? statusCode;
   final dynamic originalError;
-  
+
+  /// Code machine renvoyé par le backend (ex. `quota_exhausted`,
+  /// `daily_quota_exhausted`, `subscription_required`). Permet à l'UI de
+  /// proposer la bonne action sans comparer des textes localisés.
+  final String? code;
+
   const ApiException(
     this.message, {
     required this.type,
     this.statusCode,
     this.originalError,
+    this.code,
   });
 
   /// Convertit une DioException en ApiException avec un message clair en français

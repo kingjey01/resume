@@ -332,7 +332,7 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
   Widget _buildFeaturesSection(ThemeData theme) {
     final features = [
       {'icon': Icons.auto_awesome_rounded, 'title': 'QCM générés par IA', 'desc': 'Questions pertinentes basées sur le contenu'},
-      {'icon': Icons.all_inclusive_rounded, 'title': 'Accès illimité', 'desc': 'Générez autant de QCM que vous voulez'},
+      {'icon': Icons.speed_rounded, 'title': 'Quota mensuel de QCM', 'desc': 'Générez selon le quota inclus dans votre plan'},
       {'icon': Icons.analytics_rounded, 'title': 'Suivi de performance', 'desc': 'Statistiques et historique de vos scores'},
       {'icon': Icons.lightbulb_rounded, 'title': 'Explications détaillées', 'desc': 'Comprenez chaque réponse correcte'},
     ];
@@ -394,6 +394,8 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
     final currency = service['currency'] ?? 'CDF';
     final duration = service['duree_mois'] ?? 1;
     final features = service['features'] is List ? service['features'] as List : [];
+    final quotaMensuel = (service['quota_qcm_mensuel'] as num?)?.toInt() ?? 0;
+    final plafondJour = (service['plafond_qcm_journalier'] as num?)?.toInt() ?? 0;
 
     return GestureDetector(
       onTap: () {
@@ -454,6 +456,18 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                   Text(
                     '$duration mois',
                     style: TextStyle(fontSize: 12, color: Colors.grey[600]),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    quotaMensuel == 0
+                        ? 'Générations QCM illimitées'
+                        : '$quotaMensuel générations QCM / mois'
+                            '${plafondJour > 0 ? ' • $plafondJour / jour' : ''}',
+                    style: TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.primaryBlue,
+                    ),
                   ),
                   if (features.isNotEmpty) ...[
                     const SizedBox(height: 6),

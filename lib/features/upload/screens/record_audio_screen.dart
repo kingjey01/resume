@@ -91,7 +91,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   // Champs obligatoires pour le résumé
   final TextEditingController _titleController = TextEditingController();
   final TextEditingController _priceController = TextEditingController(text: '0');
-  double _minimumPrice = 3000; // Valeur par défaut, mise à jour via API
+  double _minimumPrice = 300; // Valeur par défaut, mise à jour via API
   final _formKey = GlobalKey<FormState>();
   
   // Brouillons audio locaux

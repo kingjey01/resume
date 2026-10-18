@@ -13,7 +13,9 @@ class PurchaseAdmin(admin.ModelAdmin):
 
 @admin.register(Service)
 class ServiceAdmin(admin.ModelAdmin):
-    list_display = ['nom', 'type', 'price', 'currency', 'duree_mois', 'is_active', 'created_at']
+    list_display = ['nom', 'type', 'price', 'currency', 'duree_mois',
+                    'quota_qcm_mensuel', 'plafond_qcm_journalier',
+                    'is_active', 'created_at']
     list_filter = ['type', 'currency', 'is_active', 'created_at']
     search_fields = ['nom', 'description']
     readonly_fields = ['created_at']
@@ -23,9 +25,13 @@ class ServiceAdmin(admin.ModelAdmin):
 
 @admin.register(Abonnement)
 class AbonnementAdmin(admin.ModelAdmin):
-    list_display = ['user', 'service', 'status', 'date_debut', 'date_fin', 'auto_renew', 'progress']
+    list_display = ['user', 'service', 'status', 'date_debut', 'date_fin',
+                    'quota_qcm_mensuel', 'quota_qcm_consomme',
+                    'quota_qcm_jour_consomme', 'auto_renew', 'progress']
     list_filter = ['status', 'auto_renew', 'date_debut', 'date_fin']
     search_fields = ['user__username', 'service__nom']
-    readonly_fields = ['created_at']
+    readonly_fields = ['created_at', 'quota_qcm_consomme',
+                       'quota_qcm_periode_debut', 'quota_qcm_jour',
+                       'quota_qcm_jour_consomme']
     date_hierarchy = 'date_debut'
     list_editable = ['status', 'auto_renew', 'progress']

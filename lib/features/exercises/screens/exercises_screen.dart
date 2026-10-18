@@ -58,12 +58,13 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
   bool _hasSubscription = false;
   bool _isExpired = false;
   String? _error;
+  Map<String, dynamic>? _quotaInfo;
   late TabController _tabController;
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: 3, vsync: this);
     _loadData();
   }
 
@@ -84,11 +85,17 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
       if (!mounted) return;
       _hasSubscription = subData['has_subscription'] == true;
       _isExpired = subData['is_expired'] == true;
+      // Le quota est calculé et entretenu par le serveur : on ne fait que
+      // l'afficher, jamais le décrémenter localement.
+      _quotaInfo = subData['quota'] is Map
+          ? Map<String, dynamic>.from(subData['quota'] as Map)
+          : null;
       subLoaded = true;
     } catch (e) {
       debugPrint('⚠️ Erreur chargement abonnement exercices: $e');
       _hasSubscription = false;
       _isExpired = false;
+      _quotaInfo = null;
     }
 
     final List<_UnifiedAttempt> merged = [];
@@ -286,6 +293,7 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
                   tabs: const [
                     Tab(text: 'Mes tentatives'),
                     Tab(text: 'Statistiques'),
+                    Tab(text: 'Quota d\'abonnement'),
                   ],
                 ),
               ],
@@ -302,6 +310,7 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
                         children: [
                           _buildAttemptsList(),
                           _buildStats(),
+                          _buildQuotaTab(),
                         ],
                       ),
           ),
@@ -599,6 +608,414 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
         ],
       ),
     );
+  }
+
+  // ═══════════════════════════════════════════════════════════════════════════
+  //  ONGLET « QUOTA D'ABONNEMENT » (tâche 57)
+  //  Toutes les valeurs viennent du serveur : l'application ne calcule ni ne
+  //  décrémente jamais un compteur.
+  // ═══════════════════════════════════════════════════════════════════════════
+
+  Widget _buildQuotaTab() {
+    final quota = _quotaInfo;
+
+    if (!_hasSubscription || quota == null || quota['active'] != true) {
+      return _buildNoQuotaState();
+    }
+
+    final quotaMensuel = (quota['quota_mensuel'] as num?)?.toInt() ?? 0;
+    final consomme = (quota['quota_consomme'] as num?)?.toInt() ?? 0;
+    final restant = (quota['quota_restant'] as num?)?.toInt();
+    final plafondJour = (quota['plafond_journalier'] as num?)?.toInt() ?? 0;
+    final jourConsomme = (quota['jour_consomme'] as num?)?.toInt() ?? 0;
+    final jourRestant = (quota['jour_restant'] as num?)?.toInt();
+    final peutGenerer = quota['peut_generer'] == true;
+    final raison = quota['raison_blocage'] as String?;
+    final message = quota['message_blocage'] as String?;
+    final service = quota['service']?.toString();
+    final dateDebut = _formatIsoDate(quota['date_debut'] as String?);
+    final dateFin = _formatIsoDate(quota['date_fin'] as String?);
+    final prochaineReset =
+        _formatIsoDate(quota['prochaine_reinitialisation'] as String?);
+
+    return RefreshIndicator(
+      onRefresh: _loadData,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.all(20),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Statut de l'abonnement
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                gradient: const LinearGradient(
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                  colors: [AppTheme.primaryBlueDark, AppTheme.primaryBlue],
+                ),
+                borderRadius: BorderRadius.circular(18),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      const Icon(Icons.verified_rounded,
+                          color: Colors.white, size: 22),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          service ?? 'Abonnement exercices',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 17,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 9, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.white.withValues(alpha: 0.18),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
+                        child: Text(
+                          quota['status'] == 'active' ? 'Actif' : 'Inactif',
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 14),
+                  _buildQuotaDateRow('Début', dateDebut),
+                  const SizedBox(height: 4),
+                  _buildQuotaDateRow('Expiration', dateFin),
+                ],
+              ),
+            ),
+            const SizedBox(height: 18),
+
+            _buildQuotaCard(
+              icon: Icons.calendar_month_rounded,
+              color: AppTheme.primaryBlue,
+              title: 'Quota mensuel',
+              value: quotaMensuel == 0 ? 'Illimité' : '$quotaMensuel générations',
+              subtitle: quotaMensuel == 0
+                  ? 'Aucune limite mensuelle sur ce plan'
+                  : '$consomme consommées • ${restant ?? 0} restantes',
+              progress: quotaMensuel == 0
+                  ? null
+                  : (consomme / quotaMensuel).clamp(0.0, 1.0).toDouble(),
+            ),
+            const SizedBox(height: 12),
+
+            _buildQuotaCard(
+              icon: Icons.today_rounded,
+              color: AppTheme.warning,
+              title: 'Plafond journalier',
+              value: plafondJour == 0
+                  ? 'Illimité'
+                  : '$plafondJour génération${plafondJour > 1 ? 's' : ''} / jour',
+              subtitle: plafondJour == 0
+                  ? 'Aucune limite quotidienne'
+                  : '$jourConsomme utilisée${jourConsomme > 1 ? 's' : ''} • '
+                      '${jourRestant ?? 0} restante${(jourRestant ?? 0) > 1 ? 's' : ''} aujourd\'hui',
+              progress: plafondJour == 0
+                  ? null
+                  : (jourConsomme / plafondJour).clamp(0.0, 1.0).toDouble(),
+            ),
+
+            if (prochaineReset != '—') ...[
+              const SizedBox(height: 12),
+              _buildQuotaCard(
+                icon: Icons.refresh_rounded,
+                color: AppTheme.success,
+                title: 'Prochaine réinitialisation',
+                value: prochaineReset,
+                subtitle: 'Le quota mensuel repart à zéro à cette date',
+              ),
+            ],
+
+            if (!peutGenerer) ...[
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: AppTheme.error.withValues(alpha: 0.08),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: AppTheme.error.withValues(alpha: 0.3)),
+                ),
+                child: Column(
+                  children: [
+                    const Icon(Icons.block_rounded,
+                        color: AppTheme.error, size: 34),
+                    const SizedBox(height: 10),
+                    Text(
+                      raison == 'daily_quota_exhausted'
+                          ? 'Plafond journalier atteint'
+                          : 'Quota mensuel épuisé',
+                      style: Theme.of(context)
+                          .textTheme
+                          .titleMedium
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                      textAlign: TextAlign.center,
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      message ??
+                          'Vous ne pouvez plus générer de QCM pour le moment.',
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: AppTheme.textSecondary, fontSize: 13),
+                    ),
+                    const SizedBox(height: 14),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton.icon(
+                        onPressed: _navigateToSubscription,
+                        icon: const Icon(Icons.diamond_rounded,
+                            size: 18, color: Colors.white),
+                        label: const Text(
+                          'Renouveler l\'abonnement',
+                          style: TextStyle(
+                              color: Colors.white, fontWeight: FontWeight.w600),
+                        ),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: AppTheme.error,
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(12)),
+                          elevation: 0,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildNoQuotaState() {
+    return Center(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              width: 80,
+              height: 80,
+              decoration: BoxDecoration(
+                color: AppTheme.primaryBlue.withValues(alpha: 0.1),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.speed_rounded,
+                  size: 36, color: AppTheme.primaryBlue),
+            ),
+            const SizedBox(height: 20),
+            Text(
+              _isExpired ? 'Abonnement expiré' : 'Aucun abonnement actif',
+              style: Theme.of(context)
+                  .textTheme
+                  .titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              _isExpired
+                  ? 'Renouvelez votre abonnement pour retrouver votre quota de générations QCM.'
+                  : 'Souscrivez à un abonnement exercices pour suivre votre quota de générations QCM.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(color: AppTheme.textLight, fontSize: 13),
+            ),
+            // Dernier abonnement connu (même expiré) : dates utiles au
+            // renouvellement, toujours fournies par le serveur.
+            if (_quotaInfo?['date_debut'] != null) ...[
+              const SizedBox(height: 16),
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(14),
+                  boxShadow: AppTheme.softShadow,
+                ),
+                child: Column(
+                  children: [
+                    _buildDocumentDateRow(
+                      'Début',
+                      _formatIsoDate(_quotaInfo?['date_debut'] as String?),
+                    ),
+                    const SizedBox(height: 6),
+                    _buildDocumentDateRow(
+                      'Expiration',
+                      _formatIsoDate(_quotaInfo?['date_fin'] as String?),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+            const SizedBox(height: 18),
+            ElevatedButton.icon(
+              onPressed: _navigateToSubscription,
+              icon: const Icon(Icons.diamond_rounded,
+                  size: 18, color: Colors.white),
+              label: Text(
+                _isExpired ? 'Renouveler' : 'S\'abonner',
+                style: const TextStyle(
+                    color: Colors.white, fontWeight: FontWeight.w600),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: AppTheme.primaryBlue,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12)),
+                elevation: 0,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildQuotaDateRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: TextStyle(
+            color: Colors.white.withValues(alpha: 0.7),
+            fontSize: 12,
+          ),
+        ),
+        Text(
+          value,
+          style: const TextStyle(
+            color: Colors.white,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildQuotaCard({
+    required IconData icon,
+    required Color color,
+    required String title,
+    required String value,
+    required String subtitle,
+    double? progress,
+  }) {
+    final theme = Theme.of(context);
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surface,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: AppTheme.softShadow,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 44,
+            height: 44,
+            decoration: BoxDecoration(
+              color: color.withValues(alpha: 0.1),
+              shape: BoxShape.circle,
+            ),
+            child: Icon(icon, color: color, size: 22),
+          ),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                      color: AppTheme.textLight,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  value,
+                  style: theme.textTheme.titleMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                      color: AppTheme.textSecondary, fontSize: 12),
+                ),
+                if (progress != null) ...[
+                  const SizedBox(height: 10),
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(8),
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 6,
+                      backgroundColor: color.withValues(alpha: 0.12),
+                      valueColor: AlwaysStoppedAnimation<Color>(color),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildDocumentDateRow(String label, String value) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          label,
+          style: const TextStyle(color: AppTheme.textLight, fontSize: 12),
+        ),
+        Text(
+          value,
+          style: TextStyle(
+            color: Theme.of(context).colorScheme.onSurface,
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+      ],
+    );
+  }
+
+  String _formatIsoDate(String? iso) {
+    if (iso == null || iso.isEmpty) return '—';
+    final date = DateTime.tryParse(iso);
+    if (date == null) return '—';
+    final local = date.toLocal();
+    return '${local.day.toString().padLeft(2, '0')}/'
+        '${local.month.toString().padLeft(2, '0')}/${local.year}';
   }
 
   Widget _buildStatCard(String label, String value, IconData icon, Color color) {

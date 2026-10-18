@@ -105,7 +105,7 @@ class ResumePricingConfig(models.Model):
     minimum_resume_price = models.DecimalField(
         max_digits=10,
         decimal_places=2,
-        default=3000.00,
+        default=300.00,
         verbose_name="Prix minimum (CDF)",
         help_text="Seuil en Francs Congolais. En dessous, la création du résumé est refusée.",
     )

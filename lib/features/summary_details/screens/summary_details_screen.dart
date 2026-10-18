@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
+import 'package:resume_plus_clean/exceptions/api_exception.dart';
 import 'package:resume_plus_clean/models/summary.dart' as models;
 import 'package:resume_plus_clean/features/summaries/providers/seen_summaries_provider.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
@@ -305,7 +306,26 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
           _isGeneratingExercise = false;
           _exerciseGenerationProgress = 0.0;
         });
-        handleError(e);
+        // Quota épuisé : message explicite + raccourci vers le renouvellement
+        // (tâche 57). Le backend reste seul juge : aucun compteur local.
+        if (e is ApiException &&
+            (e.code == 'quota_exhausted' ||
+                e.code == 'daily_quota_exhausted')) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(e.message),
+              backgroundColor: AppTheme.error,
+              duration: const Duration(seconds: 6),
+              action: SnackBarAction(
+                label: 'Renouveler',
+                textColor: Colors.white,
+                onPressed: _navigateToSubscription,
+              ),
+            ),
+          );
+        } else {
+          handleError(e);
+        }
       }
     }
   }

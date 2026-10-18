@@ -203,9 +203,11 @@ class PersonalizedExerciseNotifier extends StateNotifier<PersonalizedExerciseSta
         _startPolling(exerciseId);
       }
     } catch (e) {
+      // Le backend renvoie un message explicite pour un quota épuisé ou un
+      // plafond journalier atteint : on l'affiche tel quel (tâche 57).
       state = state.copyWith(
         status: ExerciseGenerationStatus.error,
-        errorMessage: 'Erreur lors de la génération: $e',
+        errorMessage: ApiService.getErrorMessage(e),
         isLoading: false,
       );
     }

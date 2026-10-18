@@ -29,7 +29,7 @@ class _ManualEntryScreenState extends State<ManualEntryScreen> {
   Professeur? _selectedProfesseur;
   bool _isLoadingProfesseurs = false;
 
-  double _minimumPrice = 3000; // Valeur par défaut en attendant l'API
+  double _minimumPrice = 300; // Valeur par défaut en attendant l'API
 
   @override
   void initState() {

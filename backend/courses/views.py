@@ -34,7 +34,7 @@ from .permissions import (IsOwnerOrReadOnly, CanCreateSummary, CanAccessSummary,
 def get_minimum_resume_price():
     """
     Retourne le prix minimum configuré dans ResumePricingConfig.
-    Si aucune config active → valeur par défaut 3000.
+    Si aucune config active → valeur par défaut 300.
     Cette fonction est la source unique de vérité pour le seuil de prix.
     """
     try:
@@ -42,7 +42,7 @@ def get_minimum_resume_price():
         config = ResumePricingConfig.objects.get(is_active=True)
         return float(config.minimum_resume_price)
     except Exception:
-        return 3000.00
+        return 300.00
 
 
 class CourseListCreateView(generics.ListCreateAPIView):

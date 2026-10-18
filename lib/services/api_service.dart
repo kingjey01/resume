@@ -1653,20 +1653,20 @@ class ApiService {
 
   /// Récupère le prix minimum des résumés depuis le backend.
   /// Cette valeur est configurable dans l'admin Django (ResumePricingConfig).
-  /// En cas d'erreur → retourne 3000 (valeur par défaut, ne pas bloquer).
+  /// En cas d'erreur → retourne 300 (valeur par défaut, ne pas bloquer).
   Future<double> getMinimumResumePrice() async {
     try {
       final response = await _dio.get('/resume-pricing-config/');
       if (response.statusCode == 200 && response.data is Map) {
         final value = (response.data as Map)['minimum_resume_price'];
         if (value != null) {
-          return double.tryParse(value.toString()) ?? 3000.0;
+          return double.tryParse(value.toString()) ?? 300.0;
         }
       }
     } catch (e) {
       AppLogger.warning('getMinimumResumePrice error', e.toString());
     }
-    return 3000.0;
+    return 300.0;
   }
 
   // ─── Demande pour devenir CP ───────────────────────────────────────
@@ -1960,19 +1960,30 @@ class ApiService {
 
   Exception _handleError(DioException e) {
     if (e.response?.statusCode == 403) {
-      final data = e.response?.data as Map<String, dynamic>?;
-      if (data?['code'] == 'subscription_required') {
+      final data = e.response?.data is Map
+          ? Map<String, dynamic>.from(e.response!.data as Map)
+          : const <String, dynamic>{};
+      final code = data['code'] as String?;
+
+      // Le backend fait autorité : on affiche EXACTEMENT son message pour les
+      // refus liés à l'abonnement et au quota (tâche 57).
+      if (code != null) {
+        final fallback = switch (code) {
+          'subscription_required' =>
+            'Abonnement requis pour accéder aux exercices',
+          'purchase_required' =>
+            "Vous devez d'abord acheter ce résumé pour accéder au QCM",
+          'quota_exhausted' =>
+            'Quota mensuel de générations QCM épuisé. Renouvelez votre abonnement.',
+          'daily_quota_exhausted' =>
+            'Plafond journalier de générations QCM atteint. Revenez demain.',
+          _ => 'Une erreur est survenue',
+        };
         return ApiException(
-          'Abonnement requis pour accéder aux exercices',
+          data['error']?.toString() ?? fallback,
           type: ApiExceptionType.forbidden,
           statusCode: 403,
-        );
-      }
-      if (data?['code'] == 'purchase_required') {
-        return ApiException(
-          "Vous devez d'abord acheter ce résumé pour accéder au QCM",
-          type: ApiExceptionType.forbidden,
-          statusCode: 403,
+          code: code,
         );
       }
     }

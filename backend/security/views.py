@@ -96,7 +96,7 @@ def resume_pricing_config_view(request):
     Endpoint public : retourne le prix minimum configuré.
 
     GET /api/resume-pricing-config/
-    → {"minimum_resume_price": "3000.00"}
+    → {"minimum_resume_price": "300.00"}
 
     Utilisé par Flutter pour la validation côté client.
     La validation finale est toujours faite côté backend.
@@ -108,5 +108,5 @@ def resume_pricing_config_view(request):
     except ResumePricingConfig.DoesNotExist:
         # Aucune config → retourner la valeur par défaut (ne pas bloquer)
         return Response({
-            'minimum_resume_price': '3000.00',
+            'minimum_resume_price': '300.00',
         }, status=status.HTTP_200_OK)

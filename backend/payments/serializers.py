@@ -48,8 +48,9 @@ class CreatePurchaseSerializer(serializers.ModelSerializer):
 class ServiceSerializer(serializers.ModelSerializer):
     class Meta:
         model = Service
-        fields = ['id', 'nom', 'description', 'type', 'price', 'currency', 
-                 'duree_mois', 'features', 'is_active', 'created_at']
+        fields = ['id', 'nom', 'description', 'type', 'price', 'currency',
+                 'duree_mois', 'features', 'is_active', 'created_at',
+                 'quota_qcm_mensuel', 'plafond_qcm_journalier']
         read_only_fields = ['created_at']
 
 
@@ -57,18 +58,30 @@ class AbonnementSerializer(serializers.ModelSerializer):
     service_name = serializers.CharField(source='service.nom', read_only=True)
     user_username = serializers.CharField(source='user.username', read_only=True)
     progress_percentage = serializers.SerializerMethodField()
+    quota_info = serializers.SerializerMethodField()
     montant = serializers.DecimalField(source='service.price', max_digits=10, decimal_places=2, read_only=True)
     devise = serializers.CharField(source='service.currency', read_only=True)
-    
+
     class Meta:
         model = Abonnement
         fields = ['id', 'user', 'user_username', 'service', 'service_name',
                  'date_debut', 'date_fin', 'status', 'auto_renew', 'progress',
-                 'progress_percentage', 'montant', 'devise', 'created_at']
-        read_only_fields = ['user', 'created_at', 'date_debut', 'date_fin', 'status']
-    
+                 'progress_percentage', 'montant', 'devise', 'created_at',
+                 'quota_qcm_mensuel', 'plafond_qcm_journalier',
+                 'quota_qcm_consomme', 'quota_info']
+        # Le quota est figé depuis le Service à la création : un client ne peut
+        # ni le fixer ni le modifier lui-même (tâche 57).
+        read_only_fields = ['user', 'created_at', 'date_debut', 'date_fin', 'status',
+                            'quota_qcm_mensuel', 'plafond_qcm_journalier',
+                            'quota_qcm_consomme', 'quota_info']
+
     def get_progress_percentage(self, obj):
         """Calcule le pourcentage de progression de l'abonnement"""
         if obj.progress and obj.progress > 0:
             return min(obj.progress, 100)
         return 0
+
+    def get_quota_info(self, obj):
+        """Instantané du quota QCM (compteurs serveur, lecture seule)."""
+        from courses.qcm_quota import quota_snapshot
+        return quota_snapshot(obj)
