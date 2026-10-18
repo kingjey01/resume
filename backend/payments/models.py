@@ -30,19 +30,20 @@ class Service(models.Model):
 
     # QUOTA DE GÉNÉRATIONS QCM (tâche 57, prompt 2).
     #
-    # L'unité est UNE génération de QCM (un niveau de difficulté, 8 questions),
-    # et non chaque question. Le plafond de 8 questions × 3 niveaux = 24 par
-    # résumé reste une règle de contenu, distincte de ce quota d'abonnement.
+    # L'unité est UNE GÉNÉRATION COMPLÈTE pour un résumé : le pack de ses
+    # 3 niveaux de difficulté (8 questions × 3 = 24 questions), et non chaque
+    # question ni chaque niveau isolé. Le plafond de 24 questions par résumé
+    # reste une règle de contenu, distincte de ce quota d'abonnement.
     # `0` = illimité, ce qui laisse les plans existants fonctionner sans
     # changement tant que l'administrateur n'a pas fixé de valeur.
     quota_qcm_mensuel = models.PositiveIntegerField(
         default=0,
-        help_text="Générations de QCM par période de 30 jours (0 = illimité)",
+        help_text="Générations complètes de QCM (3 niveaux) par période de 30 jours (0 = illimité)",
     )
     plafond_qcm_journalier = models.PositiveIntegerField(
         default=0,
         help_text=(
-            "Générations de QCM autorisées par jour. "
+            "Générations complètes de QCM autorisées par jour. "
             "0 = plafond dérivé du quota mensuel (quota / 30, minimum 1)."
         ),
     )
@@ -94,15 +95,15 @@ class Abonnement(models.Model):
     # simultanées de dépasser le quota.
     quota_qcm_mensuel = models.PositiveIntegerField(
         default=0,
-        help_text="Générations de QCM par période de 30 jours (0 = illimité)",
+        help_text="Générations complètes de QCM (3 niveaux) par période de 30 jours (0 = illimité)",
     )
     plafond_qcm_journalier = models.PositiveIntegerField(
         default=0,
-        help_text="Générations de QCM autorisées par jour (0 = dérivé du mensuel)",
+        help_text="Générations complètes de QCM autorisées par jour (0 = dérivé du mensuel)",
     )
     quota_qcm_consomme = models.PositiveIntegerField(
         default=0,
-        help_text="Générations consommées sur la période courante",
+        help_text="Packs de QCM consommés sur la période courante",
     )
     quota_qcm_periode_debut = models.DateTimeField(
         null=True, blank=True,
@@ -114,7 +115,7 @@ class Abonnement(models.Model):
     )
     quota_qcm_jour_consomme = models.PositiveIntegerField(
         default=0,
-        help_text="Générations consommées aujourd'hui",
+        help_text="Packs de QCM consommés aujourd'hui",
     )
 
     def save(self, *args, **kwargs):

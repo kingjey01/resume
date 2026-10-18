@@ -14,7 +14,7 @@ class Migration(migrations.Migration):
             name='quota_qcm_mensuel',
             field=models.PositiveIntegerField(
                 default=0,
-                help_text='Générations de QCM par période de 30 jours (0 = illimité)',
+                help_text='Générations complètes de QCM (3 niveaux) par période de 30 jours (0 = illimité)',
             ),
         ),
         migrations.AddField(
@@ -23,7 +23,7 @@ class Migration(migrations.Migration):
             field=models.PositiveIntegerField(
                 default=0,
                 help_text=(
-                    'Générations de QCM autorisées par jour. '
+                    'Générations complètes de QCM autorisées par jour. '
                     '0 = plafond dérivé du quota mensuel (quota / 30, minimum 1).'
                 ),
             ),
@@ -33,7 +33,7 @@ class Migration(migrations.Migration):
             name='quota_qcm_mensuel',
             field=models.PositiveIntegerField(
                 default=0,
-                help_text='Générations de QCM par période de 30 jours (0 = illimité)',
+                help_text='Générations complètes de QCM (3 niveaux) par période de 30 jours (0 = illimité)',
             ),
         ),
         migrations.AddField(
@@ -41,7 +41,7 @@ class Migration(migrations.Migration):
             name='plafond_qcm_journalier',
             field=models.PositiveIntegerField(
                 default=0,
-                help_text='Générations de QCM autorisées par jour (0 = dérivé du mensuel)',
+                help_text='Générations complètes de QCM autorisées par jour (0 = dérivé du mensuel)',
             ),
         ),
         migrations.AddField(
@@ -49,7 +49,7 @@ class Migration(migrations.Migration):
             name='quota_qcm_consomme',
             field=models.PositiveIntegerField(
                 default=0,
-                help_text='Générations consommées sur la période courante',
+                help_text='Packs de QCM consommés sur la période courante',
             ),
         ),
         migrations.AddField(
@@ -75,7 +75,7 @@ class Migration(migrations.Migration):
             name='quota_qcm_jour_consomme',
             field=models.PositiveIntegerField(
                 default=0,
-                help_text="Générations consommées aujourd'hui",
+                help_text="Packs de QCM consommés aujourd'hui",
             ),
         ),
     ]

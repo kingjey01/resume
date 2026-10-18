@@ -461,7 +461,7 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                   Text(
                     quotaMensuel == 0
                         ? 'Générations QCM illimitées'
-                        : '$quotaMensuel générations QCM / mois'
+                        : '$quotaMensuel générations complètes / mois'
                             '${plafondJour > 0 ? ' • $plafondJour / jour' : ''}',
                     style: TextStyle(
                       fontSize: 12,

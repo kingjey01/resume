@@ -13,6 +13,7 @@ from .permissions import HasActiveSubscription, user_can_access_summary
 from .qcm_quota import (
     consommer_quota,
     get_active_subscription,
+    periode_courante,
     quota_snapshot,
     rembourser_quota,
 )
@@ -85,25 +86,43 @@ def generate_exercise_view(request, summary_id):
                 }, status=status.HTTP_202_ACCEPTED)
 
         # Une génération réelle va démarrer (création, relance ou régénération).
-        quota_ok, quota, abonnement_id = consommer_quota(request.user)
-        if not quota_ok:
-            code = quota.get('raison_blocage') or 'quota_exhausted'
-            return Response({
-                'error': quota.get('message_blocage')
-                         or 'Quota de générations QCM épuisé.',
-                'code': code,
-                'quota_exhausted': code == 'quota_exhausted',
-                'quota': quota,
-            }, status=status.HTTP_403_FORBIDDEN)
+        # Unité de quota = PACK : les 3 niveaux d'un résumé sur la même période
+        # d'abonnement ne consomment qu'une seule unité.
+        periode = periode_courante(abonnement)
+        pack_deja_paye = Exercise.objects.filter(
+            created_by=request.user,
+            summary=summary,
+            quota_periode_debut=periode,
+        ).exists()
+
+        if pack_deja_paye:
+            quota = quota_snapshot(abonnement)
+            abonnement_id = None
+            quota_consomme_le = None
+        else:
+            quota_ok, quota, abonnement_id = consommer_quota(request.user)
+            if not quota_ok:
+                code = quota.get('raison_blocage') or 'quota_exhausted'
+                return Response({
+                    'error': quota.get('message_blocage')
+                             or 'Quota de générations QCM épuisé.',
+                    'code': code,
+                    'quota_exhausted': code == 'quota_exhausted',
+                    'quota': quota,
+                }, status=status.HTTP_403_FORBIDDEN)
+            quota_consomme_le = timezone.now()
 
         if existing_exercise and not force_regenerate:
             # Relancer la génération après échec (jamais de doublon)
             existing_exercise.status = 'generating'
+            if abonnement_id:
+                existing_exercise.quota_periode_debut = periode
             existing_exercise.save()
             _launch_exercise_generation(
                 existing_exercise, summary_id, difficulty,
                 quota_abonnement_id=abonnement_id,
-                quota_consomme_le=timezone.now(),
+                quota_consomme_le=quota_consomme_le,
+                quota_periode_debut=periode if abonnement_id else None,
             )
             return Response({
                 'message': 'Nouvelle génération lancée',
@@ -125,14 +144,16 @@ def generate_exercise_view(request, summary_id):
             titre=f"Exercices - {summary.titre}",
             description=f"Questions à choix multiples basées sur le résumé: {summary.titre}",
             difficulty=difficulty,
-            status='generating'
+            status='generating',
+            quota_periode_debut=periode if abonnement_id else None,
         )
 
         # Lancer la génération en background (ne pas bloquer la requête)
         _launch_exercise_generation(
             exercise, summary_id, difficulty,
             quota_abonnement_id=abonnement_id,
-            quota_consomme_le=timezone.now(),
+            quota_consomme_le=quota_consomme_le,
+            quota_periode_debut=periode if abonnement_id else None,
         )
 
         return Response({
@@ -445,9 +466,24 @@ def check_exercise_subscription_view(request):
 
 
 def _launch_exercise_generation(exercise, summary_id, difficulty,
-                                quota_abonnement_id=None, quota_consomme_le=None):
+                                quota_abonnement_id=None, quota_consomme_le=None,
+                                quota_periode_debut=None):
     """Lance la génération standard en arrière-plan et rembourse le quota
-    si aucun exercice exploitable n'est produit."""
+    si aucun exercice exploitable n'est produit (pack libéré pour la période)."""
+    def rembourser():
+        if not quota_abonnement_id:
+            return
+        rembourser_quota(quota_abonnement_id, quota_consomme_le)
+        if quota_periode_debut:
+            Exercise.objects.filter(
+                pk=exercise.pk,
+                quota_periode_debut=quota_periode_debut,
+            ).update(quota_periode_debut=None)
+        logger.info(
+            f"↩️ Quota remboursé (génération standard sans résultat) "
+            f"abonnement={quota_abonnement_id}"
+        )
+
     def run_generation():
         try:
             resultat = generate_exercises_for_summary(
@@ -455,24 +491,18 @@ def _launch_exercise_generation(exercise, summary_id, difficulty,
                 existing_exercise=exercise,
                 difficulty=difficulty,
             )
-            if quota_abonnement_id and resultat is None:
-                rembourser_quota(quota_abonnement_id, quota_consomme_le)
-                logger.info(
-                    f"↩️ Quota remboursé (génération standard sans résultat) "
-                    f"abonnement={quota_abonnement_id}"
-                )
+            if resultat is None:
+                rembourser()
         except Exception as e:
             logger.error(f"Erreur thread génération standard: {e}")
             exercise.status = 'failed'
             exercise.save()
-            if quota_abonnement_id:
-                rembourser_quota(quota_abonnement_id, quota_consomme_le)
+            rembourser()
 
     try:
         threading.Thread(target=run_generation, daemon=True).start()
     except Exception:
-        if quota_abonnement_id:
-            rembourser_quota(quota_abonnement_id, quota_consomme_le)
+        rembourser()
         raise
 
 

@@ -62,6 +62,12 @@ def check(label, condition, detail=''):
         raise SystemExit(1)
 
 
+# 0) Grille Basic retenue : 15 packs (3 niveaux / 24 questions) par mois,
+#    soit 1 pack par jour avec le plafond dérivé.
+basic = Sub(quota_qcm_mensuel=15)
+check('Basic : 15 packs / mois', q.quota_snapshot(basic, NOW)['quota_mensuel'] == 15)
+check('Basic : 1 pack / jour', q.plafond_journalier(basic) == 1)
+
 # 1) Plafond journalier : explicite, dérivé (quota / 30) ou illimité.
 check('plafond dérivé 30/30 = 1', q.plafond_journalier(Sub()) == 1)
 check('plafond explicite conservé',

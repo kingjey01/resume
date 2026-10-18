@@ -2,8 +2,9 @@
 Quota mensuel (et plafond journalier) de générations QCM — tâche 57.
 
 Règles :
-- Une unité = UNE génération de QCM (un niveau de difficulté), jamais une
-  question.
+- Une unité = UNE GÉNÉRATION COMPLÈTE de QCM pour un résumé : le pack des
+  3 niveaux de difficulté (8 questions × 3 = 24 questions), jamais une
+  question ni un niveau isolé.
 - Le mois de consommation est une période glissante de 30 jours alignée sur
   `Abonnement.date_debut` — même logique que `Service.get_date_fin()`
   (`duree_mois * 30 jours`).
@@ -27,6 +28,16 @@ def _debut_periode(date_debut, now):
         return date_debut
     jours_ecoules = (now - date_debut).days
     return date_debut + timedelta(days=(jours_ecoules // PERIODE_JOURS) * PERIODE_JOURS)
+
+
+def periode_courante(abonnement, now=None):
+    """Début de la période de consommation courante d'un abonnement.
+
+    C'est la clé qui relie les 3 niveaux d'un même résumé à un seul pack :
+    un exercice marqué avec cette date a déjà payé le pack pour la période.
+    """
+    now = now or timezone.now()
+    return _debut_periode(abonnement.date_debut, now)
 
 
 def get_active_subscription(user, now=None):
@@ -64,6 +75,8 @@ def plafond_journalier(sub):
     Un plafond explicite l'emporte. Sinon, un abonnement à quota mensuel reçoit
     automatiquement `quota / 30` (minimum 1) : impossible de vider un quota
     mensuel en une heure, comme demandé par la tâche.
+    Avec l'unité « pack » (3 niveaux, 24 questions), 1/jour = un résumé
+    complet par jour — et non un seul niveau.
     `0` signifie illimité.
     """
     if sub.plafond_qcm_journalier and sub.plafond_qcm_journalier > 0:

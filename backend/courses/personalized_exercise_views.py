@@ -5,7 +5,7 @@ Endpoints pour génération, soumission et historique.
 import random
 import threading
 import logging
-from django.db import IntegrityError
+from django.db import IntegrityError, transaction
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, permissions
@@ -18,6 +18,7 @@ from .permissions import HasActiveSubscription, user_can_access_summary
 from .qcm_quota import (
     consommer_quota,
     get_active_subscription,
+    periode_courante,
     quota_snapshot,
     rembourser_quota,
 )
@@ -44,9 +45,6 @@ def generate_personalized_exercise_view(request, summary_id):
 
     Retourne le statut de génération avec progress polling possible.
     """
-    quota_abonnement_id = None
-    quota_consomme_le = None
-    generation_lancee = False
     try:
         # Paramètres
         difficulty = request.data.get('difficulty', 'medium')
@@ -113,85 +111,112 @@ def generate_personalized_exercise_view(request, summary_id):
                     'quota': quota_snapshot(abonnement),
                 }, status=status.HTTP_202_ACCEPTED)
 
-        # À partir d'ici, une NOUVELLE génération va réellement démarrer
-        # (création, relance après échec ou régénération) : le quota est
-        # consommé avant de lancer le thread. En cas d'échec de génération,
-        # `_launch_generation` le rembourse.
-        quota_ok, quota, abonnement_id = consommer_quota(user)
-        if not quota_ok:
-            code = quota.get('raison_blocage') or 'quota_exhausted'
-            return Response({
-                'error': quota.get('message_blocage')
-                         or 'Quota de générations QCM épuisé.',
-                'code': code,
-                'quota_exhausted': code == 'quota_exhausted',
-                'quota': quota,
-            }, status=status.HTTP_403_FORBIDDEN)
-        quota_consomme_le = timezone.now()
-        quota_abonnement_id = abonnement_id
+        # ── UNITÉ DE QUOTA = PACK ─────────────────────────────────────────────
+        # Les 3 niveaux d'un même résumé, sur la même période d'abonnement, ne
+        # consomment qu'UNE unité (24 questions), conformément au calcul retenu
+        # (Basic : 15 packs = 360 questions).
+        periode = periode_courante(abonnement)
 
-        if existing and regenerate:
-            # Régénération demandée : relancer UNIQUEMENT l'exercice de ce niveau
-            existing.status = 'generating'
-            existing.seed = random.randint(1, 1000000)  # Nouveau seed pour variation
-            existing.regenerated_count += 1
-            existing.save()
-            exercise = existing
-            logger.info(
-                f"🔄 Régénération exercice perso #{exercise.id} pour user={user.id} "
-                f"(difficulty={difficulty}, regenerate=True)"
-            )
-        elif existing and existing.status in ('failed', 'pending'):
-            # Relancer la génération (jamais créer un doublon du même niveau)
-            existing.status = 'generating'
-            existing.seed = random.randint(1, 1000000)
-            existing.save()
-            exercise = existing
-            logger.info(
-                f"♻️ Relance exercice perso #{exercise.id} après échec "
-                f"(difficulty={difficulty}) pour user={user.id}"
-            )
-        else:
-            # Nouvel exercice pour ce niveau (les autres niveaux restent intacts)
-            seed = random.randint(1, 1000000)
-            try:
-                exercise = UserPersonalizedExercise.objects.create(
-                    user=user,
-                    summary=summary,
-                    difficulty=difficulty,
-                    seed=seed,
-                    status='generating'
+        with transaction.atomic():
+            # Verrouille le résumé : deux requêtes simultanées (deux niveaux)
+            # ne peuvent pas payer deux fois le même pack.
+            Summary.objects.select_for_update().get(pk=summary_id)
+            pack_deja_paye = UserPersonalizedExercise.objects.filter(
+                user=user,
+                summary=summary,
+                quota_periode_debut=periode,
+            ).exists()
+
+            if pack_deja_paye:
+                # Pack déjà réglé pour cette période : ce niveau est inclus.
+                quota = quota_snapshot(abonnement)
+                quota_consomme_le = None
+                quota_abonnement_id = None
+            else:
+                quota_ok, quota, abonnement_id = consommer_quota(user)
+                if not quota_ok:
+                    code = quota.get('raison_blocage') or 'quota_exhausted'
+                    return Response({
+                        'error': quota.get('message_blocage')
+                                 or 'Quota de générations QCM épuisé.',
+                        'code': code,
+                        'quota_exhausted': code == 'quota_exhausted',
+                        'quota': quota,
+                    }, status=status.HTTP_403_FORBIDDEN)
+                quota_consomme_le = timezone.now()
+                quota_abonnement_id = abonnement_id
+
+            if existing and regenerate:
+                # Régénération demandée : relancer UNIQUEMENT l'exercice de ce niveau
+                existing.status = 'generating'
+                existing.seed = random.randint(1, 1000000)  # Nouveau seed pour variation
+                existing.regenerated_count += 1
+                existing.save()
+                exercise = existing
+                logger.info(
+                    f"🔄 Régénération exercice perso #{exercise.id} pour user={user.id} "
+                    f"(difficulty={difficulty}, regenerate=True)"
                 )
-            except IntegrityError:
-                # Requête concurrente : l'exercice de ce niveau vient d'être
-                # créé par un autre appel. On rend l'unité réservée.
-                rembourser_quota(abonnement_id, quota_consomme_le)
-                quota_abonnement_id = None  # déjà remboursé : pas de second remboursement
-                concurrent = UserPersonalizedExercise.objects.filter(
-                    user=user, summary=summary, difficulty=difficulty
-                ).first()
-                if concurrent is None:
-                    raise
-                return Response({
-                    'status': concurrent.status,
-                    'exercise_id': concurrent.id,
-                    'difficulty': concurrent.difficulty,
-                    'message': 'Génération déjà lancée',
-                    'quota': quota_snapshot(get_active_subscription(user)),
-                }, status=(
-                    status.HTTP_200_OK
-                    if concurrent.status == 'completed'
-                    else status.HTTP_202_ACCEPTED
-                ))
-            logger.info(f"🆕 Nouvel exercice perso créé #{exercise.id} (difficulty={difficulty}) pour user={user.id}")
+            elif existing and existing.status in ('failed', 'pending'):
+                # Relancer la génération (jamais créer un doublon du même niveau)
+                existing.status = 'generating'
+                existing.seed = random.randint(1, 1000000)
+                existing.save()
+                exercise = existing
+                logger.info(
+                    f"♻️ Relance exercice perso #{exercise.id} après échec "
+                    f"(difficulty={difficulty}) pour user={user.id}"
+                )
+            else:
+                # Nouvel exercice pour ce niveau (les autres niveaux restent intacts)
+                seed = random.randint(1, 1000000)
+                try:
+                    # Savepoint : permet de rattraper une création concurrente
+                    # sans casser la transaction extérieure.
+                    with transaction.atomic():
+                        exercise = UserPersonalizedExercise.objects.create(
+                            user=user,
+                            summary=summary,
+                            difficulty=difficulty,
+                            seed=seed,
+                            status='generating'
+                        )
+                except IntegrityError:
+                    # Requête concurrente : l'exercice de ce niveau vient d'être
+                    # créé par un autre appel. On rend l'unité réservée.
+                    if quota_abonnement_id:
+                        rembourser_quota(quota_abonnement_id, quota_consomme_le)
+                    quota_abonnement_id = None  # déjà remboursé
+                    concurrent = UserPersonalizedExercise.objects.filter(
+                        user=user, summary=summary, difficulty=difficulty
+                    ).first()
+                    if concurrent is None:
+                        raise
+                    return Response({
+                        'status': concurrent.status,
+                        'exercise_id': concurrent.id,
+                        'difficulty': concurrent.difficulty,
+                        'message': 'Génération déjà lancée',
+                        'quota': quota_snapshot(get_active_subscription(user)),
+                    }, status=(
+                        status.HTTP_200_OK
+                        if concurrent.status == 'completed'
+                        else status.HTTP_202_ACCEPTED
+                    ))
+                logger.info(f"🆕 Nouvel exercice perso créé #{exercise.id} (difficulty={difficulty}) pour user={user.id}")
 
-        # Lancer génération en background
+            # Marque CET exercice comme payeur du pack pour la période.
+            if quota_abonnement_id:
+                exercise.quota_periode_debut = periode
+                exercise.save(update_fields=['quota_periode_debut'])
+
+        # Lancer génération en background (hors transaction)
         _launch_generation(
             exercise, user.id, summary_id, difficulty, exercise.seed,
-            quota_abonnement_id=abonnement_id,
+            quota_abonnement_id=quota_abonnement_id,
             quota_consomme_le=quota_consomme_le,
+            quota_periode_debut=periode if quota_abonnement_id else None,
         )
-        generation_lancee = True
 
         return Response({
             'status': 'generating',
@@ -209,10 +234,9 @@ def generate_personalized_exercise_view(request, summary_id):
             status=status.HTTP_404_NOT_FOUND
         )
     except Exception as e:
-        # Si l'erreur survient après la réservation mais avant que le thread
-        # ne prenne la main, l'unité ne doit pas rester débitée.
-        if quota_abonnement_id and not generation_lancee:
-            rembourser_quota(quota_abonnement_id, quota_consomme_le)
+        # Une erreur dans le bloc atomique annule aussi la réservation
+        # (transaction) ; après le commit, `_launch_generation` gère seul le
+        # remboursement en cas d'échec du thread.
         logger.error(f"❌ Erreur génération exercice perso: {e}")
         return Response(
             {'error': 'Erreur interne du serveur'},
@@ -221,13 +245,29 @@ def generate_personalized_exercise_view(request, summary_id):
 
 
 def _launch_generation(exercise, user_id, summary_id, difficulty, seed,
-                       quota_abonnement_id=None, quota_consomme_le=None):
+                       quota_abonnement_id=None, quota_consomme_le=None,
+                       quota_periode_debut=None):
     """Lance la génération en thread background.
 
     `quota_abonnement_id` / `quota_consomme_le` identifient la réservation
     faite dans la vue. Si la génération n'aboutit pas à un exercice complet,
-    l'unité est rendue : le quota ne doit pas être débité pour un échec.
+    l'unité est rendue et le pack est libéré pour cette période : le quota ne
+    doit pas être débité pour un échec.
     """
+    def rembourser():
+        if not quota_abonnement_id:
+            return
+        rembourser_quota(quota_abonnement_id, quota_consomme_le)
+        if quota_periode_debut:
+            UserPersonalizedExercise.objects.filter(
+                pk=exercise.pk,
+                quota_periode_debut=quota_periode_debut,
+            ).update(quota_periode_debut=None)
+        logger.info(
+            f"↩️ Quota remboursé (génération sans résultat) "
+            f"abonnement={quota_abonnement_id}"
+        )
+
     def run_gen():
         try:
             resultat = generate_personalized_exercise(
@@ -238,29 +278,20 @@ def _launch_generation(exercise, user_id, summary_id, difficulty, seed,
                 existing_exercise=exercise
             )
             exercice_genere = resultat[0] if resultat else None
-            if (
-                quota_abonnement_id
-                and (exercice_genere is None or exercice_genere.status != 'completed')
-            ):
-                rembourser_quota(quota_abonnement_id, quota_consomme_le)
-                logger.info(
-                    f"↩️ Quota remboursé (génération sans résultat) "
-                    f"abonnement={quota_abonnement_id}"
-                )
+            if exercice_genere is None or exercice_genere.status != 'completed':
+                rembourser()
         except Exception as e:
             logger.error(f"❌ Erreur thread génération: {e}")
             exercise.status = 'failed'
             exercise.save()
-            if quota_abonnement_id:
-                rembourser_quota(quota_abonnement_id, quota_consomme_le)
+            rembourser()
 
     try:
         thread = threading.Thread(target=run_gen, daemon=True)
         thread.start()
     except Exception:
         # Le thread n'a pas démarré : la réservation est annulée.
-        if quota_abonnement_id:
-            rembourser_quota(quota_abonnement_id, quota_consomme_le)
+        rembourser()
         raise
 
 

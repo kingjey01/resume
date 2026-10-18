@@ -293,7 +293,7 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
                   tabs: const [
                     Tab(text: 'Mes tentatives'),
                     Tab(text: 'Statistiques'),
-                    Tab(text: 'Quota d\'abonnement'),
+                    Tab(text: 'Quota'),
                   ],
                 ),
               ],
@@ -707,10 +707,13 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
               icon: Icons.calendar_month_rounded,
               color: AppTheme.primaryBlue,
               title: 'Quota mensuel',
-              value: quotaMensuel == 0 ? 'Illimité' : '$quotaMensuel générations',
+              value: quotaMensuel == 0
+                  ? 'Illimité'
+                  : '$quotaMensuel générations complètes',
               subtitle: quotaMensuel == 0
                   ? 'Aucune limite mensuelle sur ce plan'
-                  : '$consomme consommées • ${restant ?? 0} restantes',
+                  : '$consomme consommées • ${restant ?? 0} restantes '
+                      '(1 génération = 3 niveaux)',
               progress: quotaMensuel == 0
                   ? null
                   : (consomme / quotaMensuel).clamp(0.0, 1.0).toDouble(),
@@ -723,11 +726,12 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
               title: 'Plafond journalier',
               value: plafondJour == 0
                   ? 'Illimité'
-                  : '$plafondJour génération${plafondJour > 1 ? 's' : ''} / jour',
+                  : '$plafondJour pack${plafondJour > 1 ? 's' : ''} / jour',
               subtitle: plafondJour == 0
                   ? 'Aucune limite quotidienne'
-                  : '$jourConsomme utilisée${jourConsomme > 1 ? 's' : ''} • '
-                      '${jourRestant ?? 0} restante${(jourRestant ?? 0) > 1 ? 's' : ''} aujourd\'hui',
+                  : '$jourConsomme utilisé${jourConsomme > 1 ? 's' : ''} • '
+                      '${jourRestant ?? 0} restant${(jourRestant ?? 0) > 1 ? 's' : ''} aujourd\'hui '
+                      '(1 pack = un résumé complet)',
               progress: plafondJour == 0
                   ? null
                   : (jourConsomme / plafondJour).clamp(0.0, 1.0).toDouble(),

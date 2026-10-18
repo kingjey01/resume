@@ -459,18 +459,33 @@ class Exercise(models.Model):
     generated_by_ai = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
-    
+
+    # Tâche 57 — unité de quota = PACK (les 3 niveaux d'un résumé).
+    # Ce champ est renseigné sur l'exercice qui a payé le pack pour la période
+    # d'abonnement courante. Les autres niveaux du même résumé/période restent
+    # gratuits.
+    quota_periode_debut = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Début de la période d'abonnement pour laquelle le pack QCM de ce résumé a été consommé",
+    )
+
     def __str__(self):
         return f"Exercice - {self.summary.titre}"
-    
+
     @property
     def questions_count(self):
         return self.questions.count()
-    
+
     class Meta:
         verbose_name = "Exercice"
         verbose_name_plural = "Exercices"
         ordering = ['-created_at']
+        indexes = [
+            models.Index(
+                fields=['created_by', 'summary', 'quota_periode_debut'],
+                name='courses_ex_qcm_pack_idx',
+            ),
+        ]
 
 
 class ExerciseQuestion(models.Model):
@@ -600,6 +615,14 @@ class UserPersonalizedExercise(models.Model):
     )
     generated_by_ai = models.BooleanField(default=False)
 
+    # Tâche 57 — unité de quota = PACK (les 3 niveaux d'un résumé).
+    # Renseigné sur l'exercice qui a payé le pack pour la période courante ;
+    # les deux autres niveaux du même résumé/période ne consomment rien.
+    quota_periode_debut = models.DateTimeField(
+        null=True, blank=True,
+        help_text="Début de la période d'abonnement pour laquelle le pack QCM de ce résumé a été consommé",
+    )
+
     # Timestamps
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -618,6 +641,10 @@ class UserPersonalizedExercise(models.Model):
             models.Index(fields=['user', 'summary', 'difficulty']),
             models.Index(fields=['status']),
             models.Index(fields=['difficulty']),
+            models.Index(
+                fields=['user', 'summary', 'quota_periode_debut'],
+                name='courses_perso_qcm_pack_idx',
+            ),
         ]
 
     def __str__(self):
