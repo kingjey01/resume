@@ -83,12 +83,37 @@ class _CreateCoursScreenState extends State<CreateCoursScreen> {
       await _loadCours();
     } catch (e) {
       if (mounted) {
+        // Affiche le message exact du backend (ex. résumé générique existant)
+        // sans préfixe technique.
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-              content: Text('Erreur : $e'), backgroundColor: AppTheme.error),
+              content: Text(ApiService.getErrorMessage(e)),
+              backgroundColor: AppTheme.error),
         );
       }
     }
+  }
+
+  /// Tâche 58 — le backend refuse la suppression dès qu'un résumé générique
+  /// existe. On l'explique directement, sans lancer la requête.
+  void _showGenericSummaryBlocked() {
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: const Text('Suppression impossible'),
+        content: const Text(
+          'Impossible de supprimer ce cours, car un résumé générique a déjà '
+          'été créé pour celui-ci.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Compris'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -328,6 +353,7 @@ class _CreateCoursScreenState extends State<CreateCoursScreen> {
     final id = c['id'] as int;
     final nom = c['nom'] as String? ?? '';
     final desc = c['description'] as String? ?? '';
+    final hasGenericSummary = c['has_generic_summary'] == true;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
@@ -375,10 +401,19 @@ class _CreateCoursScreenState extends State<CreateCoursScreen> {
             ),
           ),
           IconButton(
-            onPressed: () => _confirmDelete(id, nom),
-            icon: const Icon(Icons.delete_outline_rounded,
-                color: AppTheme.error, size: 20),
-            tooltip: 'Supprimer',
+            onPressed: () => hasGenericSummary
+                ? _showGenericSummaryBlocked()
+                : _confirmDelete(id, nom),
+            icon: Icon(
+              hasGenericSummary
+                  ? Icons.lock_outline_rounded
+                  : Icons.delete_outline_rounded,
+              color: hasGenericSummary ? AppTheme.textLight : AppTheme.error,
+              size: 20,
+            ),
+            tooltip: hasGenericSummary
+                ? 'Suppression impossible : résumé générique existant'
+                : 'Supprimer',
           ),
         ],
       ),

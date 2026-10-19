@@ -23,6 +23,11 @@ class CourseSerializer(serializers.ModelSerializer):
     filieres_noms = serializers.SerializerMethodField()
     promotions_noms = serializers.SerializerMethodField()
 
+    # Tâche 58 : un cours qui possède déjà un résumé générique (IA) ne peut
+    # plus être supprimé. Ce champ permet à Flutter de l'expliquer AVANT la
+    # requête ; le backend reste seul juge (CourseDetailView.destroy).
+    has_generic_summary = serializers.SerializerMethodField()
+
     # Champs de compatibilité frontend (premier élément M2M)
     universite_nom = serializers.SerializerMethodField()
     filiere_nom = serializers.SerializerMethodField()
@@ -50,6 +55,10 @@ class CourseSerializer(serializers.ModelSerializer):
         p = obj.promotions.first()
         return p.nom if p else None
 
+    def get_has_generic_summary(self, obj):
+        """Vrai dès qu'un résumé générique (IA) existe pour ce cours."""
+        return obj.summaries.filter(author_type='ai').exists()
+
     class Meta:
         model = Course
         fields = [
@@ -58,9 +67,11 @@ class CourseSerializer(serializers.ModelSerializer):
             'filieres', 'filieres_noms',
             'promotions', 'promotions_noms',
             'universite_nom', 'filiere_nom', 'promotion_nom',
+            'has_generic_summary',
             'created_at', 'updated_at',
         ]
-        read_only_fields = ['university', 'filiere', 'created_at', 'updated_at']
+        read_only_fields = ['university', 'filiere', 'created_at', 'updated_at',
+                            'has_generic_summary']
 
 
 class SessionSerializer(serializers.ModelSerializer):

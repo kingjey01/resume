@@ -150,7 +150,27 @@ class CourseListCreateView(generics.ListCreateAPIView):
 class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
     serializer_class = CourseSerializer
     permission_classes = [permissions.IsAuthenticated, HasUniversityAccess, CanModifyObject]
-    
+
+    def destroy(self, request, *args, **kwargs):
+        """Tâche 58 — interdire la suppression d'un cours déjà résumé.
+
+        Le contrôle est ici, côté serveur : l'interface Flutter ne peut pas le
+        contourner, même par un appel direct à l'API. La réponse 409 porte le
+        message exact attendu et un code machine stable.
+        """
+        instance = self.get_object()
+        if instance.summaries.filter(author_type='ai').exists():
+            return Response({
+                'error': (
+                    'Impossible de supprimer ce cours, car un résumé générique '
+                    'a déjà été créé pour celui-ci.'
+                ),
+                'code': 'generic_summary_exists',
+            }, status=status.HTTP_409_CONFLICT)
+
+        self.perform_destroy(instance)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
     def get_queryset(self):
         """Filtrer les cours selon l'université, promotion et filière de l'utilisateur"""
         if not self.request.user.is_authenticated:
