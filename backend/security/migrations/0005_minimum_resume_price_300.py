@@ -20,7 +20,7 @@ def abaisser_seuil_herite(apps, schema_editor):
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('security', '0001_initial'),
+        ('security', '0004_appversion_resumepricingconfig'),
     ]
 
     operations = [

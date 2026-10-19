@@ -619,7 +619,7 @@ def notify_subscription_expired(self, abonnement_id: int):
         # Create notification for THIS USER ONLY (not broadcast)
         notif = AppNotification.objects.create(
             title='❌ Abonnement expiré',
-            body=f'Votre abonnement {service.nom} a expiré. Cliquez pour vous réabonner et retrouver l\'accès complet.',
+            body=f'Votre {service.nom} a expiré. rendez vous sur paramètres puis abonnements(gérer votre abonnement) pour vous réabonner et retrouver l\'accès complet.',
             notification_type='payment',
             sender=None,
         )
