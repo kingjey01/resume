@@ -14,6 +14,7 @@ import 'package:resume_plus_clean/services/background_upload_stub.dart'
     as background_upload;
 import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/services/audio_draft_service.dart';
+import 'package:resume_plus_clean/services/audio_upload_service.dart';
 import 'package:resume_plus_clean/models/course.dart';
 import 'package:resume_plus_clean/models/professeur.dart';
 import 'package:resume_plus_clean/features/upload/screens/course_selection_screen.dart';
@@ -90,6 +91,10 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
   int _uploadProgress = 0; // Pourcentage de progression (0-100)
   double _uploadSpeed = 0; // KB/s
   int _estimatedSecondsRemaining = 0;
+  // Tâche 59 : la tâche native peut être « en file » sans progresser. On
+  // affiche alors une barre indéterminée + le statut réel, jamais un faux 0 %.
+  bool _uploadIndeterminate = false;
+  String _uploadStatusMessage = 'Préparation de l\'envoi…';
   DateTime? _uploadStartTime;
   // Tâche 58 : identité stable de l'envoi courant et drapeau de reprise.
   String? _uploadIdempotenceKey;
@@ -139,6 +144,58 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
     // Tâche 58 : réconcilier les envois interrompus/terminés pendant que
     // l'application était fermée.
     _reconcilerEnvois();
+    // Tâche 59 : l'envoi vit dans un service, pas dans ce widget. On s'abonne
+    // à son état pour retrouver progression et statut après une navigation.
+    AudioUploadService.instance.active.addListener(_onUploadServiceState);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Le service peut avoir progressé pendant que l'écran était détruit ;
+    // on réapplique son état dès qu'on connaît la clé active.
+    _onUploadServiceState();
+  }
+
+  void _onUploadServiceState() {
+    if (!mounted) return;
+    final etat = AudioUploadService.instance.active.value;
+    if (etat == null || etat.key != _uploadIdempotenceKey) return;
+
+    switch (etat.phase) {
+      case AudioUploadPhase.preparing:
+      case AudioUploadPhase.queued:
+        setState(() {
+          _isUploading = true;
+          _uploadIndeterminate = true;
+          _uploadStatusMessage = etat.message;
+        });
+      case AudioUploadPhase.uploading:
+        setState(() {
+          _isUploading = true;
+          _uploadStatusMessage = etat.message;
+          if (etat.progress != null) {
+            _uploadIndeterminate = false;
+            // Le reste (80→100 %) est la phase traitement serveur.
+            _uploadProgress = (etat.progress! * 80).round();
+          } else {
+            _uploadIndeterminate = true;
+          }
+        });
+      case AudioUploadPhase.completed:
+        setState(() {
+          _uploadIndeterminate = false;
+          _uploadProgress = 100;
+          _uploadStatusMessage = etat.message;
+        });
+      case AudioUploadPhase.interrupted:
+      case AudioUploadPhase.failed:
+        setState(() {
+          _isUploading = false;
+          _uploadIndeterminate = false;
+          _uploadStatusMessage = etat.message;
+        });
+    }
   }
 
   /// Au retour dans l'application : vérifier ce que le serveur a déjà reçu et
@@ -492,6 +549,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
     AudioDraft? base,
     String? idempotenceKey,
     bool resetUploadState = false,
+    String? audioFilePath,
   }) {
     final price = double.tryParse(_priceController.text.trim());
     final title = _titleController.text.trim();
@@ -501,6 +559,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
     return AudioDraft(
       id: id,
       audioBytes: bytes,
+      audioFilePath: audioFilePath ?? base?.audioFilePath,
       mimeType: mimeType,
       fileName: 'recording_${DateTime.now().millisecondsSinceEpoch}.m4a',
       courseId: _selectedCourse?.id ?? base?.courseId,
@@ -1112,17 +1171,28 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
         texte: 'Votre enregistrement est envoyé au serveur.',
       );
 
-      final response = await _apiService.uploadAudio(
+      // Tâche 59 : l'envoi est confié au service applicatif. Ce widget peut
+      // être détruit (retour, navigation, arrière-plan) sans interrompre le
+      // transfert ; le service possède l'état, la progression et la reprise.
+      final draftExistant = _activeDraftId != null
+          ? await AudioDraftService().getDraft(_activeDraftId!)
+          : null;
+      final draftPourEnvoi = draftExistant ??
+          _buildDraftFromCurrent(
+            id: 'direct_${DateTime.now().millisecondsSinceEpoch}',
+            bytes: _recordedBytes!,
+            mimeType: _recordedMimeType ?? 'audio/m4a',
+            idempotenceKey: _uploadIdempotenceKey,
+            audioFilePath: _recordedFilePath,
+          );
+
+      final response = await AudioUploadService.instance.demarrer(
+        draft: draftPourEnvoi,
         audioBytes: _recordedBytes!,
-        // Le fichier sur le disque, quand il existe : l'envoi part alors du
-        // fichier et non de la copie en mémoire (voir ApiService.uploadAudio).
-        audioFilePath: _recordedFilePath,
         fileName: fileName,
         mimeType: _recordedMimeType ?? 'audio/wav',
         metadata: metadata,
-        // Même clé pour toutes les tentatives ET pour la reprise native.
-        idempotenceKey: _uploadIdempotenceKey,
-        onSendProgress: (sent, total) {
+        onProgress: (sent, total) {
           if (total > 0) {
             final now = DateTime.now();
             final elapsed = _uploadStartTime != null
@@ -1147,6 +1217,8 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
             // mais on ne met à jour que si le State existe encore.
             if (mounted) {
               setState(() {
+                _uploadIndeterminate = false;
+                _uploadStatusMessage = 'Envoi en cours…';
                 _uploadProgress = uploadPercent.round();
                 _uploadSpeed = speed;
                 _estimatedSecondsRemaining = remainingSeconds;
@@ -1312,6 +1384,7 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    AudioUploadService.instance.active.removeListener(_onUploadServiceState);
     _pulseController.dispose();
     _titleController.dispose();
     _priceController.dispose();
@@ -2273,7 +2346,8 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(4),
                     child: LinearProgressIndicator(
-                      value: _uploadProgress / 100,
+                      // null = indéterminé : la tâche est en file, pas à 0 %.
+                      value: _uploadIndeterminate ? null : _uploadProgress / 100,
                       backgroundColor: Colors.transparent,
                       color: AppTheme.primaryBlue,
                       minHeight: 8,
@@ -2281,9 +2355,9 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Pourcentage
+                // Pourcentage (ou état indéterminé)
                 Text(
-                  '$_uploadProgress%',
+                  _uploadIndeterminate ? 'En cours…' : '$_uploadProgress%',
                   style: Theme.of(context).textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w700,
                     color: AppTheme.primaryBlue,
@@ -2291,27 +2365,27 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Sauvegarde en cours...',
+                  _uploadStatusMessage,
+                  textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w600,
                     color: AppTheme.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 4),
-                // Vitesse et temps restant
-                Text(
-                  '${_uploadSpeed.toStringAsFixed(1)} KB/s · ${_estimatedSecondsRemaining}s restantes',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppTheme.textLight,
+                if (!_uploadIndeterminate) ...[
+                  const SizedBox(height: 4),
+                  // Vitesse et temps restant
+                  Text(
+                    '${_uploadSpeed.toStringAsFixed(1)} KB/s · ${_estimatedSecondsRemaining}s restantes',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppTheme.textLight,
+                    ),
                   ),
-                ),
+                ],
                 const SizedBox(height: 2),
                 Text(
-                  // Tâche 58 : l'envoi est confié au moteur natif
-                  // (URLSession / WorkManager), il continue donc même écran
-                  // verrouillé ou application en arrière-plan.
-                  'Vous pouvez verrouiller votre téléphone ou quitter cette '
-                  'page : l\'envoi continue en arrière-plan.',
+                  'Vous pouvez quitter l\'application, l\'envoi continuera '
+                  'en arrière-plan.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppTheme.textLight,

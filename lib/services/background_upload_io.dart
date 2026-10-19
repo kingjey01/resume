@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/widgets.dart';
 
 /// Envoi d'arrière-plan — Android et iOS (tâche 58).
 ///
@@ -60,6 +62,7 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   required Map<String, String> headers,
   required String taskId,
   void Function(int sent, int total)? onProgress,
+  void Function(String status)? onStatus,
 }) async {
 
   // LE PAQUET N'ENVOIE QUE DES FICHIERS D'UN RÉPERTOIRE DE BASE CONNU. On
@@ -123,12 +126,72 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   // LA PROGRESSION DU PAQUET EST UN RATIO 0..1 ; l'écran attend des OCTETS (il
   // en déduit la vitesse et le temps restant). On la convertit, avec la taille
   // du fichier comme total.
+  var premierOctet = false;
   transfert.progressNotifier.addListener(() {
     final ratio = transfert.progressNotifier.value;
     if (ratio != null) {
+      premierOctet = true;
       onProgress?.call((ratio * taille).round(), taille);
     }
   });
+
+  // État réel du moteur natif : `enqueued` (en file), `running`, etc. C'est
+  // ce qui permet à l'UI de dire « en attente » au lieu d'un faux 0 %.
+  void remonterStatut(TaskStatus? statut) {
+    if (statut != null) onStatus?.call(statut.name);
+  }
+
+  transfert.statusNotifier.addListener(
+    () => remonterStatut(transfert.statusNotifier.value),
+  );
+  final statutInitial = transfert.statusNotifier.value;
+  remonterStatut(statutInitial);
+
+  // ── GARDE-FOU DE DÉMARRAGE (tâche 59) : corrige le blocage à 0 % ────────
+  // WorkManager peut laisser une tâche `enqueued` sans jamais la démarrer
+  // (contraintes réseau, batterie, arrière-plan). Au PREMIER PLAN, au bout de
+  // 15 s sans octet ni statut `running`, on annule la tâche native et on rend
+  // la main : l'appelant reprend avec Dio, qui affiche une vraie progression.
+  // La clé d'idempotence est identique, donc aucun doublon serveur.
+  // EN ARRIÈRE-PLAN, on attend : le système peut démarrer la tâche plus tard.
+  final demarrage = Completer<void>();
+  Timer(const Duration(seconds: 15), () {
+    if (!demarrage.isCompleted) demarrage.complete();
+  });
+  transfert.progressNotifier.addListener(() {
+    if (!demarrage.isCompleted) demarrage.complete();
+  });
+  transfert.statusNotifier.addListener(() {
+    final statut = transfert.statusNotifier.value;
+    if (statut == TaskStatus.running || statut == TaskStatus.complete) {
+      if (!demarrage.isCompleted) demarrage.complete();
+    }
+  });
+  if (statutInitial == TaskStatus.running ||
+      statutInitial == TaskStatus.complete) {
+    if (!demarrage.isCompleted) demarrage.complete();
+  }
+  await demarrage.future;
+
+  final statutApresAttente = transfert.statusNotifier.value;
+  final auPremierPlan =
+      WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+  if (!premierOctet &&
+      auPremierPlan &&
+      statutApresAttente != TaskStatus.running &&
+      statutApresAttente != TaskStatus.complete) {
+    debugPrint(
+      '↻ Transfert natif non démarré après 15 s '
+      '(statut: $statutApresAttente) : repli Dio.',
+    );
+    try {
+      await FileDownloader().cancelTaskWithId(taskId);
+    } catch (_) {
+      // Même si l'annulation échoue, la clé d'idempotence protège du doublon.
+    }
+    onStatus?.call('failed');
+    return null;
+  }
 
   // On attend le résultat natif. Si l'application est suspendue, cette attente
   // est suspendue avec elle et reprend au retour ; si elle est tuée, le
@@ -137,8 +200,10 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   late final TaskStatusUpdate resultat;
   try {
     resultat = await transfert.result;
+    remonterStatut(resultat.status);
   } catch (e) {
     debugPrint("↻ Envoi d'arrière-plan interrompu ($e) : repli classique.");
+    onStatus?.call('failed');
     return null;
   }
 

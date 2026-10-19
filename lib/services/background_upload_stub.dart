@@ -16,6 +16,7 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   required Map<String, String> headers,
   required String taskId,
   void Function(int sent, int total)? onProgress,
+  void Function(String status)? onStatus,
 }) async =>
     null;
 

@@ -811,6 +811,10 @@ class ApiService {
     Map<String, dynamic>? metadata,
     void Function(int sent, int total)? onSendProgress,
     String? idempotenceKey,
+    // Tâche 59 : état réel du transfert natif (`enqueued`, `running`,
+    // `waitingToRetry`, `complete`, `failed`). Permet à l'UI d'afficher
+    // « en attente » au lieu d'une fausse progression à 0 %.
+    void Function(String status)? onStatus,
   }) async {
     // Garde-fou : chaque octet transmis relance le délai ; il est désarmé dès
     // que le corps est entièrement envoyé (le receiveTimeout prend le relais
@@ -898,6 +902,7 @@ class ApiService {
           if (jeton != null && jeton.isNotEmpty) 'Authorization': 'Bearer $jeton',
         },
         onProgress: onSendProgress,
+        onStatus: onStatus,
       );
       if (reponseArrierePlan != null) {
         if (reponseArrierePlan['success'] == true) {
@@ -965,6 +970,7 @@ class ApiService {
       // doublon possible — avec une attente croissante. Sur iOS, l'attente est
       // suspendue avec l'application et reprend au déverrouillage : l'envoi
       // repart de lui-même, sans que l'utilisateur ait rien à faire.
+      onStatus?.call('running');
       late Response<dynamic> response;
       for (var essai = 1; ; essai++) {
         // UN JETON NEUF À CHAQUE TENTATIVE : un jeton annulé le reste, et le
@@ -1010,8 +1016,10 @@ class ApiService {
       }
 
       if (response.statusCode == 201) {
+        onStatus?.call('complete');
         return {'success': true, 'message': response.data['message'], 'session': response.data['session']};
       }
+      onStatus?.call('failed');
       throw ApiException('Erreur lors de l\'envoi du fichier audio.',
           type: ApiExceptionType.server);
     } catch (e) {

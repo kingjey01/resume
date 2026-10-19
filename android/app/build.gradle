@@ -37,7 +37,7 @@ android {
         applicationId = "com.resumeplus.jeycode"
         minSdkVersion = flutter.minSdkVersion
         targetSdk = 36
-        versionCode = 64
+        versionCode = 65
         versionName = "1.1.21"
         multiDexEnabled true
     }
