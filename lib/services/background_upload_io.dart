@@ -101,6 +101,10 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
     // garantit qu'une reprise ne crée pas de doublon côté serveur.
     transferHints: const {TransferHint.largeFile},
     retries: 3,
+    // Un transfert réellement mort ne doit pas rester « en cours » pour
+    // toujours : après 5 min sans progression, le moteur le signale en échec
+    // et la reprise est proposée (le fichier local reste intact).
+    stallTimeout: const Duration(minutes: 5),
     displayName: 'Envoi de ${fields['summary_title'] ?? 'votre cours'}',
   );
 
