@@ -7,6 +7,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:dio/dio.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/background_task_service.dart';
+// Tâche 58 : état natif d'un transfert d'arrière-plan (iOS URLSession /
+// Android WorkManager). Version sans effet sur le web.
+import 'package:resume_plus_clean/services/background_upload_stub.dart'
+    if (dart.library.io) 'package:resume_plus_clean/services/background_upload_io.dart'
+    as background_upload;
 import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/services/audio_draft_service.dart';
 import 'package:resume_plus_clean/models/course.dart';
@@ -46,7 +51,8 @@ class RecordAudioScreen extends StatefulWidget {
 
 enum RecordingState { idle, recording, paused, stopped }
 
-class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProviderStateMixin {
+class _RecordAudioScreenState extends State<RecordAudioScreen>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   // Utiliser le recorder universel (supporte Web et Mobile)
   final MobileAudioRecorder _audioRecorder = MobileAudioRecorder();
   final ApiService _apiService = ApiService();
@@ -85,6 +91,12 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   double _uploadSpeed = 0; // KB/s
   int _estimatedSecondsRemaining = 0;
   DateTime? _uploadStartTime;
+  // Tâche 58 : identité stable de l'envoi courant et drapeau de reprise.
+  String? _uploadIdempotenceKey;
+  bool _uploadInterromptu = false;
+  // Passe à true si l'application a été mise en arrière-plan pendant l'envoi :
+  // un échec au retour ne doit pas être présenté comme une vraie panne réseau.
+  bool _envoiPasseEnArrierePlan = false;
   RecordingState _recordingState = RecordingState.idle;
   Timer? _timer;
   
@@ -118,11 +130,36 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _initializeAnimations();
     _setupRecorderCallbacks();
     _loadProfesseurs();
     _loadPricingConfig();
     _loadDraftsList();
+    // Tâche 58 : réconcilier les envois interrompus/terminés pendant que
+    // l'application était fermée.
+    _reconcilerEnvois();
+  }
+
+  /// Au retour dans l'application : vérifier ce que le serveur a déjà reçu et
+  /// reprendre automatiquement un envoi interrompu.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if ((state == AppLifecycleState.paused ||
+            state == AppLifecycleState.inactive) &&
+        _isUploading) {
+      _envoiPasseEnArrierePlan = true;
+    }
+    if (state != AppLifecycleState.resumed) return;
+    _reconcilerEnvois();
+    if (_uploadInterromptu && !_isUploading) {
+      _uploadInterromptu = false;
+      Future.delayed(const Duration(seconds: 2), () {
+        if (mounted && !_isUploading && _recordedBytes != null) {
+          _uploadRecording();
+        }
+      });
+    }
   }
 
   /// Charge la liste des brouillons locaux depuis le service.
@@ -136,6 +173,80 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         _isLoadingDrafts = false;
       });
     }
+  }
+
+  /// Réconcilie les brouillons dont l'envoi n'a pas été confirmé (tâche 58).
+  ///
+  /// Ordre de vérité :
+  ///  1. le serveur (clé d'idempotence) : s'il a déjà reçu l'audio, le
+  ///     brouillon est supprimé sans rien renvoyer ;
+  ///  2. le moteur natif (URLSession / WorkManager) : un transfert encore
+  ///     actif n'est PAS une erreur ;
+  ///  3. sinon, le transfert est réellement interrompu → état `failed`,
+  ///     le fichier reste sur disque et peut être repris.
+  Future<void> _reconcilerEnvois() async {
+    final service = AudioDraftService();
+    final pending = await service.listPendingUploads();
+    if (pending.isEmpty) return;
+
+    var changement = false;
+
+    for (final draft in pending) {
+      final cle = draft.idempotenceKey;
+      if (cle == null || cle.isEmpty) continue;
+
+      // Ne jamais déclarer « échoué » un envoi qui tourne encore dans CET
+      // écran (le moteur natif peut ne pas avoir encore créé sa tâche).
+      if (_isUploading && _uploadIdempotenceKey == cle) continue;
+
+      final recu = await _apiService.sessionByIdempotenceKey(cle);
+      if (recu != null && recu['found'] == true) {
+        await service.deleteDraft(draft.id);
+        if (_activeDraftId == draft.id) {
+          _activeDraftId = null;
+          _uploadIdempotenceKey = null;
+          // L'audio est déjà sur le serveur : vider le formulaire évite un
+          // second envoi accidentel de la même piste.
+          if (mounted) {
+            setState(() {
+              _recordedBytes = null;
+              _recordedFilePath = null;
+              _recordedMimeType = null;
+              _recordDuration = 0;
+              _recordingState = RecordingState.idle;
+            });
+          }
+        }
+        changement = true;
+        if (mounted) {
+          SnackbarService.show(
+            '✅ Envoi terminé : le serveur avait déjà reçu cet audio.',
+            isError: false,
+          );
+        }
+        continue;
+      }
+
+      final statut = await background_upload.statutTacheArrierePlan(cle);
+      final actif = statut == 'running' ||
+          statut == 'enqueued' ||
+          statut == 'waitingToRetry' ||
+          statut == 'paused';
+
+      if (actif && draft.uploadState != 'uploading') {
+        await service.setUploadState(draft.id, 'uploading');
+        changement = true;
+      } else if (!actif &&
+          draft.uploadState == 'uploading' &&
+          (draft.uploadUpdatedAt == null ||
+              DateTime.now().difference(draft.uploadUpdatedAt!) >
+                  const Duration(seconds: 30))) {
+        await service.setUploadState(draft.id, 'failed');
+        changement = true;
+      }
+    }
+
+    if (changement) await _loadDraftsList();
   }
 
   /// Charge un brouillon spécifique dans le formulaire.
@@ -206,6 +317,10 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     }
 
     _activeDraftId = draft.id;
+    // L'identité d'envoi voyage avec le brouillon : une reprise après
+    // redémarrage réutilise EXACTEMENT la même clé (pas de doublon serveur).
+    _uploadIdempotenceKey = draft.idempotenceKey;
+    _uploadInterromptu = false;
 
     if (mounted) setState(() {});
   }
@@ -375,6 +490,8 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     required String mimeType,
     DateTime? createdAt,
     AudioDraft? base,
+    String? idempotenceKey,
+    bool resetUploadState = false,
   }) {
     final price = double.tryParse(_priceController.text.trim());
     final title = _titleController.text.trim();
@@ -400,6 +517,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       professeurNom: profNom?.isNotEmpty == true ? profNom : base?.professeurNom,
       professeurId: (_autoResolvedProfessorId ?? _selectedProfesseur?.id) ?? base?.professeurId,
       createdAt: createdAt ?? DateTime.now(),
+      // Nouvelle piste = nouvelle clé ; simple sauvegarde = même clé.
+      idempotenceKey: idempotenceKey ?? base?.idempotenceKey,
+      uploadState: resetUploadState ? null : base?.uploadState,
+      sessionId: resetUploadState ? null : base?.sessionId,
+      uploadUpdatedAt: resetUploadState ? null : base?.uploadUpdatedAt,
     );
   }
 
@@ -413,12 +535,19 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     if (_activeDraftId != null) {
       final existing = await draftService.getDraft(_activeDraftId!);
       if (existing != null) {
+        // Nouvelle piste audio = nouvelle identité d'envoi : l'ancienne clé
+        // ne doit pas renvoyer la session d'un audio précédent.
+        final nouvelleCle = AudioDraftService.nouvelleCleIdempotence();
+        _uploadIdempotenceKey = nouvelleCle;
+        _uploadInterromptu = false;
         await draftService.updateDraft(_buildDraftFromCurrent(
           id: existing.id,
           bytes: bytes,
           mimeType: mimeType,
           createdAt: existing.createdAt,
           base: existing,
+          idempotenceKey: nouvelleCle,
+          resetUploadState: true,
         ));
         await _loadDraftsList();
         return;
@@ -435,15 +564,20 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       return;
     }
 
+    final nouvelleCle = AudioDraftService.nouvelleCleIdempotence();
     final draft = _buildDraftFromCurrent(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bytes: bytes,
       mimeType: mimeType,
+      idempotenceKey: nouvelleCle,
+      resetUploadState: true,
     );
 
     final added = await draftService.addDraft(draft);
     if (added) {
       _activeDraftId = draft.id;
+      _uploadIdempotenceKey = nouvelleCle;
+      _uploadInterromptu = false;
       await _loadDraftsList();
     }
   }
@@ -636,6 +770,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
           _isImporting = false;
         });
 
+        // Tâche 58 : le fichier importé est immédiatement persisté comme
+        // brouillon, avec sa clé d'idempotence, pour survivre à un
+        // verrouillage ou à un redémarrage pendant l'envoi.
+        _pendingDraftSave = _autoSaveDraft(bytes, mimeType);
+
         SnackbarService.show(
           '✅ Fichier importé avec succès: ${pickedFile.name}',
           isError: false,
@@ -654,6 +793,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
           _uploadedFileName = pickedFile.name;
           _isImporting = false;
         });
+
+        _pendingDraftSave = _autoSaveDraft(
+          bytes,
+          'audio/${pickedFile.extension?.toLowerCase() ?? 'wav'}',
+        );
 
         SnackbarService.show(
           '✅ Fichier importé (durée non vérifiable): ${pickedFile.name}',
@@ -677,6 +821,8 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       _recordingState = RecordingState.idle;
       _isFileUploaded = false;
       _uploadedFileName = null;
+      _uploadIdempotenceKey = null;
+      _uploadInterromptu = false;
     });
   }
 
@@ -885,6 +1031,22 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       return;
     }
 
+    // ── TÂCHE 58 — PERSISTER L'IDENTITÉ DE L'ENVOI AVANT LE TRANSFERT ──────
+    // Le brouillon (fichier + métadonnées + clé d'idempotence) doit exister
+    // AVANT que l'application puisse être suspendue ou tuée. Une reprise
+    // réutilise alors la même clé : le serveur reconnaît l'audio déjà reçu et
+    // ne crée pas de doublon.
+    _draftIntentionallyDiscarded = false;
+    await _persistCurrentFormAsDraft();
+    if (_activeDraftId != null) {
+      final draft = await AudioDraftService().getDraft(_activeDraftId!);
+      _uploadIdempotenceKey = draft?.idempotenceKey ?? _uploadIdempotenceKey;
+    }
+    _uploadIdempotenceKey ??= AudioDraftService.nouvelleCleIdempotence();
+    _envoiPasseEnArrierePlan = false;
+    _uploadInterromptu = false;
+
+    if (!mounted) return;
     setState(() {
       _isUploading = true;
       _uploadProgress = 0;
@@ -892,6 +1054,10 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       _estimatedSecondsRemaining = 0;
       _uploadStartTime = DateTime.now();
     });
+
+    if (_activeDraftId != null) {
+      await AudioDraftService().setUploadState(_activeDraftId!, 'uploading');
+    }
 
     int? sessionId;
 
@@ -954,6 +1120,8 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
         fileName: fileName,
         mimeType: _recordedMimeType ?? 'audio/wav',
         metadata: metadata,
+        // Même clé pour toutes les tentatives ET pour la reprise native.
+        idempotenceKey: _uploadIdempotenceKey,
         onSendProgress: (sent, total) {
           if (total > 0) {
             final now = DateTime.now();
@@ -975,11 +1143,15 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
             // Upload phase: 0-80%
             final uploadPercent = (sent / total) * 80;
 
-            setState(() {
-              _uploadProgress = uploadPercent.round();
-              _uploadSpeed = speed;
-              _estimatedSecondsRemaining = remainingSeconds;
-            });
+            // L'utilisateur peut avoir quitté l'écran : le transfert continue,
+            // mais on ne met à jour que si le State existe encore.
+            if (mounted) {
+              setState(() {
+                _uploadProgress = uploadPercent.round();
+                _uploadSpeed = speed;
+                _estimatedSecondsRemaining = remainingSeconds;
+              });
+            }
           }
         },
       );
@@ -1040,9 +1212,19 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       // correspondant à l'audio envoyé. Jamais un autre brouillon sans
       // action explicite de l'utilisateur.
       if (_activeDraftId != null) {
+        // Confirmation serveur reçue : le brouillon peut disparaître. On
+        // marque d'abord `uploaded` pour qu'une reprise concurrente (au cas
+        // où la suppression échouerait) sache que le transfert est terminé.
+        await AudioDraftService().setUploadState(
+          _activeDraftId!,
+          'uploaded',
+          sessionId: sessionId is int ? sessionId : null,
+        );
         await AudioDraftService().deleteDraft(_activeDraftId!);
         _activeDraftId = null;
       }
+      _uploadIdempotenceKey = null;
+      _uploadInterromptu = false;
       await _loadDraftsList();
       print('🗑️ AudioDraft: brouillon supprimé après upload réussi');
 
@@ -1067,11 +1249,56 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       _stopPlayback();
 
     } catch (e) {
-      SnackbarService.show('❌ Erreur d\'upload: $e', isError: true);
+      // Tâche 58 — DISTINGUER UNE VRAIE PANNE D'UN ENVOI INTERROMPU PAR LE
+      // SYSTÈME. Si l'application est passée en arrière-plan pendant le
+      // transfert, un échec au retour n'est PAS une erreur réseau définitive :
+      // le fichier reste sur disque, le brouillon passe en `pending` et la
+      // reprise est automatique au prochain retour dans l'application.
+      final interrompuParLeSysteme = _envoiPasseEnArrierePlan ||
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed;
+
+      if (_activeDraftId != null) {
+        await AudioDraftService().setUploadState(
+          _activeDraftId!,
+          interrompuParLeSysteme ? 'pending' : 'failed',
+        );
+      }
+
+      if (interrompuParLeSysteme) {
+        _uploadInterromptu = true;
+        if (mounted) {
+          SnackbarService.show(
+            '⏸️ Envoi interrompu par le système — le fichier est conservé. '
+            'La reprise est automatique au retour dans l\'application.',
+            isError: false,
+          );
+        }
+        // Si le retour à l'application a déjà eu lieu, l'événement de cycle de
+        // vie ne reviendra pas : on programme la reprise ici.
+        if (mounted &&
+            WidgetsBinding.instance.lifecycleState ==
+                AppLifecycleState.resumed) {
+          Future.delayed(const Duration(seconds: 2), () {
+            if (mounted && !_isUploading && _recordedBytes != null) {
+              _uploadInterromptu = false;
+              _uploadRecording();
+            }
+          });
+        }
+      } else {
+        _uploadInterromptu = false;
+        if (mounted) {
+          SnackbarService.show(
+            '❌ Erreur d\'upload: ${ApiService.getErrorMessage(e)}',
+            isError: true,
+          );
+        }
+      }
     } finally {
       // L'envoi est terminé — abouti ou non : plus rien à maintenir vivant
       // (tâche 40). Le `finally` garantit l'arrêt même en cas d'erreur, sinon
       // la notification resterait à l'écran indéfiniment.
+      _envoiPasseEnArrierePlan = false;
       await BackgroundTaskService.arreter();
       if (mounted) {
         setState(() {
@@ -1081,8 +1308,10 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     }
   }
 
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pulseController.dispose();
     _titleController.dispose();
     _priceController.dispose();
@@ -1140,12 +1369,15 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
     if (_activeDraftId != null) {
       final existing = await draftService.getDraft(_activeDraftId!);
       if (existing != null) {
+        // Sauvegarde de sortie : conserver la clé d'envoi en cours.
+        _uploadIdempotenceKey ??= existing.idempotenceKey;
         await draftService.updateDraft(_buildDraftFromCurrent(
           id: existing.id,
           bytes: _recordedBytes!,
           mimeType: _recordedMimeType ?? 'audio/m4a',
           createdAt: existing.createdAt,
           base: existing,
+          idempotenceKey: _uploadIdempotenceKey,
         ));
       }
       return;
@@ -1161,15 +1393,19 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
       return;
     }
 
+    final cle = _uploadIdempotenceKey ??
+        AudioDraftService.nouvelleCleIdempotence();
     final draft = _buildDraftFromCurrent(
       id: DateTime.now().millisecondsSinceEpoch.toString(),
       bytes: _recordedBytes!,
       mimeType: _recordedMimeType ?? 'audio/m4a',
+      idempotenceKey: cle,
     );
 
     final added = await draftService.addDraft(draft);
     if (added) {
       _activeDraftId = draft.id;
+      _uploadIdempotenceKey = cle;
       await _loadDraftsList();
     }
   }
@@ -1712,6 +1948,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
   Widget _buildDraftTile(AudioDraft draft) {
     final isActive = draft.id == _activeDraftId;
     final theme = Theme.of(context);
+    // Tâche 58 : un brouillon dont l'envoi n'a pas été confirmé reste
+    // visible et reprenable — le fichier n'est jamais perdu.
+    final aReprendre =
+        draft.uploadState == 'pending' || draft.uploadState == 'failed';
+    final enCours = draft.uploadState == 'uploading';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 6),
@@ -1755,9 +1996,40 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                     overflow: TextOverflow.ellipsis,
                   ),
                 ),
+                if (enCours || aReprendre) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    enCours
+                        ? 'Envoi en cours…'
+                        : 'Envoi interrompu — reprise possible',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w600,
+                      color: enCours ? AppTheme.primaryBlue : AppTheme.warning,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ],
               ],
             ),
           ),
+          // Reprendre l'envoi interrompu
+          if (aReprendre)
+            SizedBox(
+              width: 30, height: 30,
+              child: IconButton(
+                onPressed: () async {
+                  await _loadDraftIntoForm(draft);
+                  if (mounted) setState(() {});
+                  await _uploadRecording();
+                },
+                icon: const Icon(Icons.restart_alt_rounded,
+                    size: 16, color: AppTheme.warning),
+                tooltip: 'Reprendre l\'envoi',
+                padding: EdgeInsets.zero,
+              ),
+            ),
           // Charger
           if (!isActive)
             SizedBox(
@@ -2035,10 +2307,11 @@ class _RecordAudioScreenState extends State<RecordAudioScreen> with TickerProvid
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  // L'envoi repart de lui-même en cas de coupure (étape C),
-                  // mais sur iOS il est suspendu tant que l'écran est verrouillé :
-                  // mieux vaut le dire, pour que l'attente soit comprise.
-                  'Ne fermez pas cette page et ne verrouillez pas votre téléphone',
+                  // Tâche 58 : l'envoi est confié au moteur natif
+                  // (URLSession / WorkManager), il continue donc même écran
+                  // verrouillé ou application en arrière-plan.
+                  'Vous pouvez verrouiller votre téléphone ou quitter cette '
+                  'page : l\'envoi continue en arrière-plan.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppTheme.textLight,

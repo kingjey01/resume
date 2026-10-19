@@ -16,6 +16,11 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
+// Tâche 58 : reprend les transferts audio d'arrière-plan interrompus pendant
+// que l'application était suspendue ou fermée. Version sans effet sur le web.
+import 'package:resume_plus_clean/services/background_upload_stub.dart'
+    if (dart.library.io) 'package:resume_plus_clean/services/background_upload_io.dart'
+    as background_upload;
 import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart' hide apiServiceProvider;
 import 'package:resume_plus_clean/features/home/providers/summary_provider.dart';
 import 'package:resume_plus_clean/features/notifications/providers/notification_provider.dart';
@@ -59,6 +64,14 @@ void main() async {
       print('🔒 Protection contre les captures d\'écran activée globalement');
     } catch (e) {
       print('⚠️ Erreur lors de l\'initialisation de la protection d\'écran: $e');
+    }
+
+    // Tâche 58 : reprendre les envois audio qui ont continué (ou été
+    // interrompus) pendant que l'application était en arrière-plan.
+    try {
+      await background_upload.initialiserEnvoiArrierePlan();
+    } catch (e) {
+      print('⚠️ Envoi d\'arrière-plan indisponible (non bloquant): $e');
     }
   }
 

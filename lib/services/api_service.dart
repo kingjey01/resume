@@ -885,6 +885,10 @@ class ApiService {
         bytes: audioBytes,
         fileName: fileName,
         mimeType: mimeType,
+        // L'identifiant natif du transfert EST la clé d'idempotence : après un
+        // redémarrage, on peut retrouver son état et le serveur refuse tout
+        // doublon si la reprise renvoie le même audio.
+        taskId: cleIdempotence,
         fields: {
           for (final entree in (metadata ?? const {}).entries)
             entree.key: entree.value.toString(),
@@ -1129,6 +1133,28 @@ class ApiService {
       0x64, 0x61, 0x74, 0x61, 0x00, 0x00, 0x00, 0x00,
     ];
     return [...wavHeader, ...List.filled(1000, 0)];
+  }
+
+  /// Vérifie si le serveur a déjà reçu un audio pour cette clé d'idempotence.
+  ///
+  /// Utilisé à la reprise (tâche 58) : si le transfert s'est terminé pendant
+  /// que l'application était fermée, on retrouve la session SANS renvoyer le
+  /// fichier. `null` = pas encore reçu (ou vérification impossible).
+  Future<Map<String, dynamic>?> sessionByIdempotenceKey(String cle) async {
+    if (cle.isEmpty) return null;
+    try {
+      final response = await _dio.get(
+        '/courses/sessions/by-idempotence-key/$cle/',
+      );
+      if (response.statusCode == 200 && response.data is Map) {
+        return Map<String, dynamic>.from(response.data as Map);
+      }
+      return null;
+    } catch (_) {
+      // Un 404 est le cas normal : rien n'a encore été reçu. Une panne réseau
+      // ne doit pas faire perdre le brouillon : on la traite comme « inconnu ».
+      return null;
+    }
   }
 
   Future<List<dynamic>> getAudioSessions() async {

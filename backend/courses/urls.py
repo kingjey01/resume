@@ -23,6 +23,7 @@ urlpatterns = [
     path('sessions/upload-audio/', views.upload_audio_session, name='upload-audio-session'),
     
     # 🔥 NOUVELLES ROUTES AUDIO AVANCÉES
+    path('sessions/by-idempotence-key/<str:key>/', views.session_by_idempotence_key, name='session-by-idempotence-key'),
     path('sessions/audio/', views.get_audio_sessions, name='get_audio_sessions'),
     path('sessions/audio/queue/', views.get_sessions_queue, name='get_sessions_queue'),
     path('sessions/<int:session_id>/process-audio/', views.process_audio_session, name='process_audio_session'),

@@ -1,29 +1,54 @@
-import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:background_downloader/background_downloader.dart';
 import 'package:flutter/foundation.dart';
-import 'package:resume_plus_clean/exceptions/api_exception.dart';
 
-/// Envoi d'arrière-plan — iOS uniquement.
+/// Envoi d'arrière-plan — Android et iOS (tâche 58).
 ///
-/// POURQUOI iOS SEULEMENT : sur iOS, une application mise en arrière-plan est
-/// suspendue au bout de ~30 s — verrouiller le téléphone suffit à figer un envoi
-/// de plusieurs minutes. Le seul mécanisme qui poursuit réellement le transfert
-/// est le `URLSession` d'arrière-plan : le SYSTÈME prend le relais, l'application
-/// suspendue (ou même terminée) n'y change rien.
+/// POURQUOI LE MÉCANISME NATIF SUR LES DEUX PLATEFORMES :
+///  • iOS suspend l'application ~30 s après son passage en arrière-plan ; seul
+///    le `URLSession` d'arrière-plan poursuit réellement un transfert long,
+///    même écran verrouillé et même application terminée.
+///  • Android peut geler le processus malgré le service de premier plan, et
+///    WorkManager limite une tâche standard à ~9 minutes. Le plugin utilise
+///    `WorkManager` / `DownloadWorker` avec `TransferHint.largeFile`, qui
+///    relance automatiquement le transfert par cycles au lieu de le perdre.
 ///
-/// Android n'en a pas besoin : le service de premier plan (étape B) garde le
-/// processus vivant, et Dio poursuit l'envoi. On renvoie donc `null` pour laisser
-/// l'appelant utiliser son chemin habituel — un seul chemin par plateforme,
-/// plutôt qu'une refonte commune.
+/// Le service de premier plan reste utile pour l'ENREGISTREMENT et la
+/// notification de progression ; l'envoi, lui, ne dépend plus de sa survie.
 ///
-/// Le paquet ne déclare que les plateformes Android et iOS ; ce fichier n'est
-/// compilé que là où `dart:io` existe, et n'agit qu'ici sur iOS.
+/// Ce fichier n'est compilé que là où `dart:io` existe (import conditionnel).
 
 bool _initialise = false;
+
+/// Initialise la base de suivi et reprend les transferts interrompus pendant
+/// que l'application était suspendue ou fermée. À appeler au démarrage.
+Future<void> initialiserEnvoiArrierePlan() async {
+  if (_initialise) return;
+  try {
+    await FileDownloader().start(autoCleanDatabase: true);
+    _initialise = true;
+  } catch (e) {
+    debugPrint("↻ Envoi d'arrière-plan indisponible ($e) : repli classique.");
+  }
+}
+
+/// Statut natif d'un transfert d'arrière-plan, ou `null` s'il n'est pas suivi
+/// (envoi classique Dio, tâche purgée, ou plugin indisponible).
+///
+/// Permet de distinguer « transfert toujours en cours » d'une vraie erreur
+/// réseau lorsque l'utilisateur revient dans l'application.
+Future<String?> statutTacheArrierePlan(String taskId) async {
+  try {
+    await initialiserEnvoiArrierePlan();
+    final record = await FileDownloader().database.recordForId(taskId);
+    return record?.status.name;
+  } catch (_) {
+    return null;
+  }
+}
 
 Future<Map<String, dynamic>?> uploadEnArrierePlan({
   required String url,
@@ -33,11 +58,9 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   required String mimeType,
   required Map<String, String> fields,
   required Map<String, String> headers,
+  required String taskId,
   void Function(int sent, int total)? onProgress,
 }) async {
-  if (!Platform.isIOS) {
-    return null; // Android : chemin Dio + service de premier plan.
-  }
 
   // LE PAQUET N'ENVOIE QUE DES FICHIERS D'UN RÉPERTOIRE DE BASE CONNU. On
   // dépose donc une copie dans le dossier temporaire de l'application : le
@@ -56,18 +79,14 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   }
   final taille = await cible.length();
 
-  if (!_initialise) {
-    try {
-      // Initialise la base de suivi des transferts du paquet.
-      await FileDownloader().start(autoCleanDatabase: true);
-      _initialise = true;
-    } catch (e) {
-      debugPrint("↻ Envoi d'arrière-plan indisponible ($e) : repli classique.");
-      return null;
-    }
-  }
+  await initialiserEnvoiArrierePlan();
+  if (!_initialise) return null;
 
   final tache = UploadTask(
+    // La clé d'idempotence sert AUSSI d'identifiant natif : après un
+    // redémarrage, on peut retrouver l'état exact du transfert dans la base
+    // persistante du plugin.
+    taskId: taskId,
     url: url,
     filename: nom,
     baseDirectory: BaseDirectory.temporary,
@@ -77,16 +96,21 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
     fields: fields,
     headers: headers,
     updates: Updates.statusAndProgress,
-    // Le paquet rejoue lui-même un transfert interrompu par le système. La clé
-    // d'idempotence, transmise dans `fields`, garantit qu'une reprise ne crée
-    // pas de doublon côté serveur (étape C).
-    retries: 2,
+    // `largeFile` active la reprise par cycles de 9 minutes côté Android ;
+    // `retries` couvre les coupures réseau transitoires. La clé d'idempotence
+    // garantit qu'une reprise ne crée pas de doublon côté serveur.
+    transferHints: const {TransferHint.largeFile},
+    retries: 3,
     displayName: 'Envoi de ${fields['summary_title'] ?? 'votre cours'}',
   );
 
   late final Transfer transfert;
   try {
-    transfert = await FileDownloader().transfers.start(tache);
+    // `getOrStart` (et non `start`) : si un transfert portant la même clé est
+    // déjà en cours — cas d'une reprise après redémarrage — on s'y rattache
+    // au lieu d'en lancer un second. Un transfert terminé est réutilisé, un
+    // transfert échoué est ré-enfilé par le plugin.
+    transfert = await FileDownloader().transfers.getOrStart(tache);
   } catch (e) {
     debugPrint("↻ Envoi d'arrière-plan refusé ($e) : repli classique.");
     return null;
@@ -95,42 +119,17 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   // LA PROGRESSION DU PAQUET EST UN RATIO 0..1 ; l'écran attend des OCTETS (il
   // en déduit la vitesse et le temps restant). On la convertit, avec la taille
   // du fichier comme total.
-  var premierOctet = false;
   transfert.progressNotifier.addListener(() {
     final ratio = transfert.progressNotifier.value;
     if (ratio != null) {
-      premierOctet = true;
       onProgress?.call((ratio * taille).round(), taille);
     }
   });
 
-  // GARDE-FOU DE DÉMARRAGE — CE CHEMIN NE DOIT JAMAIS BLOQUER L'ENVOI.
-  //
-  // Constat du 2026-10-17 : après l'ajout de l'envoi d'arrière-plan, la
-  // sauvegarde ne progressait plus du tout — l'écran restait à 0 %. Un
-  // mécanisme d'arrière-plan qui ne démarre pas ne doit pas empêcher l'envoi
-  // classique : au bout de dix secondes sans le moindre octet, on rend la main
-  // (retour `null`) et l'appelant reprend avec Dio, qui fonctionne.
-  final demarrage = Completer<void>();
-  Timer(const Duration(seconds: 10), () {
-    if (!demarrage.isCompleted) demarrage.complete();
-  });
-  transfert.progressNotifier.addListener(() {
-    if (!demarrage.isCompleted) demarrage.complete();
-  });
-  await demarrage.future;
-
-  if (!premierOctet) {
-    debugPrint('↻ Envoi d\'arrière-plan non démarré : repli sur l\'envoi classique.');
-    try {
-      await FileDownloader().cancelTaskWithId(tache.taskId);
-    } catch (_) {
-      // Même si l'annulation échoue, la clé d'idempotence protège le serveur
-      // d'un doublon.
-    }
-    return null;
-  }
-
+  // On attend le résultat natif. Si l'application est suspendue, cette attente
+  // est suspendue avec elle et reprend au retour ; si elle est tuée, le
+  // transfert continue côté système et la base persistante du plugin permet
+  // la réconciliation au prochain lancement (voir statutTacheArrierePlan).
   late final TaskStatusUpdate resultat;
   try {
     resultat = await transfert.result;

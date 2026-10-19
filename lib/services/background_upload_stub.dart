@@ -14,6 +14,13 @@ Future<Map<String, dynamic>?> uploadEnArrierePlan({
   required String mimeType,
   required Map<String, String> fields,
   required Map<String, String> headers,
+  required String taskId,
   void Function(int sent, int total)? onProgress,
 }) async =>
     null;
+
+/// Sans effet hors mobile.
+Future<void> initialiserEnvoiArrierePlan() async {}
+
+/// Aucun transfert natif suivi hors mobile.
+Future<String?> statutTacheArrierePlan(String taskId) async => null;

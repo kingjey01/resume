@@ -895,6 +895,50 @@ def upload_audio_session(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
+def session_by_idempotence_key(request, key):
+    """Retrouve une session déjà reçue à partir de sa clé d'idempotence.
+
+    Tâche 58 : après une coupure, un verrouillage ou un redémarrage, le client
+    demande d'abord si le serveur a déjà reçu l'audio. Si oui, il supprime le
+    brouillon local SANS renvoyer le fichier — donc sans doublon et sans
+    retransférer plusieurs mégaoctets.
+
+    La clé est générée aléatoirement côté application et n'est pas devinable ;
+    l'authentification reste exigée.
+    """
+    cle = (key or '').strip()
+    if not cle:
+        return Response(
+            {'found': False, 'error': 'Clé d\'idempotence vide'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    session = Session.objects.filter(
+        idempotence_key=cle
+    ).select_related('course').first()
+
+    if session is None:
+        return Response(
+            {'found': False},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    return Response({
+        'found': True,
+        'session': {
+            'id': session.id,
+            'course_name': session.course.nom,
+            'date': session.date,
+            'professeur': session.professeur,
+            'processing_status': session.processing_status,
+            'audio_duration': session.audio_duration,
+            'audio_file': session.audio_file.url if session.audio_file else None,
+        },
+    }, status=status.HTTP_200_OK)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
 def get_audio_sessions(request):
     """
     🔥 AMÉLIORÉ: Récupère les sessions audio avec informations détaillées

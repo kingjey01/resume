@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -30,6 +31,18 @@ class AudioDraft {
   String? professeurNom;
   int? professeurId;
 
+  // ── ENVOI EN ARRIÈRE-PLAN / REPRISE (tâche 58) ────────────────────────
+  //
+  // La clé d'idempotence est générée avec le brouillon et CONSERVÉE entre les
+  // tentatives. Le serveur s'en sert pour refuser un doublon : une reprise
+  // après verrouillage, redémarrage ou transfert d'arrière-plan retrouve la
+  // session déjà créée au lieu d'en créer une seconde.
+  String? idempotenceKey;
+  // null = jamais envoyé ; 'uploading', 'pending', 'failed', 'uploaded'.
+  String? uploadState;
+  int? sessionId;
+  DateTime? uploadUpdatedAt;
+
   AudioDraft({
     required this.id,
     this.audioFilePath,
@@ -50,6 +63,10 @@ class AudioDraft {
     DateTime? createdAt,
     this.professeurNom,
     this.professeurId,
+    this.idempotenceKey,
+    this.uploadState,
+    this.sessionId,
+    this.uploadUpdatedAt,
   }) : createdAt = createdAt ?? DateTime.now();
 
   Map<String, dynamic> toJson() => {
@@ -71,6 +88,10 @@ class AudioDraft {
         'createdAt': createdAt.toIso8601String(),
         'professeurNom': professeurNom,
         'professeurId': professeurId,
+        'idempotenceKey': idempotenceKey,
+        'uploadState': uploadState,
+        'sessionId': sessionId,
+        'uploadUpdatedAt': uploadUpdatedAt?.toIso8601String(),
       };
 
   factory AudioDraft.fromJson(Map<String, dynamic> json) => AudioDraft(
@@ -94,6 +115,12 @@ class AudioDraft {
             : DateTime.now(),
         professeurNom: json['professeurNom'] as String?,
         professeurId: json['professeurId'] as int?,
+        idempotenceKey: json['idempotenceKey'] as String?,
+        uploadState: json['uploadState'] as String?,
+        sessionId: json['sessionId'] as int?,
+        uploadUpdatedAt: json['uploadUpdatedAt'] != null
+            ? DateTime.tryParse(json['uploadUpdatedAt'] as String)
+            : null,
       );
 
   String get durationFormatted {
@@ -121,6 +148,13 @@ class AudioDraftService {
   static final AudioDraftService _instance = AudioDraftService._internal();
   factory AudioDraftService() => _instance;
   AudioDraftService._internal();
+
+  static final Random _alea = Random();
+
+  /// Clé d'idempotence d'un envoi (tâche 58). Suffisamment unique pour
+  /// distinguer deux audios, et stable tant que le MÊME audio est réessayé.
+  static String nouvelleCleIdempotence() =>
+      '${DateTime.now().microsecondsSinceEpoch}-${_alea.nextInt(1 << 32)}';
 
   // ─── CRUD : Liste ───────────────────────────────────────────────
 
@@ -153,6 +187,10 @@ class AudioDraftService {
       print('⚠️ AudioDraft: limite de $maxDrafts brouillons atteinte');
       return false;
     }
+
+    // Toute nouvelle piste reçoit sa clé d'idempotence, conservée avec le
+    // brouillon pour toutes les tentatives suivantes.
+    draft.idempotenceKey ??= nouvelleCleIdempotence();
 
     // Sauvegarder le fichier audio
     if (draft.audioBytes != null && draft.audioFilePath == null) {
@@ -207,6 +245,11 @@ class AudioDraftService {
     final drafts = await listDrafts();
     final index = drafts.indexWhere((d) => d.id == updated.id);
     if (index == -1) return;
+
+    // Conserver la clé existante si l'appelant ne fournit pas de nouvelle
+    // piste : c'est la même tentative d'envoi qui continue.
+    updated.idempotenceKey ??=
+        drafts[index].idempotenceKey ?? nouvelleCleIdempotence();
 
     // Réécrire le fichier audio si de nouveaux bytes sont fournis.
     if (updated.audioBytes != null) {
@@ -270,6 +313,49 @@ class AudioDraftService {
   /// Places disponibles.
   Future<int> remaining() async {
     return maxDrafts - await count();
+  }
+
+  // ─── État d'envoi (tâche 58) ────────────────────────────────────
+
+  /// Met à jour l'état d'envoi sans toucher au fichier audio.
+  ///
+  /// États utilisés : `uploading` (transfert lancé), `pending` (interrompu,
+  /// reprise possible), `failed` (échec explicite), `uploaded` (confirmation
+  /// serveur reçue). Le fichier local reste présent tant que le brouillon
+  /// n'est pas supprimé.
+  Future<void> setUploadState(
+    String id,
+    String state, {
+    int? sessionId,
+  }) async {
+    final drafts = await listDrafts();
+    final index = drafts.indexWhere((d) => d.id == id);
+    if (index == -1) return;
+    drafts[index].uploadState = state;
+    drafts[index].uploadUpdatedAt = DateTime.now();
+    if (sessionId != null) drafts[index].sessionId = sessionId;
+    await _persistList(drafts);
+  }
+
+  /// Brouillons dont l'envoi n'a pas encore été confirmé par le serveur.
+  Future<List<AudioDraft>> listPendingUploads() async {
+    final drafts = await listDrafts();
+    return drafts.where((d) {
+      if (d.idempotenceKey == null || d.idempotenceKey!.isEmpty) return false;
+      return d.uploadState == 'uploading' ||
+          d.uploadState == 'pending' ||
+          d.uploadState == 'failed';
+    }).toList();
+  }
+
+  /// Retrouve un brouillon par sa clé d'idempotence.
+  Future<AudioDraft?> getDraftByKey(String key) async {
+    final drafts = await listDrafts();
+    try {
+      return drafts.firstWhere((d) => d.idempotenceKey == key);
+    } catch (_) {
+      return null;
+    }
   }
 
   // ─── Persistance ────────────────────────────────────────────────
