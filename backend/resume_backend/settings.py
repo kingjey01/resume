@@ -547,10 +547,9 @@ CACHES = {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
         "LOCATION": CELERY_BROKER_URL,
         "TIMEOUT": None,  # chaque clé porte son propre TTL
+        # Option passée directement à redis.Redis (Django 4.2).
         "OPTIONS": {
-            "CONNECTION_POOL_KWARGS": {
-                "socket_connect_timeout": 0.5,
-            },
+            "socket_connect_timeout": 0.5,
         },
     },
     "fallback": {
@@ -563,10 +562,9 @@ CACHES = {
         "LOCATION": CACHE_REDIS_URL,
         "TIMEOUT": 600,  # 10 min par défaut ; les vues peuvent préciser
         "KEY_PREFIX": "muhtasari",
+        # Option passée directement à redis.Redis (Django 4.2).
         "OPTIONS": {
-            "CONNECTION_POOL_KWARGS": {
-                "socket_connect_timeout": 0.5,
-            },
+            "socket_connect_timeout": 0.5,
         },
     },
 }

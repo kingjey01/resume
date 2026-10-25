@@ -28,6 +28,7 @@ from .serializers import (
 )
 from .permissions import (IsOwnerOrReadOnly, CanCreateSummary, CanAccessSummary,
                          IsAdminOrReadOnly, HasUniversityAccess, CanModifyObject)
+from .cache_catalogue import cache_get_safe, cache_set_safe, cle_catalogue
 
 
 # ─── Helper : queryset des cours sans N+1 (tâche 60) ─────────────────
@@ -89,6 +90,64 @@ class SummaryPurchasedIdsMixin:
         else:
             context['purchased_ids'] = set()
         return context
+
+
+class CacheCatalogueMixin:
+    """Cache des réponses de référentiel (tâche 60, axe 3).
+
+    Les référentiels sont identiques pour tous les utilisateurs. On cache la
+    réponse sérialisée complète, avec la query string dans la clé (filtres,
+    recherche, ordre). L'en-tête `X-Catalog-Cache` permet de voir HIT/MISS
+    avec curl et dans Silk.
+
+    `cache_get_safe` / `cache_set_safe` ne font rien quand le cache est
+    désactivé ou Redis indisponible : le comportement normal reprend.
+    """
+
+    cache_prefix = 'refs'
+    cache_timeout = 3600  # 1 heure
+
+    def _cle_reponse(self, suffixe):
+        return cle_catalogue('refs', self.cache_prefix, suffixe)
+
+    def _depuis_cache(self, cle):
+        data = cache_get_safe(cle)
+        if data is None:
+            return None
+        response = Response(data)
+        response['X-Catalog-Cache'] = 'HIT'
+        return response
+
+    def _mettre_en_cache(self, response, cle):
+        if response.status_code == 200:
+            cache_set_safe(cle, response.data, timeout=self.cache_timeout)
+            response['X-Catalog-Cache'] = 'MISS'
+        return response
+
+    def list(self, request, *args, **kwargs):
+        cle = self._cle_reponse(f'list:{request.get_full_path()}')
+        en_cache = self._depuis_cache(cle)
+        if en_cache is not None:
+            return en_cache
+        return self._mettre_en_cache(
+            super().list(request, *args, **kwargs), cle
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        cle = self._cle_reponse(f'detail:{request.get_full_path()}')
+        en_cache = self._depuis_cache(cle)
+        if en_cache is not None:
+            return en_cache
+        return self._mettre_en_cache(
+            super().retrieve(request, *args, **kwargs), cle
+        )
+
+    def _action_cachee(self, suffixe, callback):
+        cle = self._cle_reponse(suffixe)
+        en_cache = self._depuis_cache(cle)
+        if en_cache is not None:
+            return en_cache
+        return self._mettre_en_cache(callback(), cle)
 
 
 # ─── Helper : prix minimum dynamique depuis la base ──────────────────
@@ -535,7 +594,8 @@ def generate_summary_from_audio(request):
 
 
 # CRUD Views pour Universites
-class UniversiteViewSet(viewsets.ModelViewSet):
+class UniversiteViewSet(CacheCatalogueMixin, viewsets.ModelViewSet):
+    cache_prefix = 'universites'
     # Le serializer imbrique filières → promotions : sans prefetch, la liste
     # des universités déclenche un N+1 (36 requêtes pour 5 universités).
     queryset = Universite.objects.prefetch_related('filieres__promotions')
@@ -549,6 +609,12 @@ class UniversiteViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def filieres(self, request, pk=None):
         """Récupère toutes les filières d'une université"""
+        return self._action_cachee(
+            f'filieres:{request.get_full_path()}',
+            lambda: self._filieres_non_cachees(pk),
+        )
+
+    def _filieres_non_cachees(self, pk):
         universite = self.get_object()
         filieres = universite.filieres.all()
         serializer = FiliereSerializer(filieres, many=True)
@@ -577,7 +643,8 @@ class UniversiteViewSet(viewsets.ModelViewSet):
 
 
 # CRUD Views pour Filieres
-class FiliereViewSet(viewsets.ModelViewSet):
+class FiliereViewSet(CacheCatalogueMixin, viewsets.ModelViewSet):
+    cache_prefix = 'filieres'
     # `FiliereWithUniversiteSerializer` lit `obj.universites.all()` par filière.
     queryset = Filiere.objects.prefetch_related('universites')
     serializer_class = FiliereWithUniversiteSerializer
@@ -590,6 +657,12 @@ class FiliereViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def promotions(self, request, pk=None):
         """Récupère toutes les promotions d'une filière"""
+        return self._action_cachee(
+            f'promotions:{request.get_full_path()}',
+            lambda: self._promotions_non_cachees(pk),
+        )
+
+    def _promotions_non_cachees(self, pk):
         filiere = self.get_object()
         promotions = filiere.promotions.all()
         serializer = PromotionSerializer(promotions, many=True)
@@ -618,7 +691,8 @@ class FiliereViewSet(viewsets.ModelViewSet):
 
 
 # CRUD Views pour Promotions
-class PromotionViewSet(viewsets.ModelViewSet):
+class PromotionViewSet(CacheCatalogueMixin, viewsets.ModelViewSet):
+    cache_prefix = 'promotions'
     queryset = Promotion.objects.all()
     serializer_class = PromotionSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -631,6 +705,12 @@ class PromotionViewSet(viewsets.ModelViewSet):
     @action(detail=True, methods=['get'])
     def filieres(self, request, pk=None):
         """Récupère toutes les filières associées à une promotion"""
+        return self._action_cachee(
+            f'filieres:{request.get_full_path()}',
+            lambda: self._filieres_non_cachees(pk),
+        )
+
+    def _filieres_non_cachees(self, pk):
         promotion = self.get_object()
         # `FiliereSerializer` imbrique les promotions : on les précharge pour
         # éviter une requête par filière.

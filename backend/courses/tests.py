@@ -383,6 +383,53 @@ class CatalogCacheTest(TestCase):
         self.assertGreater(version_catalogue(), version)
 
 
+@override_settings(CACHES=LOCMEM_CACHES, ENABLE_CATALOG_CACHE=True)
+class ReferenceEndpointsCacheTest(TestCase):
+    """Tâche 60, axe 3 — HIT/MISS et invalidation sur les référentiels."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université cache')
+        cls.filiere = Filiere.objects.create(nom='Filière cache')
+        cls.promotion = Promotion.objects.create(nom='Promotion cache', annee=2025)
+        cls.universite.filieres.add(cls.filiere)
+        cls.filiere.promotions.add(cls.promotion)
+
+    def setUp(self):
+        caches['catalog'].clear()
+        caches['default'].clear()
+
+    def test_list_hit_miss_et_invalidation(self):
+        client = APIClient()
+
+        premiere = client.get('/api/courses/universites/')
+        self.assertEqual(premiere.status_code, 200)
+        self.assertEqual(premiere['X-Catalog-Cache'], 'MISS')
+        donnees = premiere.json()
+
+        with CaptureQueriesContext(connection) as ctx:
+            deuxieme = client.get('/api/courses/universites/')
+        self.assertEqual(deuxieme.status_code, 200)
+        self.assertEqual(deuxieme['X-Catalog-Cache'], 'HIT')
+        self.assertEqual(deuxieme.json(), donnees)
+        self.assertEqual(len(_requetes_app(ctx.captured_queries)), 0)
+
+        # Une écriture invalide la version : la clé change → MISS.
+        Universite.objects.create(nom='Nouvelle université')
+        troisieme = client.get('/api/courses/universites/')
+        self.assertEqual(troisieme['X-Catalog-Cache'], 'MISS')
+
+    def test_action_filieres_hit(self):
+        client = APIClient()
+        url = f'/api/courses/universites/{self.universite.id}/filieres/'
+
+        premiere = client.get(url)
+        self.assertEqual(premiere['X-Catalog-Cache'], 'MISS')
+        deuxieme = client.get(url)
+        self.assertEqual(deuxieme['X-Catalog-Cache'], 'HIT')
+        self.assertEqual(deuxieme.json(), premiere.json())
+
+
 class UniversiteFiliereM2MTest(TestCase):
     @classmethod
     def setUpTestData(cls):
