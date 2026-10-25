@@ -53,6 +53,11 @@ urlpatterns = [
     path('redoc/', schema_view.with_ui('redoc', cache_timeout=0), name='schema-redoc'),
 ]
 
+# ── SILK — interface de diagnostic SQL (tâche 60) ───────────────────────────
+# Réservée aux superusers par SILKY_PERMISSIONS. N'existe que si ENABLE_SILK.
+if getattr(settings, 'ENABLE_SILK', False):
+    urlpatterns += [path('silk/', include('silk.urls', namespace='silk'))]
+
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
     urlpatterns += static(settings.STATIC_URL, document_root=settings.STATIC_ROOT)

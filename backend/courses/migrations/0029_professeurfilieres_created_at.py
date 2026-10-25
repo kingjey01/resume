@@ -37,6 +37,39 @@ association professeur↔filière échouerait sur une violation NOT NULL.
 from django.db import migrations, models
 
 
+def ajouter_colonne(apps, schema_editor):
+    """Ajoute `created_at` avec la syntaxe propre au moteur.
+
+    PostgreSQL accepte `ADD COLUMN IF NOT EXISTS` et `now()` ; SQLite non.
+    La base locale de diagnostic est SQLite : sans cette branche, `migrate`
+    échoue sur `near "EXISTS": syntax error`. La production PostgreSQL garde
+    exactement la même instruction qu'avant.
+    """
+    if schema_editor.connection.vendor == 'sqlite':
+        schema_editor.execute(
+            "ALTER TABLE courses_professeur_filieres "
+            "ADD COLUMN created_at datetime NOT NULL DEFAULT CURRENT_TIMESTAMP;"
+        )
+    else:
+        schema_editor.execute(
+            "ALTER TABLE courses_professeur_filieres "
+            "ADD COLUMN IF NOT EXISTS created_at "
+            "timestamp with time zone NOT NULL DEFAULT now();"
+        )
+
+
+def retirer_colonne(apps, schema_editor):
+    if schema_editor.connection.vendor == 'sqlite':
+        schema_editor.execute(
+            "ALTER TABLE courses_professeur_filieres DROP COLUMN created_at;"
+        )
+    else:
+        schema_editor.execute(
+            "ALTER TABLE courses_professeur_filieres "
+            "DROP COLUMN IF EXISTS created_at;"
+        )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -56,18 +89,10 @@ class Migration(migrations.Migration):
                 ),
             ],
             # LA BASE : ajout de la colonne, idempotent, réversible.
+            # Le SQL est choisi selon le moteur (PostgreSQL en prod, SQLite
+            # pour la base locale de diagnostic).
             database_operations=[
-                migrations.RunSQL(
-                    sql=(
-                        "ALTER TABLE courses_professeur_filieres "
-                        "ADD COLUMN IF NOT EXISTS created_at "
-                        "timestamp with time zone NOT NULL DEFAULT now();"
-                    ),
-                    reverse_sql=(
-                        "ALTER TABLE courses_professeur_filieres "
-                        "DROP COLUMN IF EXISTS created_at;"
-                    ),
-                ),
+                migrations.RunPython(ajouter_colonne, retirer_colonne),
             ],
         ),
     ]

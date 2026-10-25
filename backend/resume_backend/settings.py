@@ -17,6 +17,13 @@ SECRET_KEY = config('SECRET_KEY', default='django-insecure-your-secret-key-here'
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+# ── DIAGNOSTIC SQL (tâche 60) ────────────────────────────────────────────────
+# Silk enregistre chaque requête (nombre de SQL, temps en base, doublons) et
+# expose une interface HTML sur /silk/. Activé en développement quand DEBUG
+# est vrai, ou explicitement avec ENABLE_SILK=1. JAMAIS en production sans
+# tunnel SSH + compte superuser.
+ENABLE_SILK = config('ENABLE_SILK', default=DEBUG, cast=bool)
+
 # ALLOWED_HOSTS - Domaines autorisés
 ALLOWED_HOSTS = [
     'localhost',
@@ -53,6 +60,9 @@ INSTALLED_APPS = [
     'analytics',
 ]
 
+if ENABLE_SILK:
+    INSTALLED_APPS.append('silk')
+
 MIDDLEWARE = [
     'corsheaders.middleware.CorsMiddleware',  # Doit être le premier
     'django.middleware.security.SecurityMiddleware',
@@ -64,6 +74,28 @@ MIDDLEWARE = [
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
+
+if ENABLE_SILK:
+    # Après CORS (qui doit rester premier) : Silk voit toutes les vues API.
+    MIDDLEWARE.insert(1, 'silk.middleware.SilkyMiddleware')
+
+# Silk utilise `login_required` : sans cette ligne, Django redirige vers
+# /accounts/login/ (inexistant) et renvoie un 404. On utilise l'admin Django.
+LOGIN_URL = '/admin/login/'
+LOGIN_REDIRECT_URL = '/admin/'
+
+# ── SILK — DIAGNOSTIC SQL (tâche 60) ─────────────────────────────────────────
+# Réservé aux superusers : les données enregistrées contiennent les URL et les
+# paramètres des requêtes. Ne jamais ouvrir publiquement /silk/ en production.
+if ENABLE_SILK:
+    SILKY_AUTHENTICATION = True
+    SILKY_AUTHORISATION = True
+    SILKY_PERMISSIONS = lambda user: bool(user and user.is_superuser)
+    SILKY_MAX_RECORDED_REQUESTS = 2000
+    SILKY_PYTHON_PROFILER = False
+    # La base locale de diagnostic est SQLite : `ANALYZE` n'y est pas
+    # supporté. La configuration production (PostgreSQL) l'active.
+    SILKY_ANALYZE_QUERIES = False
 
 ROOT_URLCONF = 'resume_backend.urls'
 

@@ -12,6 +12,11 @@ SECRET_KEY=votre-cle-secrete-generee-ici-minimum-50-caracteres
 # Mode debug - TOUJOURS False en production!
 DEBUG=False
 
+# Diagnostic SQL (tâche 60) — interface /silk/.
+# False en production. True uniquement pour une mesure temporaire, derrière
+# un tunnel SSH, avec un compte superuser. À remettre à False ensuite.
+ENABLE_SILK=False
+
 # ========================================
 # HOSTS AUTORISÉS
 # ========================================

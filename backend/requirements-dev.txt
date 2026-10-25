@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# ── DIAGNOSTIC SQL (tâche 60) ────────────────────────────────────────────────
+# Interface HTML /silk/ : requêtes SQL, temps en base, doublons (N+1).
+# À installer UNIQUEMENT dans l'environnement de développement/diagnostic.
+django-silk>=5.1,<6
