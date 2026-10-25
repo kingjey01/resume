@@ -35,28 +35,39 @@ class CourseSerializer(serializers.ModelSerializer):
     university = serializers.CharField(read_only=True)
 
     def get_universites_noms(self, obj):
-        return list(obj.universites.values_list('nom', flat=True))
+        # `.all()` lit le cache de `prefetch_related` quand il existe.
+        return [u.nom for u in obj.universites.all()]
 
     def get_filieres_noms(self, obj):
-        return list(obj.filieres.values_list('nom', flat=True))
+        return [f.nom for f in obj.filieres.all()]
 
     def get_promotions_noms(self, obj):
-        return list(obj.promotions.values_list('nom', flat=True))
+        return [p.nom for p in obj.promotions.all()]
 
     def get_universite_nom(self, obj):
-        u = obj.universites.first()
+        # `next(iter(...))` utilise le cache du prefetch ; `.first()` ajoute un
+        # ORDER BY / LIMIT et peut le contourner.
+        u = next(iter(obj.universites.all()), None)
         return u.nom if u else None
 
     def get_filiere_nom(self, obj):
-        f = obj.filieres.first()
+        f = next(iter(obj.filieres.all()), None)
         return f.nom if f else None
 
     def get_promotion_nom(self, obj):
-        p = obj.promotions.first()
+        p = next(iter(obj.promotions.all()), None)
         return p.nom if p else None
 
     def get_has_generic_summary(self, obj):
-        """Vrai dès qu'un résumé générique (IA) existe pour ce cours."""
+        """Vrai dès qu'un résumé générique (IA) existe pour ce cours.
+
+        `_courses_optimises()` annote ce booléen dans la requête principale.
+        Le repli `.exists()` couvre les autres usages du serializer (détail,
+        scripts) qui ne passent pas par cette annotation.
+        """
+        annote = getattr(obj, 'a_un_resume_generique', None)
+        if annote is not None:
+            return annote
         return obj.summaries.filter(author_type='ai').exists()
 
     class Meta:

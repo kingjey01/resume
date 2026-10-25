@@ -6,6 +6,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django.http import HttpResponse, Http404, FileResponse
 from django.shortcuts import get_object_or_404
 from django.conf import settings
+from django.db.models import Exists, OuterRef
 from django.utils.encoding import smart_str
 import os
 import logging
@@ -27,6 +28,23 @@ from .serializers import (
 )
 from .permissions import (IsOwnerOrReadOnly, CanCreateSummary, CanAccessSummary,
                          IsAdminOrReadOnly, HasUniversityAccess, CanModifyObject)
+
+
+# ─── Helper : queryset des cours sans N+1 (tâche 60) ─────────────────
+#
+# `CourseSerializer` lit 3 M2M (universités, filières, promotions) et un
+# booléen « résumé générique existant ». Sans prefetch/annotation, chaque
+# cours déclenche ~10 requêtes SQL (146 pour 14 cours). Ce helper charge les
+# 3 relations en 3 requêtes au total et calcule le booléen DANS la requête
+# principale, via une sous-requête EXISTS.
+def _courses_optimises():
+    return Course.objects.prefetch_related(
+        'universites', 'filieres', 'promotions',
+    ).annotate(
+        a_un_resume_generique=Exists(
+            Summary.objects.filter(course=OuterRef('pk'), author_type='ai')
+        ),
+    )
 
 
 # ─── Helper : prix minimum dynamique depuis la base ──────────────────
@@ -66,13 +84,13 @@ class CourseListCreateView(generics.ListCreateAPIView):
         
         # Admin voit tous les cours
         if profile.is_admin:
-            return Course.objects.all()
-        
+            return _courses_optimises()
+
         # Filtrage strict par université, promotion et filière
         if not profile.universite or not profile.promotion or not profile.filiere:
             return Course.objects.none()
-        
-        return Course.objects.filter(
+
+        return _courses_optimises().filter(
             universites=profile.universite,
             promotions=profile.promotion,
             filieres=profile.filiere
@@ -183,13 +201,13 @@ class CourseDetailView(generics.RetrieveUpdateDestroyAPIView):
         
         # Admin voit tous les cours
         if profile.is_admin:
-            return Course.objects.all()
-        
+            return _courses_optimises()
+
         # Filtrage strict
         if not profile.universite or not profile.promotion or not profile.filiere:
             return Course.objects.none()
-        
-        return Course.objects.filter(
+
+        return _courses_optimises().filter(
             universites=profile.universite,
             promotions=profile.promotion,
             filieres=profile.filiere
