@@ -47,6 +47,50 @@ def _courses_optimises():
     )
 
 
+# ─── Helper : querysets de résumés sans N+1 (tâche 60) ────────────────
+#
+# `SummarySerializer` lit le cours, l'auteur, le professeur (et son user),
+# la session, la transcription et la filière du cours. Sans select_related /
+# prefetch, chaque résumé déclenche ~7 requêtes SQL (70 pour 10 résumés).
+def _summaries_optimises(queryset=None):
+    queryset = queryset if queryset is not None else Summary.objects.all()
+    return queryset.select_related(
+        'course',
+        'author_user',
+        'professeur',
+        'professeur__user',
+        'professeur__universite',
+        'session',
+        'session__professeur_fk',
+        'session__professeur_fk__user',
+        'transcription',
+    ).prefetch_related('course__filieres')
+
+
+class SummaryPurchasedIdsMixin:
+    """Calcule UNE fois les résumés achetés par l'utilisateur.
+
+    Le serializer utilisait `Purchase.exists()` pour CHAQUE résumé. Ici, une
+    seule requête fournit l'ensemble des IDs achetés, transmis au serializer
+    via `context['purchased_ids']`.
+    """
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        request = getattr(self, 'request', None)
+        if request is not None and request.user.is_authenticated:
+            context['purchased_ids'] = set(
+                Purchase.objects.filter(
+                    user=request.user,
+                    status='completed',
+                    summary__isnull=False,
+                ).values_list('summary_id', flat=True)
+            )
+        else:
+            context['purchased_ids'] = set()
+        return context
+
+
 # ─── Helper : prix minimum dynamique depuis la base ──────────────────
 
 def get_minimum_resume_price():
@@ -272,7 +316,7 @@ class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
         ).distinct()
 
 
-class SummaryListCreateView(generics.ListCreateAPIView):
+class SummaryListCreateView(SummaryPurchasedIdsMixin, generics.ListCreateAPIView):
     queryset = Summary.objects.all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['course', 'author_type', 'is_free']
@@ -289,22 +333,24 @@ class SummaryListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         """Filtrer les résumés selon l'université, promotion et filière via le cours"""
         if not self.request.user.is_authenticated:
-            return Summary.objects.filter(is_free=True)
-        
+            return _summaries_optimises(
+                Summary.objects.filter(is_free=True)
+            )
+
         if not hasattr(self.request.user, 'profile'):
             return Summary.objects.none()
-        
+
         profile = self.request.user.profile
-        
+
         # Admin voit tous les résumés
         if profile.is_admin:
-            return Summary.objects.all()
-        
+            return _summaries_optimises()
+
         # CP voit les résumés de son université/promotion/filière
         # if profile.is_cp:
         #     if not profile.universite or not profile.promotion or not profile.filiere:
         #         return Summary.objects.none()
-            
+
         #     return Summary.objects.filter(
         #         course__universites=profile.universite,
         #         course__promotions=profile.promotion,
@@ -316,15 +362,15 @@ class SummaryListCreateView(generics.ListCreateAPIView):
         if not profile.universite or not profile.promotion or not profile.filiere:
             return Summary.objects.none()
 
-        return Summary.objects.filter(
+        return _summaries_optimises(Summary.objects.filter(
             course__universites=profile.universite,
             course__promotions=profile.promotion,
             course__filieres=profile.filiere,
             is_validated=True
-        ).distinct()
+        )).distinct()
 
 
-class SummaryDetailView(generics.RetrieveUpdateDestroyAPIView):
+class SummaryDetailView(SummaryPurchasedIdsMixin, generics.RetrieveUpdateDestroyAPIView):
     serializer_class = SummarySerializer
     permission_classes = [permissions.IsAuthenticated, HasUniversityAccess, CanAccessSummary]
     
@@ -339,16 +385,16 @@ class SummaryDetailView(generics.RetrieveUpdateDestroyAPIView):
         profile = self.request.user.profile
         
         if profile.is_admin:
-            return Summary.objects.all()
-        
+            return _summaries_optimises()
+
         if not profile.universite or not profile.promotion or not profile.filiere:
             return Summary.objects.none()
-        
-        return Summary.objects.filter(
+
+        return _summaries_optimises(Summary.objects.filter(
             course__universites=profile.universite,
             course__promotions=profile.promotion,
             course__filieres=profile.filiere
-        ).distinct()
+        )).distinct()
 
     # ── Règle métier : un résumé DÉJÀ ACHETÉ est intouchable ────────────────
     #
@@ -394,7 +440,7 @@ class SummaryDetailView(generics.RetrieveUpdateDestroyAPIView):
         instance.delete()
 
 
-class SummaryAchetesView(generics.ListAPIView):
+class SummaryAchetesView(SummaryPurchasedIdsMixin, generics.ListAPIView):
     """Endpoint pour voir les résumés achetés par l'étudiant (statut completed uniquement)"""
     serializer_class = SummarySerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -415,13 +461,14 @@ class SummaryAchetesView(generics.ListAPIView):
             summary__isnull=False
         ).values_list('summary_id', flat=True)
         
-        # Retourner uniquement ces résumés
-        return Summary.objects.filter(id__in=purchased_summary_ids)
+        # Retourner uniquement ces résumés, avec les relations préchargées
+        return _summaries_optimises(
+            Summary.objects.filter(id__in=purchased_summary_ids)
+        )
 
 
-class SummaryGratuitsView(generics.ListAPIView):
+class SummaryGratuitsView(SummaryPurchasedIdsMixin, generics.ListAPIView):
     """Endpoint pour voir tous les résumés gratuits"""
-    queryset = Summary.objects.filter(is_free=True)
     serializer_class = SummarySerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['course', 'author_type']
@@ -429,6 +476,9 @@ class SummaryGratuitsView(generics.ListAPIView):
     ordering_fields = ['titre', 'created_at']
     ordering = ['-created_at']
     permission_classes = [permissions.IsAuthenticated]
+
+    def get_queryset(self):
+        return _summaries_optimises(Summary.objects.filter(is_free=True))
 
 
 @api_view(['POST'])

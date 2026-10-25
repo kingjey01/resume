@@ -8,6 +8,7 @@ from rest_framework import status
 from rest_framework.authtoken.models import Token
 from rest_framework_simplejwt.tokens import RefreshToken
 from users.models import UserProfile
+from payments.models import Purchase
 from .models import Course, Session, Summary, Universite, Filiere, Promotion
 
 
@@ -157,6 +158,93 @@ class CourseListNoNPlusOneTest(TestCase):
         self.assertFalse(cours_sans['has_generic_summary'])
         self.assertEqual(cours_ia['universites_noms'], ['Université Test'])
         self.assertEqual(cours_ia['filiere_nom'], 'Informatique')
+
+
+class SummaryListNoNPlusOneTest(TestCase):
+    """Tâche 60 — la liste des résumés ne doit pas produire de N+1.
+
+    Avant : 70 requêtes pour 10 résumés (~7 par résumé, dont un
+    `Purchase.exists()` et les relations course/auteur/professeur).
+    Après : select_related + prefetch + un seul set d'IDs achetés.
+    """
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université Test')
+        cls.filiere = Filiere.objects.create(nom='Informatique')
+        cls.promotion = Promotion.objects.create(nom='L3', annee=2025)
+
+        cls.user = User.objects.create_user(
+            username='t60_sum_admin', password='testpass123'
+        )
+        cls.user.is_staff = True
+        cls.user.is_superuser = True
+        cls.user.save()
+        UserProfile.objects.create(
+            user=cls.user,
+            groupe='ADMIN',
+            universite=cls.universite,
+            filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        cls.course = Course.objects.create(
+            nom='Cours résumé',
+            filiere='Informatique',
+            university='Université Test',
+        )
+        cls.course.universites.add(cls.universite)
+        cls.course.filieres.add(cls.filiere)
+        cls.course.promotions.add(cls.promotion)
+
+        # `bulk_create` évite les signaux de notification par résumé.
+        Summary.objects.bulk_create([
+            Summary(
+                titre=f'Résumé {i}',
+                texte_resume='Contenu du résumé. ' * 20,
+                course=cls.course,
+                author_type='cp',
+                is_validated=True,
+            )
+            for i in range(20)
+        ])
+        cls.achete = Summary.objects.get(titre='Résumé 0')
+        Purchase.objects.bulk_create([Purchase(
+            user=cls.user,
+            summary=cls.achete,
+            amount=0,
+            payment_method='mobile_money',
+            status='completed',
+            transaction_id=None,
+        )])
+
+    def test_summary_list_query_count_is_constant(self):
+        client = APIClient()
+        token = str(RefreshToken.for_user(self.user).access_token)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get('/api/summaries/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data), 20)
+
+        requetes_app = []
+        for q in ctx.captured_queries:
+            sql = q['sql'].strip().upper()
+            if 'SILK_' in sql or sql.startswith('EXPLAIN'):
+                continue
+            if sql.startswith('SAVEPOINT') or sql.startswith('RELEASE SAVEPOINT'):
+                continue
+            requetes_app.append(q)
+        self.assertLessEqual(len(requetes_app), 20)
+
+        achete = next(s for s in data if s['titre'] == 'Résumé 0')
+        autre = next(s for s in data if s['titre'] == 'Résumé 1')
+        self.assertTrue(achete['is_purchased'])
+        self.assertFalse(autre['is_purchased'])
+        self.assertEqual(achete['filiere_name'], 'Informatique')
 
 
 class UniversiteFiliereM2MTest(TestCase):

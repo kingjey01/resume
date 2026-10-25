@@ -183,7 +183,8 @@ class SummarySerializer(serializers.ModelSerializer):
         """Retourne le nom de la première filière M2M si disponible, sinon le champ texte"""
         try:
             if obj.course:
-                first_f = obj.course.filieres.first()
+                # `course__filieres` est préchargé par `_summaries_optimises()`.
+                first_f = next(iter(obj.course.filieres.all()), None)
                 if first_f:
                     return first_f.nom
                 return obj.course.filiere or ''
@@ -217,13 +218,21 @@ class SummarySerializer(serializers.ModelSerializer):
             data['is_purchased'] = True  # Les résumés gratuits sont considérés comme "achetés"
             return data
         
-        # Vérifier si l'utilisateur a acheté ce résumé
-        from payments.models import Purchase
-        has_purchased = Purchase.objects.filter(
-            user=user,
-            summary=instance,
-            status='completed'
-        ).exists()
+        # Vérifier si l'utilisateur a acheté ce résumé.
+        #
+        # Les vues de liste fournissent `purchased_ids` (une seule requête pour
+        # toute la page) via `SummaryPurchasedIdsMixin`. Le repli `.exists()`
+        # couvre les usages ponctuels du serializer (ex. génération audio).
+        purchased_ids = self.context.get('purchased_ids')
+        if purchased_ids is not None:
+            has_purchased = instance.id in purchased_ids
+        else:
+            from payments.models import Purchase
+            has_purchased = Purchase.objects.filter(
+                user=user,
+                summary=instance,
+                status='completed'
+            ).exists()
         
         # Ajouter le statut d'achat aux données
         data['is_purchased'] = has_purchased
