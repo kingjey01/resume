@@ -8,3 +8,4 @@ class CoursesConfig(AppConfig):
     def ready(self):
         """Enregistrer les signaux de l'application courses."""
         import courses.signals  # noqa
+        import courses.cache_signals  # noqa

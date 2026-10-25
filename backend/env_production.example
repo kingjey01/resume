@@ -32,6 +32,14 @@ DB_HOST=localhost
 DB_PORT=3306
 
 # ========================================
+# CACHE CATALOGUE (tâche 60)
+# ========================================
+# DB Redis dédiée au cache, différente de celle de Celery (généralement /0).
+CACHE_REDIS_URL=redis://127.0.0.1:6379/1
+# À passer à True après validation des HIT/MISS et de l'invalidation.
+ENABLE_CATALOG_CACHE=False
+
+# ========================================
 # API EXTERNES
 # ========================================
 DEEPGRAM_API_KEY=votre_cle_deepgram_api

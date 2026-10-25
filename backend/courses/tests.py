@@ -1,5 +1,8 @@
-from django.test import TestCase, Client
+from unittest.mock import patch
+
+from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
+from django.core.cache import caches
 from django.db import connection
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
@@ -9,7 +12,30 @@ from rest_framework.authtoken.models import Token
 from rest_framework_simplejwt.tokens import RefreshToken
 from users.models import UserProfile
 from payments.models import Purchase
+from .cache_catalogue import (
+    cache_get_safe,
+    cache_set_safe,
+    cle_catalogue,
+    invalider_catalogue,
+    version_catalogue,
+)
 from .models import Course, Session, Summary, Universite, Filiere, Promotion
+
+
+LOCMEM_CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 't60-default',
+    },
+    'catalog': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 't60-catalog',
+    },
+    'fallback': {
+        'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+        'LOCATION': 't60-fallback',
+    },
+}
 
 
 def _requetes_app(captured):
@@ -298,6 +324,63 @@ class ReferenceDataNoNPlusOneTest(TestCase):
         )
         self.assertEqual(len(response.json()), 6)
         self.assertLessEqual(len(queries), 20)
+
+
+@override_settings(CACHES=LOCMEM_CACHES, ENABLE_CATALOG_CACHE=True)
+class CatalogCacheTest(TestCase):
+    """Tâche 60, axe 3 — mécanique du cache catalogue (sans Redis)."""
+
+    def setUp(self):
+        caches['catalog'].clear()
+        caches['default'].clear()
+
+    def test_version_et_cle_versionnee(self):
+        version = version_catalogue()
+        cle = cle_catalogue('refs', 'universites')
+        self.assertTrue(cle.startswith(f'catalog:{version}:'))
+
+        invalider_catalogue()
+        self.assertEqual(version_catalogue(), version + 1)
+        self.assertFalse(
+            cle_catalogue('refs', 'universites').startswith(f'catalog:{version}:')
+        )
+
+    def test_get_set(self):
+        cle = cle_catalogue('test')
+        self.assertIsNone(cache_get_safe(cle))
+        cache_set_safe(cle, {'a': 1}, timeout=60)
+        self.assertEqual(cache_get_safe(cle), {'a': 1})
+
+    def test_redis_indisponible_ne_leve_pas(self):
+        class CacheIndisponible:
+            def get(self, *args, **kwargs):
+                raise RuntimeError('down')
+
+            def set(self, *args, **kwargs):
+                raise RuntimeError('down')
+
+            def incr(self, *args, **kwargs):
+                raise RuntimeError('down')
+
+        with patch(
+            'courses.cache_catalogue._cache',
+            return_value=CacheIndisponible(),
+        ):
+            self.assertIsNone(cache_get_safe('x'))
+            cache_set_safe('x', 1)
+            invalider_catalogue()  # ne doit pas lever
+
+    def test_signal_save_invalide(self):
+        version = version_catalogue()
+        Universite.objects.create(nom='Université cache')
+        self.assertGreater(version_catalogue(), version)
+
+    def test_signal_m2m_invalide(self):
+        universite = Universite.objects.create(nom='U m2m')
+        filiere = Filiere.objects.create(nom='F m2m')
+        version = version_catalogue()
+        universite.filieres.add(filiere)
+        self.assertGreater(version_catalogue(), version)
 
 
 class UniversiteFiliereM2MTest(TestCase):

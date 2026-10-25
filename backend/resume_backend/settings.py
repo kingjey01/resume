@@ -531,6 +531,17 @@ OTP_VERIFY_BLOCK_SECONDS = 600  # 10 minutes
 # socket_connect_timeout court : si Redis tombe, chaque accès échoue en
 # ~0,5 s au lieu de plusieurs secondes (sinon chaque requête OTP deviendrait
 # très lente : 7 accès cache × timeout par défaut).
+# ── CACHE CATALOGUE (tâche 60, axe 3) ────────────────────────────────────────
+# Redis séparé du broker/résultat Celery : le cache catalogue vit sur la DB 1,
+# Celery reste sur la DB 0. Interrupteur explicite : False tant que
+# l'infrastructure n'est pas validée.
+CACHE_REDIS_URL = config(
+    'CACHE_REDIS_URL', default='redis://127.0.0.1:6379/1'
+)
+ENABLE_CATALOG_CACHE = config(
+    'ENABLE_CATALOG_CACHE', default=False, cast=bool
+)
+
 CACHES = {
     "default": {
         "BACKEND": "django.core.cache.backends.redis.RedisCache",
@@ -545,6 +556,18 @@ CACHES = {
     "fallback": {
         "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
         "LOCATION": "rate-limiting-fallback",
+    },
+    # Cache du catalogue : référentiels et listes de cours.
+    "catalog": {
+        "BACKEND": "django.core.cache.backends.redis.RedisCache",
+        "LOCATION": CACHE_REDIS_URL,
+        "TIMEOUT": 600,  # 10 min par défaut ; les vues peuvent préciser
+        "KEY_PREFIX": "muhtasari",
+        "OPTIONS": {
+            "CONNECTION_POOL_KWARGS": {
+                "socket_connect_timeout": 0.5,
+            },
+        },
     },
 }
 
