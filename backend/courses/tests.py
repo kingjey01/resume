@@ -12,6 +12,19 @@ from payments.models import Purchase
 from .models import Course, Session, Summary, Universite, Filiere, Promotion
 
 
+def _requetes_app(captured):
+    """Retire les requêtes d'instrumentation Silk et les commandes du TestCase."""
+    result = []
+    for q in captured:
+        sql = q['sql'].strip().upper()
+        if 'SILK_' in sql or sql.startswith('EXPLAIN'):
+            continue
+        if sql.startswith('SAVEPOINT') or sql.startswith('RELEASE SAVEPOINT'):
+            continue
+        result.append(q)
+    return result
+
+
 class CourseModelTest(TestCase):
     def test_course_creation(self):
         course = Course.objects.create(
@@ -135,20 +148,7 @@ class CourseListNoNPlusOneTest(TestCase):
         data = response.json()
         self.assertEqual(len(data), 20)
 
-        # Silk peut être actif (ENABLE_SILK=True dans .env) : ses écritures
-        # (silk_request, silk_sqlquery…), ses EXPLAIN d'analyse et les
-        # SAVEPOINT du TestCase ne sont pas des requêtes de l'application.
-        # On les exclut pour mesurer le N+1 réel.
-        requetes_app = []
-        for q in ctx.captured_queries:
-            sql = q['sql'].strip().upper()
-            if 'SILK_' in sql:
-                continue
-            if sql.startswith('EXPLAIN'):
-                continue
-            if sql.startswith('SAVEPOINT') or sql.startswith('RELEASE SAVEPOINT'):
-                continue
-            requetes_app.append(q)
+        requetes_app = _requetes_app(ctx.captured_queries)
         # 20 cours ne doivent pas produire 20 × N requêtes.
         self.assertLessEqual(len(requetes_app), 20)
 
@@ -230,14 +230,7 @@ class SummaryListNoNPlusOneTest(TestCase):
         data = response.json()
         self.assertEqual(len(data), 20)
 
-        requetes_app = []
-        for q in ctx.captured_queries:
-            sql = q['sql'].strip().upper()
-            if 'SILK_' in sql or sql.startswith('EXPLAIN'):
-                continue
-            if sql.startswith('SAVEPOINT') or sql.startswith('RELEASE SAVEPOINT'):
-                continue
-            requetes_app.append(q)
+        requetes_app = _requetes_app(ctx.captured_queries)
         self.assertLessEqual(len(requetes_app), 20)
 
         achete = next(s for s in data if s['titre'] == 'Résumé 0')
@@ -245,6 +238,66 @@ class SummaryListNoNPlusOneTest(TestCase):
         self.assertTrue(achete['is_purchased'])
         self.assertFalse(autre['is_purchased'])
         self.assertEqual(achete['filiere_name'], 'Informatique')
+
+
+class ReferenceDataNoNPlusOneTest(TestCase):
+    """Tâche 60 — universités/filières/promotions sans N+1."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universites = [
+            Universite.objects.create(nom=f'Université {i}') for i in range(5)
+        ]
+        cls.filieres = [
+            Filiere.objects.create(nom=f'Filière {i}') for i in range(6)
+        ]
+        cls.promotions = [
+            Promotion.objects.create(nom=f'Promotion {i}', annee=2025)
+            for i in range(5)
+        ]
+        for universite in cls.universites:
+            for filiere in cls.filieres:
+                universite.filieres.add(filiere)
+        for filiere in cls.filieres:
+            for promotion in cls.promotions:
+                filiere.promotions.add(promotion)
+
+    def _get(self, url):
+        with CaptureQueriesContext(connection) as ctx:
+            response = APIClient().get(url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        return response, _requetes_app(ctx.captured_queries)
+
+    def test_universites_list(self):
+        response, queries = self._get('/api/courses/universites/')
+        self.assertEqual(len(response.json()), 5)
+        self.assertLessEqual(len(queries), 20)
+
+    def test_filieres_list(self):
+        response, queries = self._get('/api/courses/filieres/')
+        self.assertEqual(len(response.json()), 6)
+        self.assertLessEqual(len(queries), 20)
+
+    def test_universite_filieres_action(self):
+        response, queries = self._get(
+            f'/api/courses/universites/{self.universites[0].id}/filieres/'
+        )
+        self.assertEqual(len(response.json()), 6)
+        self.assertLessEqual(len(queries), 20)
+
+    def test_filiere_promotions_action(self):
+        response, queries = self._get(
+            f'/api/courses/filieres/{self.filieres[0].id}/promotions/'
+        )
+        self.assertEqual(len(response.json()), 5)
+        self.assertLessEqual(len(queries), 20)
+
+    def test_promotion_filieres_action(self):
+        response, queries = self._get(
+            f'/api/courses/promotions/{self.promotions[0].id}/filieres/'
+        )
+        self.assertEqual(len(response.json()), 6)
+        self.assertLessEqual(len(queries), 20)
 
 
 class UniversiteFiliereM2MTest(TestCase):

@@ -536,7 +536,9 @@ def generate_summary_from_audio(request):
 
 # CRUD Views pour Universites
 class UniversiteViewSet(viewsets.ModelViewSet):
-    queryset = Universite.objects.all()
+    # Le serializer imbrique filières → promotions : sans prefetch, la liste
+    # des universités déclenche un N+1 (36 requêtes pour 5 universités).
+    queryset = Universite.objects.prefetch_related('filieres__promotions')
     serializer_class = UniversiteSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['nom', 'adresse']
@@ -576,7 +578,8 @@ class UniversiteViewSet(viewsets.ModelViewSet):
 
 # CRUD Views pour Filieres
 class FiliereViewSet(viewsets.ModelViewSet):
-    queryset = Filiere.objects.all()
+    # `FiliereWithUniversiteSerializer` lit `obj.universites.all()` par filière.
+    queryset = Filiere.objects.prefetch_related('universites')
     serializer_class = FiliereWithUniversiteSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     search_fields = ['nom', 'description']
@@ -629,7 +632,9 @@ class PromotionViewSet(viewsets.ModelViewSet):
     def filieres(self, request, pk=None):
         """Récupère toutes les filières associées à une promotion"""
         promotion = self.get_object()
-        filieres = promotion.filieres.all()
+        # `FiliereSerializer` imbrique les promotions : on les précharge pour
+        # éviter une requête par filière.
+        filieres = promotion.filieres.prefetch_related('promotions').all()
         serializer = FiliereSerializer(filieres, many=True)
         return Response(serializer.data)
 
