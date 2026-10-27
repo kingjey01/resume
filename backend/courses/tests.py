@@ -430,6 +430,118 @@ class ReferenceEndpointsCacheTest(TestCase):
         self.assertEqual(deuxieme.json(), premiere.json())
 
 
+@override_settings(CACHES=LOCMEM_CACHES, ENABLE_CATALOG_CACHE=True)
+class CourseListCacheTest(TestCase):
+    """Tâche 60, axe 3 — cache de la liste des cours par cohorte."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université A')
+        cls.filiere = Filiere.objects.create(nom='Filière A')
+        cls.promotion = Promotion.objects.create(nom='Promo A', annee=2025)
+
+        cls.admin = User.objects.create_user(
+            username='t60_cache_admin', password='testpass123'
+        )
+        cls.admin.is_staff = True
+        cls.admin.is_superuser = True
+        cls.admin.save()
+        UserProfile.objects.create(
+            user=cls.admin,
+            groupe='ADMIN',
+            universite=cls.universite,
+            filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        for i in range(3):
+            course = Course.objects.create(
+                nom=f'Cours cache {i}',
+                filiere='Filière A',
+                university='Université A',
+            )
+            course.universites.add(cls.universite)
+            course.filieres.add(cls.filiere)
+            course.promotions.add(cls.promotion)
+
+        # Deuxième cohorte, pour vérifier que les clés ne sont pas partagées.
+        cls.universite_b = Universite.objects.create(nom='Université B')
+        cls.filiere_b = Filiere.objects.create(nom='Filière B')
+        cls.promotion_b = Promotion.objects.create(nom='Promo B', annee=2025)
+        cls.etudiant_b = User.objects.create_user(
+            username='t60_cache_etudiant_b', password='testpass123'
+        )
+        UserProfile.objects.create(
+            user=cls.etudiant_b,
+            groupe='ETUDIANT',
+            universite=cls.universite_b,
+            filiere=cls.filiere_b,
+            promotion=cls.promotion_b,
+        )
+        cls.cours_b = Course.objects.create(
+            nom='Cours exclusif B',
+            filiere='Filière B',
+            university='Université B',
+        )
+        cls.cours_b.universites.add(cls.universite_b)
+        cls.cours_b.filieres.add(cls.filiere_b)
+        cls.cours_b.promotions.add(cls.promotion_b)
+
+    def setUp(self):
+        caches['catalog'].clear()
+        caches['default'].clear()
+
+    def _client(self, user):
+        client = APIClient()
+        token = str(RefreshToken.for_user(user).access_token)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_hit_miss_et_invalidation(self):
+        client = self._client(self.admin)
+
+        premiere = client.get('/api/course-list/')
+        self.assertEqual(premiere.status_code, 200)
+        self.assertEqual(premiere['X-Catalog-Cache'], 'MISS')
+        donnees = premiere.json()
+
+        with CaptureQueriesContext(connection) as ctx:
+            deuxieme = client.get('/api/course-list/')
+        self.assertEqual(deuxieme['X-Catalog-Cache'], 'HIT')
+        self.assertEqual(deuxieme.json(), donnees)
+
+        # L'authentification et la permission relisent l'utilisateur/le profil
+        # (5 requêtes, incompressibles ici). En revanche, la liste des cours
+        # elle-même ne doit plus être interrogée.
+        requetes_hit = _requetes_app(ctx.captured_queries)
+        self.assertLessEqual(len(requetes_hit), 5)
+        self.assertFalse(any(
+            'courses_course' in q['sql'].lower() for q in requetes_hit
+        ))
+
+        # Un nouveau cours invalide la version globale.
+        Course.objects.create(
+            nom='Cours ajouté',
+            filiere='Filière A',
+            university='Université A',
+        )
+        troisieme = client.get('/api/course-list/')
+        self.assertEqual(troisieme['X-Catalog-Cache'], 'MISS')
+
+    def test_cohortes_differentes_ne_partagent_pas(self):
+        client = self._client(self.etudiant_b)
+
+        premiere = client.get('/api/course-list/')
+        self.assertEqual(premiere.status_code, 200)
+        self.assertEqual(premiere['X-Catalog-Cache'], 'MISS')
+        donnees = premiere.json()
+        self.assertEqual([c['nom'] for c in donnees], ['Cours exclusif B'])
+
+        deuxieme = client.get('/api/course-list/')
+        self.assertEqual(deuxieme['X-Catalog-Cache'], 'HIT')
+        self.assertEqual(deuxieme.json(), donnees)
+
+
 class UniversiteFiliereM2MTest(TestCase):
     @classmethod
     def setUpTestData(cls):

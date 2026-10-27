@@ -104,11 +104,25 @@ class CacheCatalogueMixin:
     désactivé ou Redis indisponible : le comportement normal reprend.
     """
 
+    cache_namespace = 'refs'
     cache_prefix = 'refs'
     cache_timeout = 3600  # 1 heure
 
+    def cache_scope(self, request):
+        """Segment qui distingue les réponses partagées.
+
+        `None` pour les référentiels (une seule version pour tous).
+        Les listes de cours renvoient `admin` ou la cohorte.
+        """
+        return None
+
     def _cle_reponse(self, suffixe):
-        return cle_catalogue('refs', self.cache_prefix, suffixe)
+        parties = [self.cache_namespace, self.cache_prefix]
+        scope = self.cache_scope(self.request)
+        if scope:
+            parties.append(scope)
+        parties.append(suffixe)
+        return cle_catalogue(*parties)
 
     def _depuis_cache(self, cle):
         data = cache_get_safe(cle)
@@ -166,7 +180,31 @@ def get_minimum_resume_price():
         return 300.00
 
 
-class CourseListCreateView(generics.ListCreateAPIView):
+class CourseListCreateView(CacheCatalogueMixin, generics.ListCreateAPIView):
+    # Liste des cours partagée par cohorte (ou par admin).
+    cache_namespace = 'courses'
+    cache_prefix = 'courses'
+    cache_timeout = 600  # 10 minutes
+
+    def cache_scope(self, request):
+        """Une clé par admin, sinon une clé par cohorte.
+
+        Si le profil est incomplet, on isole par utilisateur : on ne partage
+        jamais une réponse qui pourrait dépendre de lui.
+        """
+        profile = getattr(request.user, 'profile', None)
+        if profile is None:
+            return f'user:{request.user.id}'
+        if profile.is_admin:
+            return 'admin'
+        if not profile.universite or not profile.promotion or not profile.filiere:
+            return f'user:{request.user.id}'
+        return (
+            f'{profile.universite_id}:'
+            f'{profile.promotion_id}:'
+            f'{profile.filiere_id}'
+        )
+
     serializer_class = CourseSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
     filterset_fields = ['filieres', 'universites', 'promotions']
