@@ -4,6 +4,7 @@ import 'package:dio/dio.dart';
 import 'package:uuid/uuid.dart';
 import 'package:flutter/foundation.dart';
 import 'package:resume_plus_clean/models/summary.dart' as model;
+import 'package:resume_plus_clean/models/summary_page.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:resume_plus_clean/models/universite.dart';
 import 'package:resume_plus_clean/models/promotion.dart';
@@ -612,6 +613,86 @@ class ApiService {
     } catch (e) {
       if (e is ApiException) rethrow;
       throw ApiException(getErrorMessage(e), type: ApiExceptionType.server, originalError: e);
+    }
+  }
+
+  /// Page paginée de résumés, avec filtres **serveur**.
+  ///
+  /// Sans `page`/`page_size`, le backend renvoie l'ancienne liste complète ;
+  /// cette méthode envoie toujours les paramètres de pagination.
+  Future<SummariesPage> getSummariesPage({
+    int page = 1,
+    int pageSize = 20,
+    String? search,
+    bool? isFree,
+    String? professeurNom,
+    DateTime? dateDebut,
+    DateTime? dateFin,
+    int? courseId,
+    int? filiereId,
+    String ordering = '-created_at',
+  }) async {
+    String? dateApi(DateTime? date) =>
+        date?.toIso8601String().split('T').first;
+
+    final queryParams = <String, dynamic>{
+      'page': page,
+      'page_size': pageSize,
+      'ordering': ordering,
+      if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+      if (isFree != null) 'is_free': isFree ? 'true' : 'false',
+      if (professeurNom != null && professeurNom.trim().isNotEmpty)
+        'professeur_nom': professeurNom.trim(),
+      if (dateDebut != null) 'date_debut': dateApi(dateDebut),
+      if (dateFin != null) 'date_fin': dateApi(dateFin),
+      if (courseId != null) 'course': courseId,
+      if (filiereId != null) 'filiere': filiereId,
+    };
+
+    try {
+      final response = await _dio.get(
+        '/summaries/',
+        queryParameters: queryParams,
+      );
+      if (response.statusCode != 200) {
+        throw ApiException('Impossible de charger les résumés.',
+            type: ApiExceptionType.server);
+      }
+      final data = response.data;
+
+      // Rétrocompatibilité : un backend plus ancien ignore `page`/`page_size`
+      // et renvoie directement une liste. On la traite comme une page unique
+      // pour ne pas casser l'app pendant le déploiement progressif.
+      if (data is List) {
+        final items = data
+            .map((s) => model.Summary.fromJson(s as Map<String, dynamic>))
+            .toList();
+        return SummariesPage(
+          items: items,
+          count: items.length,
+          hasMore: false,
+        );
+      }
+
+      final results = data is Map ? data['results'] as List? : null;
+      if (results == null) {
+        throw ApiException('Format de réponse inattendu du serveur.',
+            type: ApiExceptionType.server);
+      }
+      return SummariesPage(
+        items: results
+            .map((s) => model.Summary.fromJson(s as Map<String, dynamic>))
+            .toList(),
+        count: data is Map ? data['count'] as int? : null,
+        hasMore: data is Map && data['next'] != null,
+      );
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException(
+        getErrorMessage(e),
+        type: ApiExceptionType.server,
+        originalError: e,
+      );
     }
   }
 

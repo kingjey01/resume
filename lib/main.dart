@@ -100,7 +100,7 @@ class MyApp extends ConsumerWidget {
         debugPrint('🔄 [Root] Utilisateur changé ($prevId → $nextId) — invalidation des données');
         // Vider la session API en mémoire (token + caches universités/filières)
         ref.read(apiServiceProvider).clearSession();
-        ref.invalidate(summariesProvider);
+        ref.invalidate(recentSummariesProvider);
         ref.invalidate(validatedSummariesBadgeProvider);
         ref.invalidate(createdSummariesBadgeProvider);
         ref.invalidate(unreadCountProvider);

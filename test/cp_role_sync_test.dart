@@ -202,7 +202,13 @@ Map<String, String> _routes({
 }) =>
     {
       '/auth/user/': jsonEncode(_profile(groupe)),
-      '/summaries/': '[]',
+      // Format paginé attendu par `getSummariesPage`.
+      '/summaries/': jsonEncode({
+        'count': 0,
+        'next': null,
+        'previous': null,
+        'results': <dynamic>[],
+      }),
       '/course-list/': '[]',
       '/auth/cp-request/status/': jsonEncode(
         cpStatus ?? {'request': null, 'combination_blocked': false},

@@ -26,7 +26,20 @@ final summariesProvider = FutureProvider.autoDispose<List<model.Summary>>((ref) 
   return summaries;
 });
 
-// 4. Provider pour le badge "Résumés" (résumés validés récemment, non encore consultés)
+// 4. Accueil : seulement les résumés récents nécessaires au carrousel.
+//    Avant, le provider téléchargeait TOUT le catalogue pour n'afficher que
+//    4 cartes. `page_size=10` garde une petite marge sans charger la base.
+final recentSummariesProvider = FutureProvider.autoDispose<List<model.Summary>>((ref) async {
+  final apiService = ref.watch(apiServiceProvider);
+  final page = await apiService.getSummariesPage(
+    page: 1,
+    pageSize: 10,
+    ordering: '-created_at',
+  );
+  return page.items;
+});
+
+// 5. Provider pour le badge "Résumés" (résumés validés récemment, non encore consultés)
 final validatedSummariesBadgeProvider = StateNotifierProvider<ValidatedSummariesBadgeNotifier, int>((ref) {
   return ValidatedSummariesBadgeNotifier(ref.watch(apiServiceProvider));
 });

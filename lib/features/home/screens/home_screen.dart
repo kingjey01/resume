@@ -425,7 +425,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
 
   Future<void> _refreshAll() async {
     print('🔄 Pull-to-refresh déclenché');
-    await ref.refresh(summariesProvider.future);
+    await ref.refresh(recentSummariesProvider.future);
     await _loadCourses();
     // Après acceptation d'une demande CP, le rôle a pu changer → re-vérifier.
     await _recheckCPAfterRefresh();
@@ -484,7 +484,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
     if (liveRole != null && liveRole != _userRole) {
       _userRole = liveRole;
     }
-    final summariesAsync = ref.watch(summariesProvider);
+    final summariesAsync = ref.watch(recentSummariesProvider);
     final theme = Theme.of(context);
     final topPadding = MediaQuery.of(context).padding.top;
 
@@ -494,7 +494,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
         print('🔄 [Home] Changement de session détecté ($prev → $next) — rechargement des données');
         _apiService.clearSession();
         _loadUserProfile();
-        ref.invalidate(summariesProvider);
+        ref.invalidate(recentSummariesProvider);
       }
     });
 
@@ -507,7 +507,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
         print('🔄 [Home] Nouvel utilisateur détecté (id=${nextUser.id}) — rechargement des données');
         _apiService.clearSession();
         _loadUserProfile();
-        ref.invalidate(summariesProvider);
+        ref.invalidate(recentSummariesProvider);
       }
     });
 
@@ -521,7 +521,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
         // vient d'être couverte) continuait de voir la bannière « Demander »
         // jusqu'au prochain redémarrage (tache34, point 3).
         _loadCPRequestStatus();
-        ref.invalidate(summariesProvider);
+        ref.invalidate(recentSummariesProvider);
       }
     });
 
@@ -557,7 +557,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
               Text('Erreur de chargement', style: theme.textTheme.titleMedium),
               const SizedBox(height: 8),
               TextButton(
-                onPressed: () => ref.invalidate(summariesProvider),
+                onPressed: () => ref.invalidate(recentSummariesProvider),
                 child: const Text('Réessayer'),
               ),
             ],
@@ -719,7 +719,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> with AutomaticKeepAlive
                         () async {
                           if (_isRefreshing) return;
                           setState(() => _isRefreshing = true);
-                          await ref.refresh(summariesProvider.future);
+                          await ref.refresh(recentSummariesProvider.future);
                           await _loadCourses();
                           await _recheckCPAfterRefresh();
                           if (mounted) setState(() => _isRefreshing = false);

@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
-import 'package:resume_plus_clean/features/home/providers/summary_provider.dart';
+import 'package:resume_plus_clean/features/summaries/providers/summary_feed_provider.dart';
 import 'package:resume_plus_clean/providers/tab_refresh_provider.dart';
 import 'package:resume_plus_clean/features/home/widgets/summary_card.dart';
 import 'package:resume_plus_clean/features/summaries/providers/purchased_summaries_provider.dart';
@@ -18,6 +20,8 @@ class AllSummariesScreen extends ConsumerStatefulWidget {
 class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
+  Timer? _searchDebounce;
+  String? _lastLoadedTab;
   String _searchQuery = '';
   String _filterProfessor = '';
   DateTimeRange? _filterDateRange;
@@ -26,12 +30,62 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: 4, vsync: this);
+    _tabController.addListener(_onTabChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _reloadForTab();
+    });
   }
 
   @override
   void dispose() {
+    _searchDebounce?.cancel();
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  String get _tabName {
+    switch (_tabController.index) {
+      case 1:
+        return 'free';
+      case 2:
+        return 'paid';
+      case 3:
+        return 'recent';
+      default:
+        return 'all';
+    }
+  }
+
+  SummaryFeedFilter get _currentFilter => SummaryFeedFilter(
+        search: _searchQuery.trim(),
+        professeurNom: _filterProfessor.trim(),
+        dateDebut: _filterDateRange?.start,
+        dateFin: _filterDateRange?.end,
+      );
+
+  void _reloadForTab() {
+    final tab = _tabName;
+    _lastLoadedTab = tab;
+    ref.read(summaryFeedProvider.notifier).load(
+          tab: tab,
+          filter: _currentFilter,
+        );
+  }
+
+  void _onTabChanged() {
+    if (_tabController.indexIsChanging) return;
+    final tab = _tabName;
+    if (_lastLoadedTab == tab) return;
+    _reloadForTab();
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _searchQuery = value);
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) _reloadForTab();
+    });
   }
 
   @override
@@ -42,7 +96,7 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
     // Rafraîchir les données à chaque fois qu'on arrive sur l'onglet Résumés
     ref.listen<int>(summariesRefreshProvider, (prev, next) {
       if (prev != next) {
-        ref.invalidate(summariesProvider);
+        _reloadForTab();
         ref.read(purchasedSummariesProvider.notifier).refresh();
       }
     });
@@ -85,7 +139,7 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
                     ),
                     IconButton(
                       onPressed: () {
-                        ref.invalidate(summariesProvider);
+                        _reloadForTab();
                         ref.read(purchasedSummariesProvider.notifier).refresh();
                       },
                       icon: const Icon(Icons.refresh_rounded, color: Colors.white),
@@ -113,7 +167,10 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
                             suffixIcon: _searchQuery.isNotEmpty
                                 ? IconButton(
                                     icon: Icon(Icons.close_rounded, color: Colors.white.withOpacity(0.8), size: 20),
-                                    onPressed: () => setState(() => _searchQuery = ''),
+                                    onPressed: () {
+                                      setState(() => _searchQuery = '');
+                                      _reloadForTab();
+                                    },
                                   )
                                 : null,
                             border: InputBorder.none,
@@ -122,7 +179,7 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
                             contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                             filled: false,
                           ),
-                          onChanged: (value) => setState(() => _searchQuery = value),
+                          onChanged: _onSearchChanged,
                         ),
                       ),
                     ),
@@ -162,14 +219,20 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
                           _buildFilterChip(
                             label: _filterProfessor,
                             icon: Icons.school_rounded,
-                            onRemove: () => setState(() => _filterProfessor = ''),
+                            onRemove: () {
+                              setState(() => _filterProfessor = '');
+                              _reloadForTab();
+                            },
                           ),
                         if (_filterDateRange != null)
                           _buildFilterChip(
                             label:
                                 '${DateFormat('dd/MM').format(_filterDateRange!.start)} – ${DateFormat('dd/MM/yy').format(_filterDateRange!.end)}',
                             icon: Icons.calendar_today_rounded,
-                            onRemove: () => setState(() => _filterDateRange = null),
+                            onRemove: () {
+                              setState(() => _filterDateRange = null);
+                              _reloadForTab();
+                            },
                           ),
                       ],
                     ),
@@ -217,200 +280,103 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
     );
   }
 
-  Widget _buildAllSummariesTab() {
-    final summariesAsync = ref.watch(summariesProvider);
+  Widget _buildAllSummariesTab() => _buildFeedTab('all');
+  Widget _buildFreeSummariesTab() => _buildFeedTab('free');
+  Widget _buildPaidSummariesTab() => _buildFeedTab('paid');
+  Widget _buildRecentSummariesTab() => _buildFeedTab('recent');
+
+  Widget _buildFeedTab(String tab) {
+    final state = ref.watch(summaryFeedProvider);
+    final chargement = state.isLoading || state.tab != tab;
 
     return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(summariesProvider);
-      },
-      child: summariesAsync.when(
-        data: (summaries) {
-          final filteredSummaries = _filterSummaries(summaries);
-          
-          if (filteredSummaries.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.description_outlined,
-              title: _searchQuery.isNotEmpty 
-                  ? 'Aucun résumé trouvé'
-                  : 'Aucun résumé disponible',
-              subtitle: _searchQuery.isNotEmpty
-                  ? 'Essayez avec d\'autres mots-clés'
-                  : 'Les résumés apparaîtront ici',
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            itemCount: filteredSummaries.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: SummaryCard(summary: filteredSummaries[index]),
-              );
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => ApiErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(summariesProvider),
-        ),
-      ),
+      onRefresh: () => ref.read(summaryFeedProvider.notifier).load(
+            tab: tab,
+            filter: _currentFilter,
+          ),
+      child: chargement
+          ? const Center(child: CircularProgressIndicator())
+          : (state.error != null && state.items.isEmpty)
+              ? ApiErrorView(
+                  error: state.error,
+                  onRetry: _reloadForTab,
+                )
+              : state.items.isEmpty
+                  ? _emptyStateFor(tab)
+                  : ListView.builder(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+                      itemCount:
+                          state.items.length + (state.hasMore ? 1 : 0),
+                      itemBuilder: (context, index) {
+                        if (index == state.items.length) {
+                          return _buildLoadMore(state);
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: SummaryCard(summary: state.items[index]),
+                        );
+                      },
+                    ),
     );
   }
 
-  Widget _buildFreeSummariesTab() {
-    final summariesAsync = ref.watch(summariesProvider);
+  Widget _emptyStateFor(String tab) {
+    final filtreActif = _searchQuery.isNotEmpty ||
+        _filterProfessor.isNotEmpty ||
+        _filterDateRange != null;
 
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(summariesProvider);
-      },
-      child: summariesAsync.when(
-        data: (summaries) {
-          final freeSummaries = _filterSummaries(
-            summaries.where((s) => s.isFree).toList()
-          );
-          
-          if (freeSummaries.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.free_breakfast,
-              title: 'Aucun résumé gratuit',
-              subtitle: 'Les résumés gratuits apparaîtront ici',
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            itemCount: freeSummaries.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: SummaryCard(summary: freeSummaries[index]),
-              );
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => ApiErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(summariesProvider),
-        ),
-      ),
-    );
+    switch (tab) {
+      case 'free':
+        return _buildEmptyState(
+          icon: Icons.free_breakfast,
+          title: 'Aucun résumé gratuit',
+          subtitle: 'Les résumés gratuits apparaîtront ici',
+        );
+      case 'paid':
+        return _buildEmptyState(
+          icon: Icons.attach_money,
+          title: 'Aucun résumé payant',
+          subtitle: 'Les résumés payants apparaîtront ici',
+        );
+      case 'recent':
+        return _buildEmptyState(
+          icon: Icons.access_time,
+          title: 'Aucun résumé récent',
+          subtitle: 'Les résumés récents apparaîtront ici',
+        );
+      default:
+        return _buildEmptyState(
+          icon: Icons.description_outlined,
+          title:
+              filtreActif ? 'Aucun résumé trouvé' : 'Aucun résumé disponible',
+          subtitle: filtreActif
+              ? "Essayez avec d'autres mots-clés"
+              : 'Les résumés apparaîtront ici',
+        );
+    }
   }
 
-  Widget _buildPaidSummariesTab() {
-    final summariesAsync = ref.watch(summariesProvider);
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(summariesProvider);
-      },
-      child: summariesAsync.when(
-        data: (summaries) {
-          final paidSummaries = _filterSummaries(
-            summaries.where((s) => !s.isFree).toList()
-          );
-          
-          if (paidSummaries.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.attach_money,
-              title: 'Aucun résumé payant',
-              subtitle: 'Les résumés payants apparaîtront ici',
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            itemCount: paidSummaries.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: SummaryCard(summary: paidSummaries[index]),
-              );
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => ApiErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(summariesProvider),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildRecentSummariesTab() {
-    final summariesAsync = ref.watch(summariesProvider);
-
-    return RefreshIndicator(
-      onRefresh: () async {
-        ref.invalidate(summariesProvider);
-      },
-      child: summariesAsync.when(
-        data: (summaries) {
-          final recentSummaries = _filterSummaries(summaries)
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-          
-          if (recentSummaries.isEmpty) {
-            return _buildEmptyState(
-              icon: Icons.access_time,
-              title: 'Aucun résumé récent',
-              subtitle: 'Les résumés récents apparaîtront ici',
-            );
-          }
-
-          return ListView.builder(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-            itemCount: recentSummaries.length,
-            itemBuilder: (context, index) {
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: SummaryCard(summary: recentSummaries[index]),
-              );
-            },
-          );
-        },
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (error, stack) => ApiErrorView(
-          error: error,
-          onRetry: () => ref.invalidate(summariesProvider),
-        ),
+  Widget _buildLoadMore(SummaryFeedState state) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 24),
+      child: Center(
+        child: state.isLoadingMore
+            ? const CircularProgressIndicator()
+            : OutlinedButton.icon(
+                onPressed: () =>
+                    ref.read(summaryFeedProvider.notifier).loadMore(),
+                icon: const Icon(Icons.expand_more_rounded),
+                label: Text(
+                  state.count == null
+                      ? 'Charger plus'
+                      : 'Charger plus (${state.items.length}/${state.count})',
+                ),
+              ),
       ),
     );
   }
 
   bool get _hasActiveFilters => _filterProfessor.isNotEmpty || _filterDateRange != null;
-
-  List<dynamic> _filterSummaries(List<dynamic> summaries) {
-    return summaries.where((summary) {
-      // Filtre texte (titre + contenu)
-      if (_searchQuery.isNotEmpty) {
-        final query = _searchQuery.toLowerCase();
-        final title = (summary.title ?? '').toLowerCase();
-        final content = (summary.content ?? '').toLowerCase();
-        final subject = (summary.subject ?? '').toLowerCase();
-        if (!title.contains(query) && !content.contains(query) && !subject.contains(query)) {
-          return false;
-        }
-      }
-      // Filtre professeur
-      if (_filterProfessor.isNotEmpty) {
-        final prof = (summary.professorName ?? '').toLowerCase();
-        if (!prof.contains(_filterProfessor.toLowerCase())) return false;
-      }
-      // Filtre date
-      if (_filterDateRange != null) {
-        final date = summary.createdAt as DateTime;
-        final start = _filterDateRange!.start;
-        final end = _filterDateRange!.end.add(const Duration(days: 1));
-        if (date.isBefore(start) || date.isAfter(end)) return false;
-      }
-      return true;
-    }).toList();
-  }
 
   Widget _buildFilterChip({
     required String label,
@@ -564,6 +530,7 @@ class _AllSummariesScreenState extends ConsumerState<AllSummariesScreen>
                       _filterProfessor = tempProfessor.trim();
                       _filterDateRange = tempDateRange;
                     });
+                    _reloadForTab();
                     Navigator.of(ctx).pop();
                   },
                   style: ElevatedButton.styleFrom(
