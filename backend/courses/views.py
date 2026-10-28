@@ -432,6 +432,7 @@ class SummaryFilter(django_filters.FilterSet):
         field_name='created_at', lookup_expr='date__lte'
     )
     filiere = django_filters.NumberFilter(method='filter_filiere')
+    filiere_nom = django_filters.CharFilter(method='filter_filiere_nom')
 
     class Meta:
         model = Summary
@@ -447,6 +448,14 @@ class SummaryFilter(django_filters.FilterSet):
 
     def filter_filiere(self, queryset, name, value):
         return queryset.filter(course__filieres__id=value).distinct()
+
+    def filter_filiere_nom(self, queryset, name, value):
+        if not value:
+            return queryset
+        return queryset.filter(
+            Q(course__filieres__nom__icontains=value) |
+            Q(course__filiere__icontains=value)
+        ).distinct()
 
 
 class SummaryListCreateView(SummaryPurchasedIdsMixin, generics.ListCreateAPIView):

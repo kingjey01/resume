@@ -20,38 +20,62 @@ class FiliereSummariesScreen extends ConsumerStatefulWidget {
 }
 
 class _FiliereSummariesScreenState extends ConsumerState<FiliereSummariesScreen> {
+  final ApiService _api = ApiService();
   List<Summary> _summaries = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = false;
+  int _page = 1;
+  int? _totalCount;
+  int _generation = 0;
   String? _error;
 
   @override
   void initState() {
     super.initState();
-    _loadSummariesByFiliere();
+    _loadSummariesByFiliere(reset: true);
   }
 
-  Future<void> _loadSummariesByFiliere() async {
+  Future<void> _loadSummariesByFiliere({bool reset = true}) async {
+    final generation = ++_generation;
+    final targetPage = reset ? 1 : _page + 1;
+    final filiereId = int.tryParse(widget.filiereId ?? '');
+
     setState(() {
-      _isLoading = true;
+      if (reset) {
+        _isLoading = true;
+        _summaries = [];
+        _page = 1;
+        _hasMore = false;
+      } else {
+        _isLoadingMore = true;
+      }
       _error = null;
     });
 
     try {
-      final apiService = ApiService();
-      final allSummaries = await apiService.getSummaries();
-      
-      final filteredSummaries = allSummaries.where((summary) {
-        return summary.subject.toLowerCase().contains(widget.filiere.toLowerCase());
-      }).toList();
+      final page = await _api.getSummariesPage(
+        page: targetPage,
+        pageSize: 20,
+        filiereId: filiereId,
+        filiereNom: filiereId == null ? widget.filiere : null,
+      );
 
+      if (!mounted || generation != _generation) return;
       setState(() {
-        _summaries = filteredSummaries;
+        _summaries = reset ? page.items : [..._summaries, ...page.items];
+        _page = targetPage;
+        _hasMore = page.hasMore;
+        _totalCount = page.count;
         _isLoading = false;
+        _isLoadingMore = false;
       });
     } catch (e) {
+      if (!mounted || generation != _generation) return;
       setState(() {
-        _error = 'Erreur lors du chargement des résumés: $e';
+        _error = ApiService.getErrorMessage(e);
         _isLoading = false;
+        _isLoadingMore = false;
       });
     }
   }
@@ -104,7 +128,7 @@ class _FiliereSummariesScreenState extends ConsumerState<FiliereSummariesScreen>
                       ),
                     ),
                     GestureDetector(
-                      onTap: _loadSummariesByFiliere,
+                      onTap: () => _loadSummariesByFiliere(reset: true),
                       child: Container(
                         width: 40, height: 40,
                         decoration: BoxDecoration(
@@ -125,7 +149,7 @@ class _FiliereSummariesScreenState extends ConsumerState<FiliereSummariesScreen>
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      '${_summaries.length} résumé${_summaries.length > 1 ? 's' : ''} trouvé${_summaries.length > 1 ? 's' : ''}',
+                      '${_totalCount ?? _summaries.length} résumé${(_totalCount ?? _summaries.length) > 1 ? 's' : ''} trouvé${(_totalCount ?? _summaries.length) > 1 ? 's' : ''}',
                       style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
                     ),
                   ),
@@ -137,7 +161,8 @@ class _FiliereSummariesScreenState extends ConsumerState<FiliereSummariesScreen>
           // Contenu
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryBlue))
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppTheme.primaryBlue))
                 : _error != null
                     ? Center(
                         child: Padding(
@@ -146,14 +171,28 @@ class _FiliereSummariesScreenState extends ConsumerState<FiliereSummariesScreen>
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Container(
-                                width: 80, height: 80,
-                                decoration: BoxDecoration(color: AppTheme.error.withOpacity(0.1), shape: BoxShape.circle),
-                                child: const Icon(Icons.error_outline_rounded, size: 36, color: AppTheme.error),
+                                width: 80,
+                                height: 80,
+                                decoration: BoxDecoration(
+                                  color: AppTheme.error.withOpacity(0.1),
+                                  shape: BoxShape.circle,
+                                ),
+                                child: const Icon(Icons.error_outline_rounded,
+                                    size: 36, color: AppTheme.error),
                               ),
                               const SizedBox(height: 20),
-                              Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.textLight, fontSize: 13)),
+                              Text(
+                                _error!,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    color: AppTheme.textLight, fontSize: 13),
+                              ),
                               const SizedBox(height: 20),
-                              ElevatedButton(onPressed: _loadSummariesByFiliere, child: const Text('Réessayer')),
+                              ElevatedButton(
+                                onPressed: () =>
+                                    _loadSummariesByFiliere(reset: true),
+                                child: const Text('Réessayer'),
+                              ),
                             ],
                           ),
                         ),
@@ -166,37 +205,90 @@ class _FiliereSummariesScreenState extends ConsumerState<FiliereSummariesScreen>
                                 mainAxisAlignment: MainAxisAlignment.center,
                                 children: [
                                   Container(
-                                    width: 80, height: 80,
-                                    decoration: BoxDecoration(color: AppTheme.primaryBlue.withOpacity(0.1), shape: BoxShape.circle),
-                                    child: const Icon(Icons.school_outlined, size: 36, color: AppTheme.primaryBlue),
+                                    width: 80,
+                                    height: 80,
+                                    decoration: BoxDecoration(
+                                      color: AppTheme.primaryBlue
+                                          .withOpacity(0.1),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(Icons.school_outlined,
+                                        size: 36, color: AppTheme.primaryBlue),
                                   ),
                                   const SizedBox(height: 20),
-                                  const Text('Aucun résumé disponible', style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600, color: AppTheme.textPrimary)),
+                                  const Text(
+                                    'Aucun résumé disponible',
+                                    style: TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w600,
+                                      color: AppTheme.textPrimary,
+                                    ),
+                                  ),
                                   const SizedBox(height: 8),
                                   Text(
-                                    'Il n\'y a pas encore de résumés pour la filière ${widget.filiere}.',
+                                    "Il n'y a pas encore de résumés pour la filière ${widget.filiere}.",
                                     textAlign: TextAlign.center,
-                                    style: const TextStyle(color: AppTheme.textLight, fontSize: 14),
+                                    style: const TextStyle(
+                                        color: AppTheme.textLight,
+                                        fontSize: 14),
                                   ),
                                 ],
                               ),
                             ),
                           )
-                        : GridView.builder(
-                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
-                            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 2,
-                              childAspectRatio: 0.75,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                            ),
-                            itemCount: _summaries.length,
-                            itemBuilder: (context, index) {
-                              return SummaryCard(summary: _summaries[index]);
-                            },
+                        : Column(
+                            children: [
+                              Expanded(
+                                child: RefreshIndicator(
+                                  onRefresh: () =>
+                                      _loadSummariesByFiliere(reset: true),
+                                  child: GridView.builder(
+                                    physics:
+                                        const AlwaysScrollableScrollPhysics(),
+                                    padding: const EdgeInsets.fromLTRB(
+                                        20, 16, 20, 20),
+                                    gridDelegate:
+                                        const SliverGridDelegateWithFixedCrossAxisCount(
+                                      crossAxisCount: 2,
+                                      childAspectRatio: 0.75,
+                                      crossAxisSpacing: 12,
+                                      mainAxisSpacing: 12,
+                                    ),
+                                    itemCount: _summaries.length,
+                                    itemBuilder: (context, index) {
+                                      return SummaryCard(
+                                          summary: _summaries[index]);
+                                    },
+                                  ),
+                                ),
+                              ),
+                              if (_hasMore) _buildLoadMoreButton(),
+                            ],
                           ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: _isLoadingMore
+              ? null
+              : () => _loadSummariesByFiliere(reset: false),
+          icon: _isLoadingMore
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more_rounded),
+          label: Text(_isLoadingMore ? 'Chargement...' : 'Charger plus'),
+        ),
       ),
     );
   }

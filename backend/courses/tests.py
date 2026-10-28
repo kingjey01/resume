@@ -642,6 +642,11 @@ class CataloguePaginationTest(TestCase):
         )
         self.assertEqual(len(par_filiere.json()), 5)
 
+        par_filiere_nom = client.get(
+            '/api/summaries/', {'filiere_nom': 'pagination'}
+        )
+        self.assertEqual(len(par_filiere_nom.json()), 5)
+
         par_prof = client.get(
             '/api/summaries/', {'professeur_nom': 'Pagination'}
         )

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/models/summary.dart' as model;
@@ -22,51 +24,79 @@ class CourseSummariesScreen extends ConsumerStatefulWidget {
 }
 
 class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
+  final ApiService _api = ApiService();
   List<model.Summary> _summaries = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = false;
+  int _page = 1;
+  int? _totalCount;
+  int _generation = 0;
+  Timer? _searchDebounce;
   String? _error;
   String _searchQuery = '';
 
   @override
   void initState() {
     super.initState();
-    _loadSummariesByCourse();
+    _loadSummariesByCourse(reset: true);
   }
 
-  List<model.Summary> get _filteredSummaries {
-    if (_searchQuery.isEmpty) return _summaries;
-    return _summaries.where((summary) {
-      final title = summary.title?.toLowerCase() ?? '';
-      final content = summary.content?.toLowerCase() ?? '';
-      final query = _searchQuery.toLowerCase();
-      return title.contains(query) || content.contains(query);
-    }).toList();
+  @override
+  void dispose() {
+    _searchDebounce?.cancel();
+    super.dispose();
   }
 
-  Future<void> _loadSummariesByCourse() async {
+  Future<void> _loadSummariesByCourse({bool reset = true}) async {
+    final generation = ++_generation;
+    final targetPage = reset ? 1 : _page + 1;
+
     setState(() {
-      _isLoading = true;
+      if (reset) {
+        _isLoading = true;
+        _summaries = [];
+        _page = 1;
+        _hasMore = false;
+      } else {
+        _isLoadingMore = true;
+      }
       _error = null;
     });
 
     try {
-      final apiService = ApiService();
-      final allSummaries = await apiService.getSummaries();
-      
-      final filteredSummaries = allSummaries.where((summary) {
-        return summary.courseId == widget.courseId;
-      }).toList();
+      final page = await _api.getSummariesPage(
+        page: targetPage,
+        pageSize: 20,
+        courseId: widget.courseId,
+        search: _searchQuery.isEmpty ? null : _searchQuery,
+      );
 
+      if (!mounted || generation != _generation) return;
       setState(() {
-        _summaries = filteredSummaries;
+        _summaries = reset ? page.items : [..._summaries, ...page.items];
+        _page = targetPage;
+        _hasMore = page.hasMore;
+        _totalCount = page.count;
         _isLoading = false;
+        _isLoadingMore = false;
       });
     } catch (e) {
+      if (!mounted || generation != _generation) return;
       setState(() {
-        _error = 'Erreur lors du chargement des résumés: $e';
+        _error = ApiService.getErrorMessage(e);
         _isLoading = false;
+        _isLoadingMore = false;
       });
     }
+  }
+
+  void _onSearchChanged(String value) {
+    setState(() => _searchQuery = value);
+    _searchDebounce?.cancel();
+    _searchDebounce = Timer(const Duration(milliseconds: 400), () {
+      if (mounted) _loadSummariesByCourse(reset: true);
+    });
   }
 
   @override
@@ -127,7 +157,7 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
                       ),
                     ),
                     GestureDetector(
-                      onTap: _loadSummariesByCourse,
+                      onTap: () => _loadSummariesByCourse(reset: true),
                       child: Container(
                         width: 40, height: 40,
                         decoration: BoxDecoration(
@@ -140,7 +170,9 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
                   ],
                 ),
                 // Barre de recherche pill
-                if (!_isLoading && _error == null && _summaries.isNotEmpty) ...[
+                if (!_isLoading &&
+                    _error == null &&
+                    ((_totalCount ?? 0) > 0 || _searchQuery.isNotEmpty)) ...[
                   const SizedBox(height: 12),
                   Container(
                     height: 44,
@@ -157,7 +189,10 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
                         suffixIcon: _searchQuery.isNotEmpty
                             ? IconButton(
                                 icon: Icon(Icons.close_rounded, color: Colors.white.withOpacity(0.8), size: 20),
-                                onPressed: () => setState(() => _searchQuery = ''),
+                                onPressed: () {
+                                  setState(() => _searchQuery = '');
+                                  _loadSummariesByCourse(reset: true);
+                                },
                               )
                             : null,
                         border: InputBorder.none,
@@ -166,11 +201,13 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
                         contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
                         filled: false,
                       ),
-                      onChanged: (value) => setState(() => _searchQuery = value),
+                      onChanged: _onSearchChanged,
                     ),
                   ),
                 ],
-                if (!_isLoading && _error == null && _summaries.isNotEmpty) ...[
+                if (!_isLoading &&
+                    _error == null &&
+                    ((_totalCount ?? 0) > 0 || _searchQuery.isNotEmpty)) ...[
                   const SizedBox(height: 12),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
@@ -179,7 +216,7 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Text(
-                      '${_filteredSummaries.length} résumé${_filteredSummaries.length > 1 ? 's' : ''} trouvé${_filteredSummaries.length > 1 ? 's' : ''}',
+                      '${_totalCount ?? _summaries.length} résumé${(_totalCount ?? _summaries.length) > 1 ? 's' : ''} trouvé${(_totalCount ?? _summaries.length) > 1 ? 's' : ''}',
                       style: const TextStyle(color: Colors.white, fontSize: 13, fontWeight: FontWeight.w500),
                     ),
                   ),
@@ -191,59 +228,94 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
           // Contenu
           Expanded(
             child: _isLoading
-                ? const Center(child: CircularProgressIndicator(color: AppTheme.primaryBlue))
+                ? const Center(
+                    child: CircularProgressIndicator(color: AppTheme.primaryBlue))
                 : _error != null
                     ? _buildErrorState()
                     : _summaries.isEmpty
-                        ? _buildEmptyState()
-                        : _filteredSummaries.isEmpty
-                            ? _buildSearchEmptyState()
-                            : LayoutBuilder(
-                                builder: (context, constraints) {
-                                  // Responsive grid based on screen width
-                                  int crossAxisCount;
-                                  double childAspectRatio;
-                                  
-                                  if (constraints.maxWidth < 600) {
-                                    // Mobile: 2 columns
-                                    crossAxisCount = 2;
-                                    childAspectRatio = 0.72;
-                                  } else if (constraints.maxWidth < 900) {
-                                    // Tablet: 3 columns
-                                    crossAxisCount = 3;
-                                    childAspectRatio = 0.78;
-                                  } else if (constraints.maxWidth < 1200) {
-                                    // Small desktop: 4 columns
-                                    crossAxisCount = 4;
-                                    childAspectRatio = 0.82;
-                                  } else {
-                                    // Large desktop: 5 columns
-                                    crossAxisCount = 5;
-                                    childAspectRatio = 0.85;
-                                  }
-                                  
-                                  return GridView.builder(
-                                    padding: EdgeInsets.fromLTRB(
-                                      constraints.maxWidth < 600 ? 16 : 20,
-                                      16,
-                                      constraints.maxWidth < 600 ? 16 : 20,
-                                      20,
-                                    ),
-                                    gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                                      crossAxisCount: crossAxisCount,
-                                      childAspectRatio: childAspectRatio,
-                                      crossAxisSpacing: constraints.maxWidth < 600 ? 8 : 12,
-                                      mainAxisSpacing: constraints.maxWidth < 600 ? 8 : 12,
-                                    ),
-                                    itemCount: _filteredSummaries.length,
-                                    itemBuilder: (context, index) {
-                                      return SummaryCard(summary: _filteredSummaries[index]);
+                        ? (_searchQuery.isEmpty
+                            ? _buildEmptyState()
+                            : _buildSearchEmptyState())
+                        : Column(
+                            children: [
+                              Expanded(
+                                child: RefreshIndicator(
+                                  onRefresh: () =>
+                                      _loadSummariesByCourse(reset: true),
+                                  child: LayoutBuilder(
+                                    builder: (context, constraints) {
+                                      int crossAxisCount;
+                                      double childAspectRatio;
+
+                                      if (constraints.maxWidth < 600) {
+                                        crossAxisCount = 2;
+                                        childAspectRatio = 0.72;
+                                      } else if (constraints.maxWidth < 900) {
+                                        crossAxisCount = 3;
+                                        childAspectRatio = 0.78;
+                                      } else if (constraints.maxWidth < 1200) {
+                                        crossAxisCount = 4;
+                                        childAspectRatio = 0.82;
+                                      } else {
+                                        crossAxisCount = 5;
+                                        childAspectRatio = 0.85;
+                                      }
+
+                                      return GridView.builder(
+                                        physics:
+                                            const AlwaysScrollableScrollPhysics(),
+                                        padding: EdgeInsets.fromLTRB(
+                                          constraints.maxWidth < 600 ? 16 : 20,
+                                          16,
+                                          constraints.maxWidth < 600 ? 16 : 20,
+                                          20,
+                                        ),
+                                        gridDelegate:
+                                            SliverGridDelegateWithFixedCrossAxisCount(
+                                          crossAxisCount: crossAxisCount,
+                                          childAspectRatio: childAspectRatio,
+                                          crossAxisSpacing:
+                                              constraints.maxWidth < 600 ? 8 : 12,
+                                          mainAxisSpacing:
+                                              constraints.maxWidth < 600 ? 8 : 12,
+                                        ),
+                                        itemCount: _summaries.length,
+                                        itemBuilder: (context, index) {
+                                          return SummaryCard(
+                                              summary: _summaries[index]);
+                                        },
+                                      );
                                     },
-                                  );
-                                },
+                                  ),
+                                ),
                               ),
+                              if (_hasMore) _buildLoadMoreButton(),
+                            ],
+                          ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildLoadMoreButton() {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 0, 20, 20),
+      child: SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          onPressed: _isLoadingMore
+              ? null
+              : () => _loadSummariesByCourse(reset: false),
+          icon: _isLoadingMore
+              ? const SizedBox(
+                  width: 16,
+                  height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more_rounded),
+          label: Text(_isLoadingMore ? 'Chargement...' : 'Charger plus'),
+        ),
       ),
     );
   }
@@ -325,7 +397,7 @@ class _CourseSummariesScreenState extends ConsumerState<CourseSummariesScreen> {
             Text(_error!, textAlign: TextAlign.center, style: const TextStyle(color: AppTheme.textLight, fontSize: 13)),
             const SizedBox(height: 20),
             ElevatedButton(
-              onPressed: _loadSummariesByCourse,
+              onPressed: () => _loadSummariesByCourse(reset: true),
               child: const Text('Réessayer'),
             ),
           ],

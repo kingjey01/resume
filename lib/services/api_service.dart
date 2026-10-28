@@ -630,6 +630,7 @@ class ApiService {
     DateTime? dateFin,
     int? courseId,
     int? filiereId,
+    String? filiereNom,
     String ordering = '-created_at',
   }) async {
     String? dateApi(DateTime? date) =>
@@ -647,6 +648,8 @@ class ApiService {
       if (dateFin != null) 'date_fin': dateApi(dateFin),
       if (courseId != null) 'course': courseId,
       if (filiereId != null) 'filiere': filiereId,
+      if (filiereNom != null && filiereNom.trim().isNotEmpty)
+        'filiere_nom': filiereNom.trim(),
     };
 
     try {
