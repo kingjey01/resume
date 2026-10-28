@@ -1,3 +1,4 @@
+import django_filters
 from rest_framework import exceptions, generics, permissions, status, viewsets
 from rest_framework.decorators import api_view, permission_classes, action
 from rest_framework.response import Response
@@ -6,7 +7,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django.http import HttpResponse, Http404, FileResponse
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.db.models import Exists, OuterRef
+from django.db.models import Exists, OuterRef, Q
 from django.utils.encoding import smart_str
 import os
 import logging
@@ -29,6 +30,7 @@ from .serializers import (
 from .permissions import (IsOwnerOrReadOnly, CanCreateSummary, CanAccessSummary,
                          IsAdminOrReadOnly, HasUniversityAccess, CanModifyObject)
 from .cache_catalogue import cache_get_safe, cache_set_safe, cle_catalogue
+from .pagination import CataloguePagination
 
 
 # ─── Helper : queryset des cours sans N+1 (tâche 60) ─────────────────
@@ -211,6 +213,7 @@ class CourseListCreateView(CacheCatalogueMixin, generics.ListCreateAPIView):
     search_fields = ['nom', 'description']
     ordering_fields = ['nom', 'created_at']
     ordering = ['-created_at']
+    pagination_class = CataloguePagination
     permission_classes = [permissions.IsAuthenticated, HasUniversityAccess]
     
     def get_queryset(self):
@@ -413,13 +416,49 @@ class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
         ).distinct()
 
 
+class SummaryFilter(django_filters.FilterSet):
+    """Filtres serveur de la liste des résumés (tâche 60).
+
+    Les filtres de l'écran Flutter étaient appliqués APRÈS avoir téléchargé
+    toute la liste. Avec la pagination, ils doivent être exécutés en SQL,
+    sinon on ne filtrerait que la page courante.
+    """
+
+    professeur_nom = django_filters.CharFilter(method='filter_professeur_nom')
+    date_debut = django_filters.DateFilter(
+        field_name='created_at', lookup_expr='date__gte'
+    )
+    date_fin = django_filters.DateFilter(
+        field_name='created_at', lookup_expr='date__lte'
+    )
+    filiere = django_filters.NumberFilter(method='filter_filiere')
+
+    class Meta:
+        model = Summary
+        fields = ['course', 'author_type', 'is_free']
+
+    def filter_professeur_nom(self, queryset, name, value):
+        return queryset.filter(
+            Q(professeur__user__first_name__icontains=value) |
+            Q(professeur__user__last_name__icontains=value) |
+            Q(session__professeur_fk__user__first_name__icontains=value) |
+            Q(session__professeur_fk__user__last_name__icontains=value)
+        ).distinct()
+
+    def filter_filiere(self, queryset, name, value):
+        return queryset.filter(course__filieres__id=value).distinct()
+
+
 class SummaryListCreateView(SummaryPurchasedIdsMixin, generics.ListCreateAPIView):
     queryset = Summary.objects.all()
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
-    filterset_fields = ['course', 'author_type', 'is_free']
-    search_fields = ['titre', 'texte_resume']
+    filterset_class = SummaryFilter
+    search_fields = [
+        'titre', 'texte_resume', 'course__nom', 'course__filiere',
+    ]
     ordering_fields = ['titre', 'prix', 'created_at']
     ordering = ['-created_at']
+    pagination_class = CataloguePagination
     permission_classes = [permissions.IsAuthenticated, CanCreateSummary]
     
     def get_serializer_class(self):
@@ -441,7 +480,7 @@ class SummaryListCreateView(SummaryPurchasedIdsMixin, generics.ListCreateAPIView
 
         # Admin voit tous les résumés
         if profile.is_admin:
-            return _summaries_optimises()
+            return _summaries_optimises().distinct()
 
         # CP voit les résumés de son université/promotion/filière
         # if profile.is_cp:

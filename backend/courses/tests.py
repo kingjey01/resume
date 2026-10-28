@@ -19,7 +19,9 @@ from .cache_catalogue import (
     invalider_catalogue,
     version_catalogue,
 )
-from .models import Course, Session, Summary, Universite, Filiere, Promotion
+from .models import (
+    Course, Session, Summary, Universite, Filiere, Promotion, Professeur,
+)
 
 
 LOCMEM_CACHES = {
@@ -540,6 +542,123 @@ class CourseListCacheTest(TestCase):
         deuxieme = client.get('/api/course-list/')
         self.assertEqual(deuxieme['X-Catalog-Cache'], 'HIT')
         self.assertEqual(deuxieme.json(), donnees)
+
+
+@override_settings(ENABLE_CATALOG_CACHE=False)
+class CataloguePaginationTest(TestCase):
+    """Tâche 60, axe 2 — pagination opt-in et filtres serveur."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université pagination')
+        cls.filiere = Filiere.objects.create(nom='Filière pagination')
+        cls.promotion = Promotion.objects.create(nom='Promo pagination', annee=2025)
+
+        cls.admin = User.objects.create_user(
+            username='t60_pagination_admin', password='testpass123'
+        )
+        cls.admin.is_staff = True
+        cls.admin.is_superuser = True
+        cls.admin.save()
+        UserProfile.objects.create(
+            user=cls.admin,
+            groupe='ADMIN',
+            universite=cls.universite,
+            filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        prof_user = User.objects.create_user(
+            username='t60_pagination_prof',
+            first_name='Prof',
+            last_name='Pagination',
+        )
+        cls.professeur = Professeur.objects.create(
+            user=prof_user,
+            universite=cls.universite,
+            specialite='Informatique',
+        )
+
+        cls.courses = []
+        for i in range(5):
+            course = Course.objects.create(
+                nom=f'Cours pagination {i}',
+                filiere='Filière pagination',
+                university='Université pagination',
+            )
+            course.universites.add(cls.universite)
+            course.filieres.add(cls.filiere)
+            course.promotions.add(cls.promotion)
+            cls.courses.append(course)
+
+        Summary.objects.bulk_create([
+            Summary(
+                titre=f'Résumé pagination {i}',
+                texte_resume='Contenu pagination. ' * 10,
+                course=cls.courses[0],
+                professeur=cls.professeur,
+                author_type='cp',
+                is_validated=True,
+                is_free=(i < 2),
+            )
+            for i in range(5)
+        ])
+
+    def _client(self):
+        client = APIClient()
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_pages_successives(self):
+        client = self._client()
+
+        page1 = client.get('/api/summaries/', {'page': 1, 'page_size': 2})
+        self.assertEqual(page1.status_code, 200)
+        self.assertEqual(page1.json()['count'], 5)
+        self.assertEqual(len(page1.json()['results']), 2)
+        self.assertIsNotNone(page1.json()['next'])
+
+        page3 = client.get('/api/summaries/', {'page': 3, 'page_size': 2})
+        self.assertEqual(len(page3.json()['results']), 1)
+        self.assertIsNone(page3.json()['next'])
+
+    def test_sans_parametre_liste_complete(self):
+        response = self._client().get('/api/summaries/')
+        self.assertIsInstance(response.json(), list)
+        self.assertEqual(len(response.json()), 5)
+
+    def test_filtres_serveur(self):
+        client = self._client()
+
+        gratuits = client.get('/api/summaries/', {'is_free': 'true'})
+        self.assertEqual(len(gratuits.json()), 2)
+
+        recherche = client.get('/api/summaries/', {'search': 'Résumé pagination 3'})
+        self.assertEqual(len(recherche.json()), 1)
+
+        par_filiere = client.get(
+            '/api/summaries/', {'filiere': self.filiere.id}
+        )
+        self.assertEqual(len(par_filiere.json()), 5)
+
+        par_prof = client.get(
+            '/api/summaries/', {'professeur_nom': 'Pagination'}
+        )
+        self.assertEqual(len(par_prof.json()), 5)
+
+        hors_plage = client.get(
+            '/api/summaries/', {'date_debut': '2999-01-01'}
+        )
+        self.assertEqual(len(hors_plage.json()), 0)
+
+    def test_pagination_cours(self):
+        response = self._client().get(
+            '/api/course-list/', {'page': 1, 'page_size': 2}
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['count'], 5)
+        self.assertEqual(len(response.json()['results']), 2)
 
 
 class UniversiteFiliereM2MTest(TestCase):
