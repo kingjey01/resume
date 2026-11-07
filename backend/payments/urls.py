@@ -8,6 +8,9 @@ from .flexpay_integration import (
 )
 
 urlpatterns = [
+    # Tâche 70 — vérification du bénéficiaire « Payer pour un autre ».
+    path('beneficiary/verify/', views.verify_beneficiary, name='verify-beneficiary'),
+
     path('purchases/', views.PurchaseListCreateView.as_view(), name='purchase-list-create'),
     path('purchases/<int:pk>/', views.PurchaseDetailView.as_view(), name='purchase-detail'),
     path('purchases/<int:purchase_id>/complete/', views.complete_purchase, name='complete-purchase'),

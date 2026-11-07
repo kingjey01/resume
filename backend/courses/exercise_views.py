@@ -4,6 +4,7 @@ Vues pour la gestion des exercices QCM
 from rest_framework import status, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.contrib.auth.models import User
 from .models import Summary, Exercise, ExerciseQuestion, ExerciseAttempt
@@ -379,12 +380,44 @@ def get_attempt_result_view(request, attempt_id):
 def get_exercise_attempts_view(request):
     """
     Récupère l'historique des tentatives d'exercices de l'utilisateur
+    Query params: page / page_size (optionnels : pagination opt-in)
     """
     try:
-        attempts = ExerciseAttempt.objects.filter(
-            student=request.user
-        ).select_related('exercise', 'exercise__summary').order_by('-completed_at')
-        
+        base = ExerciseAttempt.objects.filter(student=request.user)
+        attempts = base.select_related(
+            'exercise', 'exercise__summary'
+        ).order_by('-completed_at')
+
+        # Pagination opt-in : sans `page`/`page_size`, liste complète (rétrocompatible).
+        total = None
+        stats = None
+        page = page_size = None
+        if 'page' in request.query_params or 'page_size' in request.query_params:
+            try:
+                page = max(1, int(request.query_params.get('page', 1)))
+                page_size = min(100, max(1, int(request.query_params.get('page_size', 50))))
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'Paramètres de pagination invalides'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Une seule requête pour total/réussis/somme des scores : les
+            # statistiques de l'écran portent sur tout l'historique, pas sur
+            # la page chargée.
+            agg = base.aggregate(
+                total=Count('id'),
+                passed=Count('id', filter=Q(score__gte=50)),
+                score_sum=Sum('score'),
+            )
+            total = agg['total']
+            stats = {
+                'total': agg['total'],
+                'passed': agg['passed'],
+                'score_sum': float(agg['score_sum'] or 0),
+            }
+            start = (page - 1) * page_size
+            attempts = attempts[start:start + page_size]
+
         attempts_data = []
         for attempt in attempts:
             attempts_data.append({
@@ -396,10 +429,19 @@ def get_exercise_attempts_view(request):
                 'exercise_id': attempt.exercise.id
             })
         
-        return Response({
+        payload = {
             'attempts': attempts_data,
-            'total_attempts': len(attempts_data)
-        }, status=status.HTTP_200_OK)
+            'total_attempts': total if total is not None else len(attempts_data),
+        }
+        if total is not None:
+            payload.update({
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size,
+                'has_more': page * page_size < total,
+                'stats': stats,
+            })
+        return Response(payload, status=status.HTTP_200_OK)
         
     except Exception as e:
         logger.error(f"Erreur récupération tentatives: {str(e)}")

@@ -14,8 +14,13 @@ class PaymentStatusScreen extends ConsumerStatefulWidget {
   final String currency;
   /// Callback optionnel appelé quand le paiement est confirmé (ex: créer abonnement)
   final Future<void> Function()? onPaymentConfirmed;
-  final String successMessage; 
+  final String successMessage;
   final String successSubtitle;
+
+  /// Tâche 70 : achat/abonnement offert à un autre étudiant. Le payeur suit
+  /// la transaction, mais l'attribution et le badge concernent le bénéficiaire.
+  final bool isGift;
+  final String? beneficiaryName;
 
   const PaymentStatusScreen({
     super.key,
@@ -26,6 +31,8 @@ class PaymentStatusScreen extends ConsumerStatefulWidget {
     this.onPaymentConfirmed,
     this.successMessage = 'Paiement réussi !',
     this.successSubtitle = 'Votre résumé est maintenant disponible\ndans « Mes Achats ».',
+    this.isGift = false,
+    this.beneficiaryName,
   });
 
   @override
@@ -94,15 +101,19 @@ class _PaymentStatusScreenState extends ConsumerState<PaymentStatusScreen>
 
       if (status == 'completed') {
         _pollingTimer?.cancel();
-        // Exécuter le callback si présent (ex: création abonnement)
-        if (widget.onPaymentConfirmed != null) {
+        // Exécuter le callback si présent (ex: création abonnement).
+        // Pour un cadeau, le backend a déjà créé l'abonnement au nom du
+        // bénéficiaire : le payeur ne doit rien créer pour lui-même.
+        if (!widget.isGift && widget.onPaymentConfirmed != null) {
           try {
             await widget.onPaymentConfirmed!();
           } catch (_) {}
         }
         if (!mounted) return;
-        // Incrémenter le badge "Mes Achats"
-        ref.read(purchaseBadgeCountProvider.notifier).incrementBadge();
+        // Le badge « Mes Achats » appartient au bénéficiaire.
+        if (!widget.isGift) {
+          ref.read(purchaseBadgeCountProvider.notifier).incrementBadge();
+        }
         setState(() => _state = _PaymentState.success);
       } else if (status == 'failed' || status == 'refunded') {
         _pollingTimer?.cancel();
@@ -233,7 +244,7 @@ class _PaymentStatusScreenState extends ConsumerState<PaymentStatusScreen>
         ),
         const SizedBox(height: 28),
         Text(
-          widget.successMessage,
+          widget.isGift ? 'Paiement réussi !' : widget.successMessage,
           style: Theme.of(context).textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w700,
                 color: AppTheme.success,
@@ -242,7 +253,11 @@ class _PaymentStatusScreenState extends ConsumerState<PaymentStatusScreen>
         ),
         const SizedBox(height: 12),
         Text(
-          widget.successSubtitle,
+          widget.isGift
+              ? '${widget.beneficiaryName ?? 'Le bénéficiaire'} a reçu '
+                  '« ${widget.summaryTitle} ».\n'
+                  'Vous êtes enregistré comme payeur.'
+              : widget.successSubtitle,
           style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                 color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
                 height: 1.5,

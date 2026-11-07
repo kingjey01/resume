@@ -1,6 +1,6 @@
 import logging
 from django.utils import timezone
-from django.db.models import Q
+from django.db.models import Count, Q
 from rest_framework import status, permissions
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
@@ -141,7 +141,19 @@ def list_notifications(request):
         types = [t.strip() for t in notif_type.split(',') if t.strip()]
         qs = qs.filter(notification__notification_type__in=types)
 
-    total = qs.count()
+    # Tâche 59 — sans filtre texte/type, le total et le nombre de non-lues sont
+    # calculés en un seul aggregate au lieu de deux COUNT séparés.
+    if not search and not notif_type:
+        counts = qs.aggregate(
+            total=Count('id'),
+            unread_count=Count('id', filter=Q(is_read=False)),
+        )
+        total = counts['total']
+        unread = counts['unread_count']
+    else:
+        total = qs.count()
+        unread = UserNotification.objects.filter(user=request.user, is_read=False).count()
+
     start = (page - 1) * page_size
     notifications_page = qs[start: start + page_size]
 
@@ -152,7 +164,7 @@ def list_notifications(request):
         'page': page,
         'page_size': page_size,
         'total_pages': (total + page_size - 1) // page_size,
-        'unread_count': UserNotification.objects.filter(user=request.user, is_read=False).count(),
+        'unread_count': unread,
     })
 
 

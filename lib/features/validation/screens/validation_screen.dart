@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
@@ -21,8 +20,22 @@ class ValidationScreen extends ConsumerStatefulWidget {
 class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorHandlerMixin {
   final ApiService _apiService = ApiService();
   final TextEditingController _searchController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
+
+  static const int _pageSize = 20;
+
   List<Map<String, dynamic>> _summaries = [];
   bool _isLoading = true;
+  bool _isLoadingMore = false;
+  bool _hasMore = false;
+  int _page = 1;
+
+  // Compteurs GLOBAUX renvoyés par le serveur : ils portent sur tout
+  // l'ensemble accessible (recherche comprise), pas sur la page chargée.
+  int _totalCount = 0;
+  int _validatedCount = 0;
+  int _pendingCount = 0;
+
   dynamic _error;
   String _filter = 'all'; // 'all', 'validated', 'pending'
   String _searchQuery = '';
@@ -32,14 +45,24 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadSummaries();
   }
 
   @override
   void dispose() {
     _searchController.dispose();
+    _scrollController.dispose();
     _debounce?.cancel();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 300) {
+      _loadSummaries(reset: false);
+    }
   }
 
   void _onSearchChanged(String query) {
@@ -57,36 +80,76 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
     });
   }
 
-  Future<void> _loadSummaries() async {
-    setState(() {
-      _isLoading = true;
-      _error = null;
-      _selectedSummary = null;
-    });
+  /// Charge la liste de validation par pages.
+  ///
+  /// `reset: true` repart de la page 1 (init, recherche, filtre, refresh) ;
+  /// `reset: false` ajoute la page suivante quand on approche du bas.
+  Future<void> _loadSummaries({bool reset = true}) async {
+    if (!reset && (_isLoadingMore || !_hasMore || _isLoading)) return;
+
+    if (reset) {
+      setState(() {
+        _isLoading = true;
+        _error = null;
+        _selectedSummary = null;
+        _page = 1;
+      });
+    } else {
+      setState(() => _isLoadingMore = true);
+    }
+
+    final requestedPage = reset ? 1 : _page + 1;
 
     try {
       final data = await _apiService.getSummariesForValidation(
         search: _searchQuery.isNotEmpty ? _searchQuery : null,
+        page: requestedPage,
+        pageSize: _pageSize,
+        isValidated: _filter == 'validated'
+            ? true
+            : _filter == 'pending'
+                ? false
+                : null,
       );
+      if (!mounted) return;
+
       final summariesRaw = data['summaries'] as List<dynamic>? ?? [];
-      _summaries = summariesRaw.map((s) => Map<String, dynamic>.from(s as Map)).toList();
+      final newItems = summariesRaw
+          .map((s) => Map<String, dynamic>.from(s as Map))
+          .toList();
 
-      // If initialSummaryId is provided, find and select that summary
-      if (widget.initialSummaryId != null) {
-        final summary = _summaries.firstWhere(
-          (s) => s['id'] == widget.initialSummaryId,
-          orElse: () => <String, dynamic>{},
-        );
-        if (summary.isNotEmpty) {
-          setState(() => _selectedSummary = summary);
-        }
-      }
-
-      setState(() => _isLoading = false);
-    } catch (e) {
       setState(() {
-        _error = e;
+        if (reset) {
+          _summaries = newItems;
+        } else {
+          _summaries.addAll(newItems);
+        }
+        _page = requestedPage;
+        _hasMore = data['has_more'] == true;
+        _totalCount = (data['total_count'] as num?)?.toInt() ?? _summaries.length;
+        _validatedCount =
+            (data['validated_count'] as num?)?.toInt() ?? _validatedCount;
+        _pendingCount =
+            (data['pending_count'] as num?)?.toInt() ?? _pendingCount;
+
+        // If initialSummaryId is provided, find and select that summary
+        if (reset && widget.initialSummaryId != null) {
+          final summary = _summaries.firstWhere(
+            (s) => s['id'] == widget.initialSummaryId,
+            orElse: () => <String, dynamic>{},
+          );
+          if (summary.isNotEmpty) _selectedSummary = summary;
+        }
+
         _isLoading = false;
+        _isLoadingMore = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _isLoading = false;
+        _isLoadingMore = false;
+        if (reset) _error = e;
       });
     }
   }
@@ -108,27 +171,14 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
     }
   }
 
-  List<Map<String, dynamic>> get _filteredSummaries {
-    List<Map<String, dynamic>> filtered = _summaries;
-    
-    // Filtrage local par recherche (pour une réactivité instantanée)
-    if (_searchController.text.isNotEmpty) {
-      final query = _searchController.text.toLowerCase();
-      filtered = filtered.where((s) {
-        final titre = (s['titre'] ?? '').toString().toLowerCase();
-        final course = (s['course_name'] ?? '').toString().toLowerCase();
-        final author = (s['author_name'] ?? '').toString().toLowerCase();
-        return titre.contains(query) || course.contains(query) || author.contains(query);
-      }).toList();
-    }
+  /// La recherche et le filtre d'onglet sont désormais appliqués par le
+  /// serveur ; la liste reçue est déjà celle à afficher.
+  List<Map<String, dynamic>> get _filteredSummaries => _summaries;
 
-    // Filtrage par statut
-    if (_filter == 'validated') {
-      return filtered.where((s) => s['is_validated'] == true).toList();
-    } else if (_filter == 'pending') {
-      return filtered.where((s) => s['is_validated'] != true).toList();
-    }
-    return filtered;
+  void _selectFilter(String value) {
+    if (_filter == value) return;
+    setState(() => _filter = value);
+    _loadSummaries();
   }
 
   Future<void> _toggleValidation(Map<String, dynamic> summary) async {
@@ -140,6 +190,21 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
 
       setState(() {
         summary['is_validated'] = newState;
+        // Les compteurs globaux suivent le changement de statut. Le total
+        // reste inchangé : le résumé change d'onglet, il n'est pas supprimé.
+        if (newState) {
+          _validatedCount++;
+          if (_pendingCount > 0) _pendingCount--;
+        } else {
+          if (_validatedCount > 0) _validatedCount--;
+          _pendingCount++;
+        }
+        // Sous un onglet filtré, la carte quitte la liste si son statut ne
+        // correspond plus à l'onglet affiché.
+        if ((_filter == 'validated' && !newState) ||
+            (_filter == 'pending' && newState)) {
+          _summaries.removeWhere((s) => s['id'] == summary['id']);
+        }
       });
 
       if (mounted) {
@@ -210,6 +275,12 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
       if (_selectedSummary?['id'] == summary['id']) {
         _selectedSummary = null;
       }
+      if (_totalCount > 0) _totalCount--;
+      if (summary['is_validated'] == true) {
+        if (_validatedCount > 0) _validatedCount--;
+      } else {
+        if (_pendingCount > 0) _pendingCount--;
+      }
     });
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -232,20 +303,11 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
       }
     });
 
-    // Appliquer le filtre de recherche pour les compteurs
-    List<Map<String, dynamic>> searchFiltered = _summaries;
-    if (_searchController.text.isNotEmpty) {
-      final query = _searchController.text.toLowerCase();
-      searchFiltered = _summaries.where((s) {
-        final titre = (s['titre'] ?? '').toString().toLowerCase();
-        final course = (s['course_name'] ?? '').toString().toLowerCase();
-        final author = (s['author_name'] ?? '').toString().toLowerCase();
-        return titre.contains(query) || course.contains(query) || author.contains(query);
-      }).toList();
-    }
-
-    final validatedCount = searchFiltered.where((s) => s['is_validated'] == true).length;
-    final pendingCount = searchFiltered.where((s) => s['is_validated'] != true).length;
+    // Les compteurs viennent du serveur et restent globaux, même quand un
+    // onglet est filtré ou qu'une page est en cours de chargement.
+    final totalCount = _totalCount;
+    final validatedCount = _validatedCount;
+    final pendingCount = _pendingCount;
 
     return Scaffold(
       backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -290,7 +352,7 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
                             ),
                           ),
                           Text(
-                            '${searchFiltered.length} résumés',
+                            '$totalCount résumés',
                             style: TextStyle(color: Colors.white.withOpacity(0.7), fontSize: 12),
                           ),
                         ],
@@ -344,7 +406,7 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
                 // Stats bar
                 Row(
                   children: [
-                    _buildStatBadge('Tous', searchFiltered.length, 'all'),
+                    _buildStatBadge('Tous', totalCount, 'all'),
                     const SizedBox(width: 8),
                     _buildStatBadge('Validés', validatedCount, 'validated'),
                     const SizedBox(width: 8),
@@ -366,12 +428,32 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
                     : _filteredSummaries.isEmpty
                         ? _buildEmpty()
                         : RefreshIndicator(
-                            onRefresh: _loadSummaries,
+                            onRefresh: () => _loadSummaries(),
                             child: ListView.builder(
+                              controller: _scrollController,
                               padding: const EdgeInsets.all(20),
-                              itemCount: _filteredSummaries.length,
+                              itemCount: _filteredSummaries.length +
+                                  (_isLoadingMore ? 1 : 0),
                               itemBuilder: (context, index) {
-                                return _buildSummaryCard(_filteredSummaries[index]);
+                                if (index >= _filteredSummaries.length) {
+                                  // Pied de liste : indique qu'il reste des
+                                  // résumés. `_onScroll` déclenche le chargement.
+                                  return const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 16),
+                                    child: Center(
+                                      child: SizedBox(
+                                        width: 22,
+                                        height: 22,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                          color: AppTheme.primaryBlue,
+                                        ),
+                                      ),
+                                    ),
+                                  );
+                                }
+                                return _buildSummaryCard(
+                                    _filteredSummaries[index]);
                               },
                             ),
                           ),
@@ -384,7 +466,7 @@ class _ValidationScreenState extends ConsumerState<ValidationScreen> with ErrorH
   Widget _buildStatBadge(String label, int count, String filterValue) {
     final isActive = _filter == filterValue;
     return GestureDetector(
-      onTap: () => setState(() => _filter = filterValue),
+      onTap: () => _selectFilter(filterValue),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
         decoration: BoxDecoration(

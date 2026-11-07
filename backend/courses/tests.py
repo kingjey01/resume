@@ -4,6 +4,7 @@ from django.test import TestCase, Client, override_settings
 from django.contrib.auth.models import User
 from django.core.cache import caches
 from django.db import connection
+from django.utils import timezone
 from django.test.utils import CaptureQueriesContext
 from django.urls import reverse
 from rest_framework.test import APITestCase, APIClient
@@ -21,7 +22,10 @@ from .cache_catalogue import (
 )
 from .models import (
     Course, Session, Summary, Universite, Filiere, Promotion, Professeur,
+    Dispense, Exercise, ExerciseQuestion, ExerciseAttempt,
+    UserPersonalizedExercise, UserPersonalizedQuestion, UserPersonalizedAttempt,
 )
+from notifications.models import AppNotification, UserNotification
 
 
 LOCMEM_CACHES = {
@@ -664,6 +668,421 @@ class CataloguePaginationTest(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['count'], 5)
         self.assertEqual(len(response.json()['results']), 2)
+
+
+@override_settings(ENABLE_CATALOG_CACHE=False)
+class AudioSessionsNoNPlusOneTest(TestCase):
+    """Tâche 59 — file audio sans N+1 et isolée par cohorte."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université audio A')
+        cls.filiere = Filiere.objects.create(nom='Filière audio A')
+        cls.promotion = Promotion.objects.create(nom='Promo audio A', annee=2025)
+
+        cls.admin = User.objects.create_user(
+            username='t59_audio_admin', password='testpass123'
+        )
+        cls.admin.is_staff = True
+        cls.admin.is_superuser = True
+        cls.admin.save()
+        UserProfile.objects.create(
+            user=cls.admin,
+            groupe='ADMIN',
+            universite=cls.universite,
+            filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        prof_user = User.objects.create_user(
+            username='t59_audio_prof', first_name='Prof', last_name='Audio'
+        )
+        cls.professeur = Professeur.objects.create(
+            user=prof_user,
+            universite=cls.universite,
+            specialite='Informatique',
+        )
+
+        cls.course_a = Course.objects.create(
+            nom='Cours audio A', filiere='Filière audio A',
+            university='Université audio A',
+        )
+        cls.course_a.universites.add(cls.universite)
+        cls.course_a.filieres.add(cls.filiere)
+        cls.course_a.promotions.add(cls.promotion)
+
+        for i in range(10):
+            Session.objects.create(
+                course=cls.course_a,
+                professeur_fk=cls.professeur,
+                date=timezone.now(),
+                professeur='Professeur audio',
+                audio_file='audio_sessions/audit_a.m4a',
+                audio_duration=120 + i,
+                processing_status='pending' if i % 2 == 0 else 'processing',
+            )
+
+        # Cohorte B : ne doit jamais voir les sessions de A.
+        cls.universite_b = Universite.objects.create(nom='Université audio B')
+        cls.filiere_b = Filiere.objects.create(nom='Filière audio B')
+        cls.promotion_b = Promotion.objects.create(nom='Promo audio B', annee=2025)
+        cls.etudiant_b = User.objects.create_user(
+            username='t59_audio_etudiant_b', password='testpass123'
+        )
+        UserProfile.objects.create(
+            user=cls.etudiant_b,
+            groupe='ETUDIANT',
+            universite=cls.universite_b,
+            filiere=cls.filiere_b,
+            promotion=cls.promotion_b,
+        )
+        cls.course_b = Course.objects.create(
+            nom='Cours audio B', filiere='Filière audio B',
+            university='Université audio B',
+        )
+        cls.course_b.universites.add(cls.universite_b)
+        cls.course_b.filieres.add(cls.filiere_b)
+        cls.course_b.promotions.add(cls.promotion_b)
+        Session.objects.create(
+            course=cls.course_b,
+            professeur_fk=cls.professeur,
+            date=timezone.now(),
+            professeur='Professeur audio B',
+            audio_file='audio_sessions/audit_b.m4a',
+            audio_duration=90,
+            processing_status='pending',
+        )
+
+    def _client(self, user):
+        client = APIClient()
+        token = str(RefreshToken.for_user(user).access_token)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_queue_query_count(self):
+        client = self._client(self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get('/api/courses/sessions/audio/queue/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data['sessions']), 11)  # 10 A + 1 B
+        self.assertEqual(data['stats']['total'], 11)
+        self.assertLessEqual(len(_requetes_app(ctx.captured_queries)), 15)
+
+    def test_audio_detail_query_count(self):
+        client = self._client(self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get('/api/courses/sessions/audio/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['count'], 11)
+        self.assertLessEqual(len(_requetes_app(ctx.captured_queries)), 15)
+
+    def test_isolation_par_cohorte(self):
+        client = self._client(self.etudiant_b)
+
+        detail = client.get('/api/courses/sessions/audio/')
+        self.assertEqual(detail.status_code, status.HTTP_200_OK)
+        self.assertEqual(detail.json()['count'], 1)
+        self.assertEqual(
+            detail.json()['sessions'][0]['course_name'], 'Cours audio B'
+        )
+
+        queue = client.get('/api/courses/sessions/audio/queue/')
+        self.assertEqual(queue.status_code, status.HTTP_200_OK)
+        self.assertEqual(len(queue.json()['sessions']), 1)
+        self.assertEqual(queue.json()['stats']['total'], 1)
+
+
+@override_settings(ENABLE_CATALOG_CACHE=False)
+class AttemptsAndValidationPaginationTest(TestCase):
+    """Tâche 59 — P1/P2 : tentatives sans N+1, pagination, filtres, notifs."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université t59 P1')
+        cls.filiere = Filiere.objects.create(nom='Filière t59 P1')
+        cls.promotion = Promotion.objects.create(nom='Promo t59 P1', annee=2025)
+
+        cls.admin = User.objects.create_user(
+            username='t59_p1_admin', password='testpass123'
+        )
+        UserProfile.objects.create(
+            user=cls.admin, groupe='ADMIN',
+            universite=cls.universite, filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        cls.student = User.objects.create_user(
+            username='t59_p1_student', password='testpass123'
+        )
+        UserProfile.objects.create(
+            user=cls.student, groupe='ETUDIANT',
+            universite=cls.universite, filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        prof_user = User.objects.create_user(
+            username='t59_p1_prof', first_name='Prof', last_name='P1'
+        )
+        cls.professeur = Professeur.objects.create(
+            user=prof_user, universite=cls.universite, specialite='Informatique'
+        )
+
+        cls.course = Course.objects.create(
+            nom='Cours t59 P1', filiere='Filière t59 P1',
+            university='Université t59 P1',
+        )
+        cls.course.universites.add(cls.universite)
+        cls.course.filieres.add(cls.filiere)
+        cls.course.promotions.add(cls.promotion)
+
+        # 5 résumés : 2 validés, 3 en attente. `bulk_create` évite le signal
+        # post_save (notifications Celery/Redis) et le save() auto-validant
+        # les résumés 'cp'.
+        Summary.objects.bulk_create([
+            Summary(
+                titre=f'Résumé t59 P1 {i}',
+                texte_resume=f'Contenu t59 P1 {i}',
+                course=cls.course,
+                professeur=cls.professeur,
+                author_type='ai',
+                is_validated=(i < 2),
+            )
+            for i in range(5)
+        ])
+        cls.summaries = list(Summary.objects.order_by('id'))
+
+        # Exercice standard : 3 questions, 5 tentatives.
+        cls.exercise = Exercise.objects.create(
+            summary=cls.summaries[0], titre='Exercice t59 P1',
+            status='completed', generated_by_ai=False,
+        )
+        for i in range(3):
+            ExerciseQuestion.objects.create(
+                exercise=cls.exercise,
+                question_text=f'Question standard {i}',
+                option_a='A', option_b='B', option_c='C', option_d='D',
+                correct_answer='A', order=i,
+            )
+        for i in range(5):
+            ExerciseAttempt.objects.create(
+                exercise=cls.exercise, student=cls.student,
+                answers={}, score=60 + i,
+            )
+
+        # Exercice personnalisé : 3 questions, 5 tentatives.
+        cls.perso_exercise = UserPersonalizedExercise.objects.create(
+            user=cls.student, summary=cls.summaries[0],
+            difficulty='medium', seed=42, status='completed',
+        )
+        for i in range(3):
+            UserPersonalizedQuestion.objects.create(
+                personalized_exercise=cls.perso_exercise,
+                question_text=f'Question perso {i}',
+                options={'A': 'a', 'B': 'b', 'C': 'c', 'D': 'd'},
+                correct_answer='A', order=i,
+            )
+        for i in range(5):
+            UserPersonalizedAttempt.objects.create(
+                personalized_exercise=cls.perso_exercise,
+                user=cls.student, answers={}, score=70 + i,
+            )
+
+    def _client(self, user):
+        client = APIClient()
+        token = str(RefreshToken.for_user(user).access_token)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_tentatives_personnalisees_sans_n_plus_un(self):
+        client = self._client(self.student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get('/api/personalized-exercises/attempts/')
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data['attempts']), 5)
+        self.assertEqual(data['total'], 5)
+        # Le nombre de questions vient de l'annotation, pas d'un COUNT par ligne.
+        self.assertTrue(all(a['total_questions'] == 3 for a in data['attempts']))
+        self.assertLessEqual(len(_requetes_app(ctx.captured_queries)), 4)
+
+    def test_tentatives_personnalisees_pagination(self):
+        client = self._client(self.student)
+        response = client.get(
+            '/api/personalized-exercises/attempts/',
+            {'page': 1, 'page_size': 2},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['total'], 5)
+        self.assertEqual(len(data['attempts']), 2)
+        self.assertEqual(data['total_pages'], 3)
+        self.assertTrue(data['has_more'])
+        # Statistiques calculées sur tout l'historique, pas sur la page.
+        self.assertEqual(data['stats']['total'], 5)
+        self.assertEqual(data['stats']['passed'], 5)
+        self.assertEqual(data['stats']['score_sum'], 360.0)
+
+        page3 = client.get(
+            '/api/personalized-exercises/attempts/',
+            {'page': 3, 'page_size': 2},
+        )
+        self.assertEqual(len(page3.json()['attempts']), 1)
+        self.assertFalse(page3.json()['has_more'])
+
+    def test_tentatives_classiques_pagination(self):
+        client = self._client(self.student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get(
+                '/api/exercises/attempts/', {'page': 1, 'page_size': 2}
+            )
+        self.assertLessEqual(len(_requetes_app(ctx.captured_queries)), 4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['total_attempts'], 5)
+        self.assertEqual(len(data['attempts']), 2)
+        self.assertEqual(data['total_pages'], 3)
+        self.assertEqual(data['stats']['total'], 5)
+        self.assertEqual(data['stats']['passed'], 5)
+        self.assertEqual(data['stats']['score_sum'], 310.0)
+
+        sans_pagination = client.get('/api/exercises/attempts/')
+        self.assertEqual(len(sans_pagination.json()['attempts']), 5)
+
+    def test_validation_pagination_compteurs_et_filtre(self):
+        client = self._client(self.admin)
+
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get(
+                '/api/summaries/validation/', {'page': 1, 'page_size': 2}
+            )
+        self.assertLessEqual(len(_requetes_app(ctx.captured_queries)), 6)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(len(data['summaries']), 2)
+        # Les compteurs portent sur l'ensemble filtré, pas sur la page.
+        self.assertEqual(data['total_count'], 5)
+        self.assertEqual(data['validated_count'], 2)
+        self.assertEqual(data['pending_count'], 3)
+        self.assertEqual(data['total_pages'], 3)
+
+        en_attente = client.get(
+            '/api/summaries/validation/',
+            {'is_validated': 'false', 'page': 1, 'page_size': 10},
+        ).json()
+        # Filtre d'onglet : la liste est filtrée mais les compteurs restent globaux.
+        self.assertEqual(en_attente['total_count'], 5)
+        self.assertEqual(en_attente['validated_count'], 2)
+        self.assertEqual(en_attente['pending_count'], 3)
+        self.assertEqual(len(en_attente['summaries']), 3)
+        self.assertTrue(all(not s['is_validated'] for s in en_attente['summaries']))
+
+        # Sans pagination : comportement historique conservé.
+        complete = client.get('/api/summaries/validation/').json()
+        self.assertEqual(len(complete['summaries']), 5)
+        self.assertEqual(complete['total_count'], 5)
+
+    def test_notifications_compteurs_en_un_aggregate(self):
+        for i in range(4):
+            notif = AppNotification.objects.create(
+                title=f'Notif t59 {i}', body='Corps',
+                notification_type='general',
+            )
+            UserNotification.objects.create(
+                user=self.student, notification=notif,
+                is_read=(i == 0),
+            )
+
+        client = self._client(self.student)
+        with CaptureQueriesContext(connection) as ctx:
+            response = client.get('/api/notifications/')
+        self.assertLessEqual(len(_requetes_app(ctx.captured_queries)), 4)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['total'], 4)
+        self.assertEqual(data['unread_count'], 3)
+        self.assertEqual(data['total_pages'], 1)
+
+
+@override_settings(ENABLE_CATALOG_CACHE=False)
+class DispensesPaginationTest(TestCase):
+    """Tâche 59 — P3 : pagination opt-in des dispenses."""
+
+    @classmethod
+    def setUpTestData(cls):
+        cls.universite = Universite.objects.create(nom='Université dispenses')
+        cls.filiere = Filiere.objects.create(nom='Filière dispenses')
+        cls.promotion = Promotion.objects.create(nom='Promo dispenses', annee=2025)
+
+        cls.admin = User.objects.create_user(
+            username='t59_disp_admin', password='testpass123'
+        )
+        UserProfile.objects.create(
+            user=cls.admin, groupe='ADMIN',
+            universite=cls.universite, filiere=cls.filiere,
+            promotion=cls.promotion,
+        )
+
+        prof_user = User.objects.create_user(
+            username='t59_disp_prof', first_name='Prof', last_name='Dispense'
+        )
+        cls.professeur = Professeur.objects.create(
+            user=prof_user, universite=cls.universite, specialite='Informatique'
+        )
+
+        for i in range(5):
+            course = Course.objects.create(
+                nom=f'Cours dispense {i}', filiere='Filière dispenses',
+                university='Université dispenses',
+            )
+            Dispense.objects.create(
+                professeur=cls.professeur,
+                cours=course,
+                universite=cls.universite,
+                filiere=cls.filiere,
+                promotion=cls.promotion,
+            )
+
+    def _client(self):
+        client = APIClient()
+        token = str(RefreshToken.for_user(self.admin).access_token)
+        client.credentials(HTTP_AUTHORIZATION=f'Bearer {token}')
+        return client
+
+    def test_pagination_opt_in(self):
+        client = self._client()
+
+        page1 = client.get(
+            '/api/courses/dispenses/', {'page': 1, 'page_size': 2}
+        )
+        self.assertEqual(page1.status_code, 200)
+        data = page1.json()
+        self.assertEqual(data['total'], 5)
+        self.assertEqual(len(data['results']), 2)
+        self.assertEqual(data['total_pages'], 3)
+        self.assertTrue(data['has_more'])
+
+        page3 = client.get(
+            '/api/courses/dispenses/', {'page': 3, 'page_size': 2}
+        )
+        self.assertEqual(len(page3.json()['results']), 1)
+        self.assertFalse(page3.json()['has_more'])
+
+    def test_sans_parametre_liste_complete(self):
+        response = self._client().get('/api/courses/dispenses/')
+        self.assertEqual(response.status_code, 200)
+        self.assertIsInstance(response.json(), list)
+        self.assertEqual(len(response.json()), 5)
+
+    def test_parametres_invalides(self):
+        response = self._client().get(
+            '/api/courses/dispenses/', {'page': 'abc'}
+        )
+        self.assertEqual(response.status_code, 400)
 
 
 class UniversiteFiliereM2MTest(TestCase):

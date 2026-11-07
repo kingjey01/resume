@@ -494,6 +494,13 @@ if not hasattr(URL_CALLBACK, '__iter__') or len(URL_CALLBACK) == 0:
     URL_CALLBACK = ['https://calls-declined-sector-relevance.trycloudflare.com']
     #URL_CALLBACK = ['http://localhost:8080']
 
+# FlexPay — jeton lu depuis l'environnement, JAMAIS dans le dépôt.
+FLEXPAY_API_URL = config(
+    'FLEXPAY_API_URL',
+    default='https://backend.flexpay.cd/api/rest/v1/paymentService',
+)
+FLEXPAY_API_TOKEN = config('FLEXPAY_API_TOKEN', default='')
+
 # =============================================
 # CELERY CONFIGURATION
 # =============================================

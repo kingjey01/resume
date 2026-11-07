@@ -39,6 +39,9 @@ migrate_working_dir/
 !package.json
 !package-lock.json
 .env
+.env.pwa
+# Configuration Firebase Web générée depuis .env.pwa — ne jamais commiter.
+web/firebase-config.js
 *.pem
 *.key
 *.crt

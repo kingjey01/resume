@@ -5,6 +5,8 @@ import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/features/purchases/screens/payment_status_screen.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/payment_recipient_selector.dart';
+import 'package:resume_plus_clean/services/storage_service.dart';
 
 class PurchaseSummaryScreen extends StatefulWidget {
   final Summary summary;
@@ -31,6 +33,20 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
   
   final _phoneNumberController = TextEditingController();
   final _providerController = TextEditingController();
+  final _recipient = PaymentRecipientController();
+
+  @override
+  void initState() {
+    super.initState();
+    _prefillAccountPhone();
+  }
+
+  Future<void> _prefillAccountPhone() async {
+    final phone = await StorageService().getRegisteredPhone();
+    if (!mounted || phone == null || phone.isEmpty) return;
+    _phoneNumberController.text = phone;
+    _recipient.setPayerPhone(phone);
+  }
 
   @override
   void dispose() {
@@ -40,6 +56,7 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
     _holderNameController.dispose();
     _phoneNumberController.dispose();
     _providerController.dispose();
+    _recipient.dispose();
     super.dispose();
   }
 
@@ -228,7 +245,7 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
                   _expiryDateController.clear();
                   _cvvController.clear();
                   _holderNameController.clear();
-                  _phoneNumberController.clear();
+                  // Le numéro du compte est conservé (préremplissage tâche 70).
                   _providerController.clear();
                 });
               },
@@ -349,16 +366,23 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
   Widget _buildMobileMoneyForm() {
     return Column(
       children: [
-        TextField(
-          controller: _phoneNumberController,
-          decoration: const InputDecoration(
-            labelText: 'Numéro de téléphone',
-            hintText: '+243 900 000 000',
-            prefixIcon: Icon(Icons.phone),
-          ),
-          keyboardType: TextInputType.phone,
-          onChanged: (value) => _updatePaymentDetails('phoneNumber', value),
+        PaymentRecipientSelector(
+          controller: _recipient,
+          apiService: _apiService,
+          onModeChanged: (_) => setState(() {}),
         ),
+        if (_recipient.isGift) const SizedBox(height: 16),
+        if (!_recipient.isGift)
+          TextField(
+            controller: _phoneNumberController,
+            decoration: const InputDecoration(
+              labelText: 'Numéro de téléphone',
+              hintText: '+243 900 000 000',
+              prefixIcon: Icon(Icons.phone),
+            ),
+            keyboardType: TextInputType.phone,
+            onChanged: (value) => _updatePaymentDetails('phoneNumber', value),
+          ),
         const SizedBox(height: 16),
         DropdownButtonFormField<String>(
           value: _providerController.text.isEmpty ? null : _providerController.text,
@@ -381,11 +405,14 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
   }
 
   Widget _buildPurchaseButton() {
-    final phoneNumber = _paymentDetails?.details['phoneNumber'] ?? '';
+    final phoneNumber = _recipient.isGift
+        ? _recipient.payerPhone
+        : (_paymentDetails?.details['phoneNumber'] ?? '');
     final canPurchase = _selectedPaymentMethod != null &&
                        _paymentDetails != null &&
                        _isFormValid() &&
                        phoneNumber.isNotEmpty &&
+                       (!_recipient.isGift || _recipient.isReady) &&
                        !_isProcessing;
 
     return SizedBox(
@@ -465,9 +492,22 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
   Future<void> _processPurchase() async {
     if (_selectedPaymentMethod == null || _paymentDetails == null) return;
 
-    final phoneNumber = _paymentDetails!.details['phoneNumber'] ?? '';
+    final isGift = _recipient.isGift;
+    final phoneNumber = isGift
+        ? _recipient.payerPhone.trim()
+        : (_paymentDetails!.details['phoneNumber'] ?? '');
     if (phoneNumber.isEmpty) {
-      SnackbarService.show('❌ Numéro de téléphone requis', isError: true);
+      SnackbarService.show(
+        isGift
+            ? '❌ Numéro du payeur requis'
+            : '❌ Numéro de téléphone requis',
+        isError: true,
+      );
+      return;
+    }
+    if (isGift && !_recipient.isReady) {
+      SnackbarService.show(
+          '❌ Vérifiez le numéro du bénéficiaire', isError: true);
       return;
     }
 
@@ -481,6 +521,7 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
         data: {
           'summary_id': widget.summary.id,
           'phone_number': phoneNumber,
+          if (isGift) 'beneficiary_phone': _recipient.beneficiaryPhone.trim(),
         },
       );
 
@@ -496,7 +537,12 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
 
           if (mounted && isSimulated) {
             // Mode simulation → succès direct
-            SnackbarService.show('Paiement réussi !', isError: false);
+            SnackbarService.show(
+              isGift
+                  ? 'Paiement réussi ! L\'achat a été attribué au bénéficiaire.'
+                  : 'Paiement réussi !',
+              isError: false,
+            );
             Navigator.of(context).popUntil((route) => route.isFirst);
           } else if (mounted && reference.isNotEmpty) {
             Navigator.of(context).pushReplacement(
@@ -506,6 +552,8 @@ class _PurchaseSummaryScreenState extends State<PurchaseSummaryScreen> {
                   summaryTitle: summaryTitle,
                   amount: amount,
                   currency: currency,
+                  isGift: isGift,
+                  beneficiaryName: _recipient.verifiedName,
                 ),
               ),
             );

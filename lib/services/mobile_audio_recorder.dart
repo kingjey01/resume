@@ -5,6 +5,8 @@ import 'package:record/record.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'web_blob_reader_stub.dart'
+    if (dart.library.js_interop) 'web_blob_reader_web.dart';
 
 /// Service d'enregistrement audio universel (Mobile + Web)
 /// Utilise le package 'record' version 5.x
@@ -18,6 +20,7 @@ class MobileAudioRecorder {
   bool _isPaused = false;
   String? _currentPath;
   DateTime? _recordingStartTime;
+  String _webMimeType = 'audio/webm';
 
   // Callbacks
   VoidCallback? onStart;
@@ -131,20 +134,20 @@ class MobileAudioRecorder {
       final hasPermission = await _recorder.hasPermission();
       diagnosis['hasPermission'] = hasPermission;
 
-      // Tester les encodeurs disponibles
+      // Tester les encodeurs disponibles. Sur Web, MediaRecorder supporte
+      // généralement Opus/WebM (Chrome, Android) et AAC/MP4 (Safari).
       final supportedEncoders = <String>[];
-      
-      try {
-        if (await _recorder.isEncoderSupported(AudioEncoder.wav)) {
-          supportedEncoders.add('wav');
-        }
-      } catch (_) {}
-      
-      try {
-        if (await _recorder.isEncoderSupported(AudioEncoder.aacLc)) {
-          supportedEncoders.add('aacLc');
-        }
-      } catch (_) {}
+      final encoders = kIsWeb
+          ? [AudioEncoder.opus, AudioEncoder.aacLc, AudioEncoder.wav]
+          : [AudioEncoder.wav, AudioEncoder.aacLc];
+
+      for (final encoder in encoders) {
+        try {
+          if (await _recorder.isEncoderSupported(encoder)) {
+            supportedEncoders.add(encoder.name);
+          }
+        } catch (_) {}
+      }
       
       diagnosis['supportedEncoders'] = supportedEncoders;
       diagnosis['success'] = true;
@@ -192,8 +195,26 @@ class MobileAudioRecorder {
       onDebug?.call('📁 Chemin d\'enregistrement: $_currentPath');
 
       // 5. Configuration - Record 5.x API
+      //
+      // Sur Web, choisir un encodeur réellement supporté par MediaRecorder :
+      // Opus/WebM (Chrome, Edge, Android), puis AAC/MP4 (Safari), puis WAV.
+      var encoder = AudioEncoder.aacLc;
+      if (kIsWeb) {
+        encoder = AudioEncoder.opus;
+        _webMimeType = 'audio/webm';
+        if (!await _recorder.isEncoderSupported(encoder)) {
+          encoder = AudioEncoder.aacLc;
+          _webMimeType = 'audio/mp4';
+          if (!await _recorder.isEncoderSupported(encoder)) {
+            encoder = AudioEncoder.wav;
+            _webMimeType = 'audio/wav';
+          }
+        }
+        onDebug?.call('🌐 Encodeur Web: $encoder ($_webMimeType)');
+      }
+
       final config = RecordConfig(
-        encoder: kIsWeb ? AudioEncoder.wav : AudioEncoder.aacLc,
+        encoder: encoder,
         bitRate: 128000,
         sampleRate: 44100,
         numChannels: 1,
@@ -251,8 +272,15 @@ class MobileAudioRecorder {
         onDebug?.call('✅ Enregistrement terminé: $path');
         
         if (kIsWeb) {
-          final webBytes = Uint8List.fromList(path.codeUnits);
-          onRecordingComplete?.call(webBytes, 'audio/wav');
+          // `record_web` renvoie une URL `blob:` : on télécharge les octets
+          // réels au lieu de convertir l'URL en texte (ancien comportement).
+          final webBytes = await readBlobBytes(path);
+          if (webBytes != null && webBytes.isNotEmpty) {
+            onDebug?.call('📊 Enregistrement Web: ${webBytes.length} octets');
+            onRecordingComplete?.call(webBytes, _webMimeType);
+          } else {
+            onError?.call('Impossible de lire l\'enregistrement audio.');
+          }
         } else {
           await _readAndSendFile(path);
         }

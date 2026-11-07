@@ -102,14 +102,28 @@ class SessionSerializer(serializers.ModelSerializer):
                  'processing_status', 'error_message', 'submitted_at', 'processed_at',
                  'has_ai_summary', 'ai_summary_id', 'created_at', 'updated_at']
     
+    def _resumes_ia(self, obj):
+        """Résumés IA de la session, sans requête si `summaries` est préchargé.
+
+        `prefetch_related('summaries')` remplit `_prefetched_objects_cache`.
+        Utiliser `.filter()` sur le manager relancerait une requête par session
+        (N+1) : on filtre donc la liste déjà chargée.
+        """
+        cache = getattr(obj, '_prefetched_objects_cache', None) or {}
+        if 'summaries' in cache:
+            return [s for s in cache['summaries'] if s.author_type == 'ai']
+        return list(obj.summaries.filter(author_type='ai'))
+
     def get_has_ai_summary(self, obj):
         """Vérifie si la session a un résumé généré par IA"""
-        return obj.summaries.filter(author_type='ai').exists()
+        return bool(self._resumes_ia(obj))
 
     def get_ai_summary_id(self, obj):
-        """Retourne l'ID du résumé généré par IA pour cette session"""
-        summary = obj.summaries.filter(author_type='ai').order_by('-created_at').first()
-        return summary.id if summary else None
+        """Retourne l'ID du résumé IA le plus récent pour cette session"""
+        resumes = self._resumes_ia(obj)
+        if not resumes:
+            return None
+        return max(resumes, key=lambda s: s.created_at).id
 
 
 class SessionCreateSerializer(serializers.ModelSerializer):

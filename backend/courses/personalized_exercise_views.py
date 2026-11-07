@@ -6,6 +6,7 @@ import random
 import threading
 import logging
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework import status, permissions
@@ -525,21 +526,52 @@ def get_personalized_attempts_view(request):
     """
     Récupère l'historique des tentatives de l'utilisateur.
     Query params: summary_id (optionnel pour filtrer par résumé)
+                  page / page_size (optionnels : pagination opt-in)
     """
     try:
         summary_id = request.query_params.get('summary_id')
 
-        attempts = UserPersonalizedAttempt.objects.filter(
-            user=request.user
-        ).select_related(
+        base = UserPersonalizedAttempt.objects.filter(user=request.user)
+        if summary_id:
+            base = base.filter(personalized_exercise__summary_id=summary_id)
+
+        attempts = base.select_related(
             'personalized_exercise',
             'personalized_exercise__summary'
+        ).annotate(
+            # Tâche 59 — évite un COUNT(*) par tentative via la propriété
+            # `questions_count` du modèle. Une seule requête pour tout l'historique.
+            questions_count_annot=Count('personalized_exercise__questions')
         ).order_by('-started_at')
 
-        if summary_id:
-            attempts = attempts.filter(
-                personalized_exercise__summary_id=summary_id
+        # Pagination opt-in : sans `page`/`page_size`, on conserve la liste
+        # complète attendue par les versions actuelles de l'application.
+        total = None
+        stats = None
+        page = page_size = None
+        if 'page' in request.query_params or 'page_size' in request.query_params:
+            try:
+                page = max(1, int(request.query_params.get('page', 1)))
+                page_size = min(100, max(1, int(request.query_params.get('page_size', 50))))
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'Paramètres de pagination invalides'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Statistiques sur tout l'historique (pas seulement la page).
+            agg = base.aggregate(
+                total=Count('id'),
+                passed=Count('id', filter=Q(score__gte=50)),
+                score_sum=Sum('score'),
             )
+            total = agg['total']
+            stats = {
+                'total': agg['total'],
+                'passed': agg['passed'],
+                'score_sum': float(agg['score_sum'] or 0),
+            }
+            start = (page - 1) * page_size
+            attempts = attempts[start:start + page_size]
 
         attempts_data = []
         for attempt in attempts:
@@ -552,16 +584,25 @@ def get_personalized_attempts_view(request):
                 'difficulty_label': _get_difficulty_label(attempt.personalized_exercise.difficulty),
                 'score': attempt.score,
                 'correct_answers': attempt.correct_answers_count,
-                'total_questions': attempt.personalized_exercise.questions_count,
+                'total_questions': attempt.questions_count_annot,
                 'time_spent_seconds': attempt.time_spent_seconds,
                 'started_at': attempt.started_at.isoformat(),
                 'completed_at': attempt.completed_at.isoformat() if attempt.completed_at else None,
             })
 
-        return Response({
+        payload = {
             'attempts': attempts_data,
-            'total': len(attempts_data)
-        }, status=status.HTTP_200_OK)
+            'total': total if total is not None else len(attempts_data),
+        }
+        if total is not None:
+            payload.update({
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size,
+                'has_more': page * page_size < total,
+                'stats': stats,
+            })
+        return Response(payload, status=status.HTTP_200_OK)
 
     except Exception as e:
         logger.error(f"❌ Erreur récupération tentatives: {e}")

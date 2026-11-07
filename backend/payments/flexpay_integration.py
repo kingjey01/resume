@@ -3,6 +3,7 @@ import string
 import json
 import requests
 from django.conf import settings
+from django.db import transaction
 from django.http import JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -14,6 +15,11 @@ from rest_framework.response import Response
 
 from .models import Service, Abonnement, Purchase
 from .serializers import AbonnementSerializer
+from .beneficiary import (
+    BeneficiaryError,
+    normaliser_numero_paiement,
+    resoudre_beneficiaire,
+)
 from courses.models import Summary
 
 
@@ -21,6 +27,28 @@ def get_random_string(length):
     """Génère une chaîne aléatoire de lettres minuscules"""
     letters = string.ascii_lowercase
     return ''.join(random.choice(letters) for i in range(length))
+
+
+def _flexpay_configuration():
+    """Retourne (url, token) depuis la configuration, jamais depuis le code.
+
+    Le jeton FlexPay est un secret d'API : il doit être fourni par
+    `FLEXPAY_API_TOKEN` (variable d'environnement / backend/.env).
+    """
+    url = getattr(
+        settings,
+        'FLEXPAY_API_URL',
+        'https://backend.flexpay.cd/api/rest/v1/paymentService',
+    )
+    token = (getattr(settings, 'FLEXPAY_API_TOKEN', '') or '').strip()
+    return url, token
+
+
+def _erreur_flexpay_non_configure():
+    return Response(
+        {'error': 'Le service de paiement n\'est pas configuré.'},
+        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    )
 
 
 # Une tentative de paiement « pending » au-delà de ce délai est considérée
@@ -94,20 +122,26 @@ def _process_subscription_payment(user, data):
         print(f"👤 Utilisateur: {user.username} (ID: {user.id})")
 
         service_id = data.get('service_id')
-        phone_number = data.get('phone_number')
-
-        request_user = user
+        phone_number_raw = data.get('phone_number')
 
         print(f"🔍 service_id: {service_id}")
-        print(f"📱 phone_number: {phone_number}")
+        print(f"📱 phone_number: {phone_number_raw}")
 
         if not service_id:
             print("❌ ID du service manquant")
             return Response({'error': 'ID du service requis'}, status=status.HTTP_400_BAD_REQUEST)
 
-        if not phone_number:
+        if not phone_number_raw:
             print("❌ Numéro de téléphone manquant")
             return Response({'error': 'Numéro de téléphone requis'}, status=status.HTTP_400_BAD_REQUEST)
+
+        # VALIDATION CÔTÉ SERVEUR : numéro du payeur.
+        payer_phone = normaliser_numero_paiement(phone_number_raw)
+        if not payer_phone:
+            return Response(
+                {'error': 'Numéro du payeur invalide.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 
         try:
             service = Service.objects.get(id=service_id, is_active=True)
@@ -116,17 +150,61 @@ def _process_subscription_payment(user, data):
             print(f"❌ Service non trouvé pour ID: {service_id}")
             return Response({'error': 'Service non trouvé'}, status=status.HTTP_404_NOT_FOUND)
 
-        # Formater le numéro de téléphone
-        phone_number = str(phone_number).strip().replace("+", "").replace(" ", "")
-        print(f"📱 Numéro brut: {phone_number}")
+        # Bénéficiaire : le payeur lui-même, ou un autre étudiant actif résolu
+        # en base (tâche 70). Le numéro envoyé n'identifie jamais directement
+        # le compte.
+        try:
+            beneficiaire, profil_beneficiaire = resoudre_beneficiaire(
+                user, data.get('beneficiary_phone')
+            )
+        except BeneficiaryError as exc:
+            return Response(
+                {'error': exc.message}, status=exc.status_code
+            )
 
-        if len(phone_number) == 9 and phone_number.isdigit():
-            phone_number = f"0{phone_number}"
-            print(f"📱 Numéro formaté avec 0: {phone_number}")
+        beneficiary_phone = (
+            profil_beneficiaire.phone
+            if profil_beneficiaire and profil_beneficiaire.phone
+            else payer_phone
+        )
 
-        if phone_number.startswith("0"):
-            phone_number = f"243{phone_number[1:]}"
-            print(f"📱 Numéro formaté avec 243: {phone_number}")
+        if beneficiaire.id != user.id:
+            # Payer un abonnement à quelqu'un qui l'a déjà actif n'a pas de
+            # sens : on refuse AVANT d'envoyer la demande Mobile Money.
+            if Abonnement.objects.filter(
+                user=beneficiaire,
+                service=service,
+                status='active',
+                date_fin__gt=timezone.now(),
+            ).exists():
+                return Response(
+                    {'error': 'Le bénéficiaire a déjà un abonnement actif pour ce service.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Éviter deux cadeaux simultanés au même bénéficiaire (deux
+            # callbacks créeraient un seul abonnement mais deux débits).
+            cutoff = timezone.now() - timedelta(minutes=PENDING_EXPIRY_MINUTES)
+            Purchase.objects.filter(
+                user=beneficiaire,
+                service=service,
+                status='pending',
+                created_at__lt=cutoff,
+            ).update(status='failed')
+
+            if Purchase.objects.filter(
+                user=beneficiaire,
+                service=service,
+                status='pending',
+            ).exists():
+                return Response(
+                    {'error': 'Un paiement pour ce bénéficiaire est déjà en cours de validation.'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+        # Format attendu par FlexPay (243XXXXXXXXX).
+        phone_number = f"243{payer_phone[1:]}"
+        print(f"📱 Numéro payeur normalisé: {payer_phone} → {phone_number}")
 
         # Générer une référence unique
         reference = f"{get_random_string(8)}{phone_number}"
@@ -136,7 +214,10 @@ def _process_subscription_payment(user, data):
         if settings.DEBUG:
             print(f"🧪 Mode simulation activé pour {service.nom}")
             paiement = Purchase.objects.create(
-                user=request_user,
+                user=beneficiaire,
+                payer=user,
+                payer_phone=payer_phone,
+                beneficiary_phone=beneficiary_phone,
                 summary=None,
                 service=service,
                 amount=service.price,
@@ -152,14 +233,15 @@ def _process_subscription_payment(user, data):
             print(f"📅 Abonnement: {date_debut.date()} → {date_fin.date()} ({service.duree_mois} mois)")
 
             existing_active = Abonnement.objects.filter(
-                user=request_user,
+                user=beneficiaire,
                 service=service,
                 status='active'
             ).exists()
 
             if not existing_active:
                 abonnement = Abonnement.objects.create(
-                    user=request_user,
+                    user=beneficiaire,
+                    payer=user,
                     service=service,
                     date_debut=date_debut,
                     date_fin=date_fin,
@@ -216,10 +298,12 @@ def _process_subscription_payment(user, data):
 
         print(f"📤 Données FlexPay: {flexpay_data}")
 
-        url = "https://backend.flexpay.cd/api/rest/v1/paymentService"
+        url, flexpay_token = _flexpay_configuration()
+        if not flexpay_token:
+            return _erreur_flexpay_non_configure()
         headers = {
-            "Content-Type": "application/json",
-            "Authorization": "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJcL2xvZ2luIiwicm9sZXMiOlsiTUVSQ0hBTlQiXSwiZXhwIjoxODE3MDMxOTg3LCJzdWIiOiIyZjgzYjc5NmFhZTg2MTgxNTViMjk4MGYxMGEwNDY1ZiJ9.3bDE4dfkVD8qMrxHgG1UIRVYi3Ey1zEcRRbByq02vpc",
+            'Content-Type': 'application/json',
+            'Authorization': f'Bearer {flexpay_token}',
         }
 
         try:
@@ -233,7 +317,10 @@ def _process_subscription_payment(user, data):
 
             if jsonRes.get("code") == "0":
                 paiement = Purchase.objects.create(
-                    user=request_user,
+                    user=beneficiaire,
+                    payer=user,
+                    payer_phone=payer_phone,
+                    beneficiary_phone=beneficiary_phone,
                     summary=None,
                     service=service,
                     amount=service.price,
@@ -310,26 +397,46 @@ def _process_summary_purchase(user, data, summary):
     """
     import traceback
     try:
-        phone_number = data.get('phone_number')
+        phone_number_raw = data.get('phone_number')
 
         print(f"🚀 Début _process_summary_purchase — user={user.username}, summary={summary.titre}, prix={summary.prix}")
 
-        if not phone_number:
+        if not phone_number_raw:
             return Response({'error': 'Numéro de téléphone requis'}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Garde anti-doublon (déjà acheté / tentative en cours) — voir helper.
-        duplicate_error = _check_duplicate_summary_purchase(user, summary)
+        # VALIDATION CÔTÉ SERVEUR : numéro du payeur.
+        payer_phone = normaliser_numero_paiement(phone_number_raw)
+        if not payer_phone:
+            return Response(
+                {'error': 'Numéro du payeur invalide.'},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Bénéficiaire : payeur lui-même ou autre étudiant actif (tâche 70).
+        try:
+            beneficiaire, profil_beneficiaire = resoudre_beneficiaire(
+                user, data.get('beneficiary_phone')
+            )
+        except BeneficiaryError as exc:
+            return Response({'error': exc.message}, status=exc.status_code)
+
+        beneficiary_phone = (
+            profil_beneficiaire.phone
+            if profil_beneficiaire and profil_beneficiaire.phone
+            else payer_phone
+        )
+
+        # Garde anti-doublon : porte sur le BÉNÉFICIAIRE, jamais sur le payeur.
+        duplicate_error = _check_duplicate_summary_purchase(beneficiaire, summary)
         if duplicate_error:
-            return Response({'error': duplicate_error}, status=status.HTTP_400_BAD_REQUEST)
+            message = duplicate_error
+            if beneficiaire.id != user.id:
+                message = 'Le bénéficiaire a déjà acheté ce résumé.'
+            return Response({'error': message}, status=status.HTTP_400_BAD_REQUEST)
 
-        # Formater le numéro de téléphone
-        phone_number = str(phone_number).strip().replace('+', '').replace(' ', '')
-        if len(phone_number) == 9 and phone_number.isdigit():
-            phone_number = f'0{phone_number}'
-        if phone_number.startswith('0'):
-            phone_number = f'243{phone_number[1:]}'
-
-        print(f"📱 Numéro formaté: {phone_number}")
+        # Format attendu par FlexPay (243XXXXXXXXX).
+        phone_number = f"243{payer_phone[1:]}"
+        print(f"📱 Numéro payeur normalisé: {payer_phone} → {phone_number}")
 
         reference = f"{get_random_string(8)}{phone_number}"
         print(f"🔗 Référence: {reference}")
@@ -338,7 +445,10 @@ def _process_summary_purchase(user, data, summary):
         if settings.DEBUG:
             print(f"🧪 Mode simulation activé pour résumé {summary.titre}")
             paiement = Purchase.objects.create(
-                user=user,
+                user=beneficiaire,
+                payer=user,
+                payer_phone=payer_phone,
+                beneficiary_phone=beneficiary_phone,
                 summary=summary,
                 amount=summary.prix,
                 payment_method='mobile_money',
@@ -377,10 +487,12 @@ def _process_summary_purchase(user, data, summary):
 
         print(f"📤 Données FlexPay: {flexpay_data}")
 
-        url = 'https://backend.flexpay.cd/api/rest/v1/paymentService'
+        url, flexpay_token = _flexpay_configuration()
+        if not flexpay_token:
+            return _erreur_flexpay_non_configure()
         headers = {
             'Content-Type': 'application/json',
-            'Authorization': 'Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJcL2xvZ2luIiwicm9sZXMiOlsiTUVSQ0hBTlQiXSwiZXhwIjoxODE3MDMxOTg3LCJzdWIiOiIyZjgzYjc5NmFhZTg2MTgxNTViMjk4MGYxMGEwNDY1ZiJ9.3bDE4dfkVD8qMrxHgG1UIRVYi3Ey1zEcRRbByq02vpc',
+            'Authorization': f'Bearer {flexpay_token}',
         }
 
         try:
@@ -393,7 +505,10 @@ def _process_summary_purchase(user, data, summary):
 
             if jsonRes.get('code') == '0':
                 paiement = Purchase.objects.create(
-                    user=user,
+                    user=beneficiaire,
+                    payer=user,
+                    payer_phone=payer_phone,
+                    beneficiary_phone=beneficiary_phone,
                     summary=summary,
                     amount=summary.prix,
                     payment_method='mobile_money',
@@ -464,16 +579,8 @@ def initiate_summary_purchase(request):
                 'error': 'Ce résumé est gratuit ou son prix n\'est pas configuré. Aucun paiement requis.'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        existing_purchase = Purchase.objects.filter(
-            user=request.user,
-            summary=summary,
-            status='completed'
-        ).first()
-
-        if existing_purchase:
-            return Response({'error': 'Vous avez déjà acheté ce résumé'},
-                            status=status.HTTP_400_BAD_REQUEST)
-
+        # La garde anti-doublon est déléguée à `_process_summary_purchase`, qui
+        # la vérifie sur le BÉNÉFICIAIRE (soi-même ou un autre étudiant).
         return _process_summary_purchase(request.user, request.data, summary)
 
     except Exception as e:
@@ -483,6 +590,38 @@ def initiate_summary_purchase(request):
             'success': False,
             'error': f'Erreur serveur: {str(e)}'
         }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _activer_abonnement_apres_paiement(purchase):
+    """Crée l'abonnement du BÉNÉFICIAIRE après un paiement confirmé.
+
+    À appeler dans une transaction et après verrouillage de la ligne Purchase :
+    deux callbacks simultanés sur la même référence ne peuvent pas créer deux
+    abonnements.
+    """
+    if not (purchase.service_id and not purchase.summary_id):
+        return None
+
+    existing_active = Abonnement.objects.select_for_update().filter(
+        user_id=purchase.user_id,
+        service_id=purchase.service_id,
+        status='active',
+        date_fin__gt=timezone.now(),
+    ).exists()
+    if existing_active:
+        return None
+
+    date_debut = timezone.now()
+    return Abonnement.objects.create(
+        user_id=purchase.user_id,
+        payer_id=purchase.payer_id or purchase.user_id,
+        service_id=purchase.service_id,
+        date_debut=date_debut,
+        date_fin=purchase.service.get_date_fin(date_debut),
+        status='active',
+        auto_renew=False,
+        progress=0,
+    )
 
 
 @csrf_exempt
@@ -535,66 +674,63 @@ def flexpay_callback(request):
 
         if code == "0":
             print("✅ Paiement réussi - Traitement en cours...")
-            # Paiement réussi
+            # Paiement réussi.
+            #
+            # Idempotence : la ligne est verrouillée et le statut 'pending'
+            # fait office de verrou logique. Deux callbacks simultanés pour la
+            # même référence ne peuvent pas créditer deux fois ; un callback
+            # répété sur une transaction déjà complétée répond « succès »
+            # (le fournisseur ne doit pas réessayer indéfiniment).
             try:
-                purchase = Purchase.objects.get(transaction_id=reference, status='pending')
-                print(f"🎯 Achat trouvé: ID {purchase.id}, Utilisateur: {purchase.user.username}")
-                
-                purchase.status = 'completed'
-                purchase.completed_at = timezone.now()
-                purchase.save()
+                with transaction.atomic():
+                    purchase = (
+                        Purchase.objects.select_for_update()
+                        .select_related('user', 'service', 'summary')
+                        .get(transaction_id=reference, status='pending')
+                    )
+                    print(f"🎯 Achat trouvé: ID {purchase.id}, Bénéficiaire: {purchase.user.username}")
 
-                print(f"💰 Achat {purchase.id} marqué comme complété à {purchase.completed_at}")
+                    purchase.status = 'completed'
+                    purchase.completed_at = timezone.now()
+                    purchase.save(update_fields=['status', 'completed_at'])
 
-                # Si c'est un paiement d'abonnement (service lié, pas de résumé)
-                if purchase.service and not purchase.summary:
-                    print(f"� Paiement d'abonnement confirmé pour service: {purchase.service.nom}")
+                    print(f"💰 Achat {purchase.id} marqué comme complété")
 
-                    existing_active = Abonnement.objects.filter(
-                        user=purchase.user,
-                        service=purchase.service,
-                        status='active',
-                        date_fin__gt=timezone.now()
-                    ).exists()
-
-                    if not existing_active:
-                        date_debut = timezone.now()
-                        date_fin = purchase.service.get_date_fin(date_debut)
-                        abonnement = Abonnement.objects.create(
-                            user=purchase.user,
-                            service=purchase.service,
-                            date_debut=date_debut,
-                            date_fin=date_fin,
-                            status='active',
-                            auto_renew=False,
-                            progress=0,
-                        )
-                        print(f"✅ Abonnement créé: ID {abonnement.id}, Fin: {date_fin}")
-                    else:
+                    abonnement = _activer_abonnement_apres_paiement(purchase)
+                    if abonnement:
+                        print(f"✅ Abonnement créé: ID {abonnement.id}, Bénéficiaire: {abonnement.user.username}")
+                    elif purchase.service and not purchase.summary:
                         print("⚠️ Abonnement actif déjà existant, non recréé")
-                elif purchase.summary:
-                    print(f"📚 Résumé associé: {purchase.summary.titre} — accessible par l'utilisateur")
+                    elif purchase.summary:
+                        print(f"📚 Résumé attribué à {purchase.user.username}: {purchase.summary.titre}")
 
                 response_data = {'msg': 'Paiement confirmé avec succès', 'id': '1'}
                 print(f"📤 Réponse envoyée: {response_data}")
                 return JsonResponse(response_data)
 
             except Purchase.DoesNotExist:
+                # Callback répété : la transaction est déjà complétée.
+                if Purchase.objects.filter(
+                    transaction_id=reference, status='completed'
+                ).exists():
+                    return JsonResponse({'msg': 'Paiement déjà confirmé', 'id': '1'})
                 print(f"❌ Achat non trouvé pour la référence: {reference}")
-                response_data = {'msg': 'Paiement non trouvé', 'id': '0'}
-                return JsonResponse(response_data)
+                return JsonResponse({'msg': 'Paiement non trouvé', 'id': '0'})
 
         else:
             print(f"❌ Paiement échoué - Code: {code}")
-            # Paiement échoué
+            # Paiement échoué : aucune attribution.
             try:
-                purchase = Purchase.objects.get(transaction_id=reference, status='pending')
-                purchase.status = 'failed'
-                purchase.save()
-                print(f"💥 Achat {purchase.id} marqué comme échoué")
+                with transaction.atomic():
+                    purchase = (
+                        Purchase.objects.select_for_update()
+                        .get(transaction_id=reference, status='pending')
+                    )
+                    purchase.status = 'failed'
+                    purchase.save(update_fields=['status'])
+                    print(f"💥 Achat {purchase.id} marqué comme échoué")
             except Purchase.DoesNotExist:
-                print(f"⚠️ Achat non trouvé pour la référence: {reference}")
-                pass
+                print(f"⚠️ Achat non trouvé (ou déjà traité) pour la référence: {reference}")
 
             response_data = {'msg': f'Paiement échoué - Code: {code}', 'id': '0'}
             print(f"📤 Réponse échec envoyée: {response_data}")
@@ -620,38 +756,46 @@ def create_subscription_after_payment(request):
                        status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        purchase = Purchase.objects.get(
-            transaction_id=transaction_id,
-            user=request.user,
-            status='completed'
-        )
-        service = Service.objects.get(id=service_id)
+        with transaction.atomic():
+            # `user=request.user` : seul le BÉNÉFICIAIRE peut se voir créer
+            # l'abonnement. Pour un cadeau, le payeur n'a pas cette ligne à
+            # son nom et le callback a déjà créé l'abonnement.
+            purchase = (
+                Purchase.objects.select_for_update()
+                .get(
+                    transaction_id=transaction_id,
+                    user=request.user,
+                    status='completed'
+                )
+            )
+            service = Service.objects.get(id=service_id)
 
-        # Vérifier si l'utilisateur a déjà un abonnement actif pour ce service
-        existing_active = Abonnement.objects.filter(
-            user=request.user,
-            service=service,
-            status='active'
-        ).exists()
+            # Vérifier si l'utilisateur a déjà un abonnement actif
+            existing_active = Abonnement.objects.select_for_update().filter(
+                user=request.user,
+                service=service,
+                status='active'
+            ).exists()
 
-        if existing_active:
-            return Response({'error': 'Vous avez déjà un abonnement actif pour ce service'},
-                           status=status.HTTP_400_BAD_REQUEST)
+            if existing_active:
+                return Response({'error': 'Vous avez déjà un abonnement actif pour ce service'},
+                               status=status.HTTP_400_BAD_REQUEST)
 
-        # Calculer les dates via le modèle (centralisé)
-        date_debut = timezone.now()
-        date_fin = service.get_date_fin(date_debut)
+            # Calculer les dates via le modèle (centralisé)
+            date_debut = timezone.now()
+            date_fin = service.get_date_fin(date_debut)
 
-        # Créer l'abonnement
-        abonnement = Abonnement.objects.create(
-            user=request.user,
-            service=service,
-            date_debut=date_debut,
-            date_fin=date_fin,
-            status='active',
-            auto_renew=False,
-            progress=0
-        )
+            # Créer l'abonnement au nom du bénéficiaire, en conservant le payeur.
+            abonnement = Abonnement.objects.create(
+                user=request.user,
+                payer=purchase.payer or purchase.user,
+                service=service,
+                date_debut=date_debut,
+                date_fin=date_fin,
+                status='active',
+                auto_renew=False,
+                progress=0
+            )
 
         serializer = AbonnementSerializer(abonnement)
         return Response(serializer.data, status=status.HTTP_201_CREATED)

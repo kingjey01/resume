@@ -75,7 +75,15 @@ class Abonnement(models.Model):
         ('pending', 'En attente'),
     ]
     
+    # `user` est le BÉNÉFICIAIRE de l'abonnement (celui qui y a droit).
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='abonnements')
+    # `payer` est celui qui a financé l'abonnement. Il vaut `user` pour un
+    # achat personnel ; il en diffère pour un abonnement offert (tâche 70).
+    payer = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='abonnements_offerts',
+        help_text="Compte payeur ; NULL pour les abonnements antérieurs à la tâche 70",
+    )
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='abonnements')
     date_debut = models.DateTimeField(default=timezone.now)
     date_fin = models.DateTimeField()
@@ -136,6 +144,11 @@ class Abonnement(models.Model):
     @property
     def is_active(self):
         return self.status == 'active' and self.date_fin > timezone.now()
+
+    @property
+    def est_cadeau(self):
+        """Vrai si l'abonnement a été financé par un autre compte."""
+        return bool(self.payer_id and self.payer_id != self.user_id)
     
     def __str__(self):
         return f"{self.user.username} - {self.service.nom}"
@@ -160,7 +173,22 @@ class Purchase(models.Model):
         ('refunded', 'Remboursé'),
     ]
     
+    # `user` est le BÉNÉFICIAIRE de l'achat (celui qui reçoit le droit d'accès).
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='purchases')
+    # Traçabilité « Payer pour un autre » (tâche 70).
+    payer = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='purchases_payees',
+        help_text="Compte initiateur/financeur ; NULL pour les achats antérieurs",
+    )
+    payer_phone = models.CharField(
+        max_length=20, blank=True, null=True,
+        help_text="Numéro Mobile Money réellement utilisé pour payer",
+    )
+    beneficiary_phone = models.CharField(
+        max_length=20, blank=True, null=True,
+        help_text="Numéro du compte bénéficiaire",
+    )
     summary = models.ForeignKey(Summary, on_delete=models.CASCADE, related_name='purchases', null=True, blank=True)
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchases')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -173,7 +201,21 @@ class Purchase(models.Model):
     def __str__(self):
         summary_name = self.summary.titre if self.summary else 'Abonnement'
         return f"{self.user.username} - {summary_name} - {self.amount}€"
-    
+
+    @property
+    def est_cadeau(self):
+        """Vrai si l'achat a été financé par un autre compte."""
+        return bool(self.payer_id and self.payer_id != self.user_id)
+
+    @property
+    def type_operation(self):
+        """Type lisible de l'opération (traçabilité)."""
+        if self.summary_id:
+            return 'achat_resume'
+        if self.service_id:
+            return 'abonnement_qcm'
+        return 'inconnu'
+
     class Meta:
         verbose_name = "Achat"
         verbose_name_plural = "Achats"

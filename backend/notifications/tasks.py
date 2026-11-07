@@ -5,6 +5,7 @@ Falls back gracefully if firebase-admin is not configured.
 import logging
 from celery import shared_task
 from django.conf import settings
+from django.utils import timezone
 
 logger = logging.getLogger(__name__)
 
@@ -529,14 +530,32 @@ def notify_subscription_paid(self, abonnement_id: int):
         from payments.models import Abonnement
         from .models import AppNotification, UserNotification
         
-        abonnement = Abonnement.objects.select_related('user', 'service').get(id=abonnement_id)
+        abonnement = Abonnement.objects.select_related(
+            'user', 'service', 'payer'
+        ).get(id=abonnement_id)
         user = abonnement.user
         service = abonnement.service
-        
+
+        # Tâche 70 : si un autre compte a financé l'abonnement, le bénéficiaire
+        # reçoit un message « offert » — jamais le payeur.
+        if abonnement.est_cadeau:
+            date_fin = timezone.localtime(abonnement.date_fin).strftime('%d/%m/%Y')
+            titre = '🎁 Abonnement offert'
+            corps = (
+                f'Un abonnement {service.nom} vous a été offert. '
+                f'Il est actif jusqu\'au {date_fin}.'
+            )
+        else:
+            titre = '✅ Abonnement activé'
+            corps = (
+                f'Votre abonnement {service.nom} est maintenant actif, '
+                'renouvelable après 30 jours.'
+            )
+
         # Create notification for THIS USER ONLY (not broadcast)
         notif = AppNotification.objects.create(
-            title='✅ Abonnement activé',
-            body=f'Votre abonnement {service.nom} est maintenant actif, renouvelable après 30 jours.',
+            title=titre,
+            body=corps,
             notification_type='payment',
             sender=None,
         )
@@ -651,14 +670,31 @@ def notify_summary_purchased(self, purchase_id: int):
         from payments.models import Purchase
         from .models import AppNotification, UserNotification
 
-        purchase = Purchase.objects.select_related('user', 'summary').get(id=purchase_id)
+        purchase = Purchase.objects.select_related(
+            'user', 'summary', 'payer'
+        ).get(id=purchase_id)
         user = purchase.user
         summary = purchase.summary
 
+        # Tâche 70 : le bénéficiaire d'un achat offert reçoit un message
+        # « offert » ; le payeur ne reçoit jamais de notification d'attribution.
+        if purchase.est_cadeau:
+            titre = '🎁 Résumé offert'
+            corps = (
+                f'Un résumé vous a été offert : « {summary.titre} ». '
+                'Il est maintenant disponible dans « Mes Achats ».'
+            )
+        else:
+            titre = '📥 Résumé acheté'
+            corps = (
+                f'Vous avez acheté le résumé « {summary.titre} ». '
+                'Vous pouvez maintenant y accéder.'
+            )
+
         # Create notification
         notif = AppNotification.objects.create(
-            title='📥 Résumé acheté',
-            body=f'Vous avez acheté le résumé « {summary.titre} ». Vous pouvez maintenant y accéder.',
+            title=titre,
+            body=corps,
             notification_type='payment',
             sender=None,
         )

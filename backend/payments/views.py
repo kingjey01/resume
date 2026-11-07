@@ -4,11 +4,49 @@ from rest_framework.response import Response
 from rest_framework.pagination import PageNumberPagination
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import OrderingFilter
+from django.db.models import Q
 from django.utils import timezone
 from datetime import timedelta
 from .models import Purchase, Service, Abonnement
 from .serializers import PurchaseSerializer, CreatePurchaseSerializer, ServiceSerializer, AbonnementSerializer
 from courses.models import Summary
+from .beneficiary import BeneficiaryError, masquer_numero, trouver_beneficiaire
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def verify_beneficiary(request):
+    """Vérifie le compte bénéficiaire avant un paiement « pour un autre ».
+
+    Tâche 70. Le numéro est résolu exclusivement en base ; la réponse ne
+    contient que le strict nécessaire à la confirmation visuelle (nom,
+    numéro masqué, promotion). Aucun identifiant de compte n'est exposé.
+    """
+    phone = request.data.get('phone')
+    if not phone:
+        return Response({'error': 'Numéro du bénéficiaire requis'},
+                        status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        profil = trouver_beneficiaire(phone)
+    except BeneficiaryError as exc:
+        return Response({'error': exc.message}, status=exc.status_code)
+
+    if profil.user_id == request.user.id:
+        return Response(
+            {'error': 'Ce numéro est celui de votre compte. '
+                      'Utilisez « Payer pour moi ».'},
+            status=status.HTTP_400_BAD_REQUEST
+        )
+
+    return Response({
+        'found': True,
+        'display_name': profil.user.get_full_name() or profil.user.username,
+        'phone_masked': masquer_numero(profil.phone),
+        'promotion': profil.promotion.nom if profil.promotion else None,
+        'universite': profil.universite.nom if profil.universite else None,
+    })
+
 
 class PurchaseListCreateView(generics.ListCreateAPIView):
     permission_classes = [permissions.IsAuthenticated]
@@ -284,20 +322,8 @@ def initiate_purchase(request):
                 'error': 'Ce résumé est gratuit ou son prix n\'est pas configuré. Aucun paiement requis.'
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        # Vérifier si l'utilisateur n'a pas déjà acheté ce résumé
-        existing_purchase = Purchase.objects.filter(
-            user=request.user,
-            summary=summary,
-            status='completed'
-        ).first()
-
-        if existing_purchase:
-            return Response({
-                'error': 'Vous avez déjà acheté ce résumé',
-                'purchase_id': existing_purchase.id
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        # Déléguer au service FlexPay
+        # La garde anti-doublon est vérifiée dans `_process_summary_purchase`
+        # sur le BÉNÉFICIAIRE (soi-même ou un autre étudiant, tâche 70).
         from .flexpay_integration import _process_summary_purchase
         return _process_summary_purchase(request.user, request.data, summary)
 
@@ -471,9 +497,11 @@ def check_purchase_status(request, transaction_ref):
     Vérifier le statut d'un achat via sa référence de transaction
     """
     try:
+        # Le BÉNÉFICIAIRE et le PAYEUR peuvent suivre la transaction : le
+        # payeur doit pouvoir voir l'aboutissement d'un achat offert.
         purchase = Purchase.objects.get(
+            Q(user=request.user) | Q(payer=request.user),
             transaction_id=transaction_ref,
-            user=request.user
         )
         return Response({
             'status': purchase.status,

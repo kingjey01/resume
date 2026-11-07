@@ -346,6 +346,13 @@ URL_CALLBACK = config('URL_CALLBACK', default=[
     'http://127.0.0.1:8080',                         # Développement alternatif
 ])
 
+# FlexPay — jeton lu depuis l'environnement, JAMAIS dans le dépôt.
+FLEXPAY_API_URL = config(
+    'FLEXPAY_API_URL',
+    default='https://backend.flexpay.cd/api/rest/v1/paymentService',
+)
+FLEXPAY_API_TOKEN = config('FLEXPAY_API_TOKEN', default='')
+
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://127.0.0.1:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']

@@ -27,27 +27,48 @@ class AudioProcessor:
         self.max_file_size = 100 * 1024 * 1024  # 100MB
     
     def get_audio_info(self, session_id):
-        """Récupère les informations détaillées d'un fichier audio"""
+        """Informations d'un fichier audio à partir de son ID.
+
+        Conservé pour les appels à l'unité : il peut lancer `ffprobe` si la
+        durée n'est pas déjà stockée.
+        """
         try:
             session = Session.objects.get(id=session_id)
-            
+        except Session.DoesNotExist:
+            return {
+                'success': False,
+                'error': 'Session non trouvée'
+            }
+        return self.get_audio_info_for_session(session, probe_duration=True)
+
+    def get_audio_info_for_session(self, session, probe_duration=False):
+        """Informations audio depuis une Session DÉJÀ chargée.
+
+        `probe_duration=False` (utilisé par la liste) se contente de
+        `session.audio_duration` : aucune requête `Session.objects.get`, aucun
+        `ffprobe` par ligne. `probe_duration=True` conserve le comportement
+        historique pour un appel unitaire.
+        """
+        try:
             if not session.audio_file:
                 return {
                     'success': False,
                     'error': 'Aucun fichier audio'
                 }
-            
+
             file_path = session.audio_file.path if hasattr(session.audio_file, 'path') else None
             file_url = session.audio_file.url
-            file_size = session.audio_file.size if hasattr(session.audio_file, 'size') else 0
-            
-            # Déterminer le type MIME
+            try:
+                file_size = session.audio_file.size
+            except Exception:
+                # Fichier absent du stockage : on ne casse pas la liste.
+                file_size = 0
+
             mime_type, _ = mimetypes.guess_type(session.audio_file.name)
-            
-            # Informations de base
+
             info = {
                 'success': True,
-                'session_id': session_id,
+                'session_id': session.id,
                 'file_name': session.audio_file.name,
                 'file_url': file_url,
                 'file_size': file_size,
@@ -57,27 +78,30 @@ class AudioProcessor:
                 'course_name': session.course.nom,
                 'professor': session.professeur,
                 'recorded_date': session.date,
-                'created_at': session.created_at
+                'created_at': session.created_at,
             }
-            
-            # Essayer d'obtenir la durée si possible
-            try:
-                duration = self._get_audio_duration(file_path) if file_path else None
-                if duration:
+
+            duration = session.audio_duration or 0
+            if duration:
+                info['duration_seconds'] = duration
+                info['duration_formatted'] = self._format_duration(duration)
+            elif probe_duration and file_path:
+                try:
+                    duration = self._get_audio_duration(file_path)
                     info['duration_seconds'] = duration
-                    info['duration_formatted'] = self._format_duration(duration)
-            except Exception as e:
-                logger.warning(f"Impossible d'obtenir la durée audio: {e}")
+                    info['duration_formatted'] = (
+                        self._format_duration(duration) if duration else 'Inconnue'
+                    )
+                except Exception as e:
+                    logger.warning(f"Impossible d'obtenir la durée audio: {e}")
+                    info['duration_seconds'] = None
+                    info['duration_formatted'] = 'Inconnue'
+            else:
                 info['duration_seconds'] = None
                 info['duration_formatted'] = 'Inconnue'
-            
+
             return info
-            
-        except Session.DoesNotExist:
-            return {
-                'success': False,
-                'error': 'Session non trouvée'
-            }
+
         except Exception as e:
             logger.error(f"Erreur lors de la récupération des infos audio: {e}")
             return {

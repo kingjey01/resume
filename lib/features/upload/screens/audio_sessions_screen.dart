@@ -17,7 +17,8 @@ class AudioSessionsScreen extends StatefulWidget {
   State<AudioSessionsScreen> createState() => _AudioSessionsScreenState();
 }
 
-class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTickerProviderStateMixin {
+class _AudioSessionsScreenState extends State<AudioSessionsScreen>
+    with SingleTickerProviderStateMixin, WidgetsBindingObserver {
   final ApiService _apiService = ApiService();
   final AudioPlayer _audioPlayer = AudioPlayer();
   // Abonnements du lecteur, annulés à la fermeture de l'écran.
@@ -40,11 +41,25 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(_onTabChanged);
     _loadSessions();
     _setupAudioPlayer();
     _startAutoRefresh();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.inactive) {
+      // Ne pas interroger la file pendant que l'application est en arrière-plan.
+      _autoRefreshTimer?.cancel();
+      _autoRefreshTimer = null;
+    } else if (state == AppLifecycleState.resumed) {
+      _loadSessions(silent: true);
+      _startAutoRefresh();
+    }
   }
 
   void _onTabChanged() {
@@ -525,13 +540,17 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen> with SingleTi
   /// statut (Transcription en cours → Transcrit → Résumé disponible) sans
   /// refresh manuel. Échecs silencieux.
   void _startAutoRefresh() {
-    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+    _autoRefreshTimer?.cancel();
+    // 10 s au lieu de 5 s : la file complète est plus coûteuse qu'un simple
+    // compteur, et le statut n'a pas besoin d'être rafraîchi deux fois plus.
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) _loadSessions(silent: true);
     });
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _autoRefreshTimer?.cancel();
     _subEtat?.cancel();
     _subFin?.cancel();

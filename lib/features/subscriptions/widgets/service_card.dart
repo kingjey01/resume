@@ -7,6 +7,8 @@ import 'package:resume_plus_clean/services/snackbar_service.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/models/payment_method.dart';
 import 'package:resume_plus_clean/features/purchases/screens/payment_status_screen.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/payment_recipient_selector.dart';
+import 'package:resume_plus_clean/services/storage_service.dart';
 
 class ServiceCard extends ConsumerWidget {
   final Service service;
@@ -177,6 +179,23 @@ class ServiceCard extends ConsumerWidget {
     final _holderNameController = TextEditingController();
     final _phoneNumberController = TextEditingController();
     final _providerController = TextEditingController(text: 'Orange'); // Opérateur par défaut
+    final recipient = PaymentRecipientController();
+
+    // Préremplir avec le numéro du compte connecté (tâche 70).
+    StorageService().getRegisteredPhone().then((phone) {
+      if (phone == null || phone.isEmpty) return;
+      _phoneNumberController.text = phone;
+      recipient.setPayerPhone(phone);
+      // Préparer les détails même sans interaction de l'utilisateur : le
+      // formulaire est prérempli, le bouton ne doit pas rester bloqué.
+      _paymentDetails = PaymentDetails(
+        type: PaymentMethodType.mobileMoney,
+        details: {
+          'phoneNumber': phone,
+          'provider': _providerController.text,
+        },
+      );
+    });
 
     showDialog(
       context: context,
@@ -285,7 +304,7 @@ class ServiceCard extends ConsumerWidget {
                             setState(() {
                               _selectedPaymentMethod = value;
                               _paymentDetails = null;
-                              _phoneNumberController.clear();
+                              // Le numéro du compte est conservé (tâche 70).
                               _providerController.clear();
                             });
                           },
@@ -296,10 +315,15 @@ class ServiceCard extends ConsumerWidget {
                     // Formulaire de paiement
                     if (_selectedPaymentMethod != null) ...[
                       const SizedBox(height: 16),
-                      _buildPaymentForm(setState, _selectedPaymentMethod!, 
-                          _phoneNumberController, _providerController, (details) {
-                        _paymentDetails = details;
-                      }),
+                      _buildPaymentForm(
+                          setState,
+                          _selectedPaymentMethod!,
+                          _phoneNumberController,
+                          _providerController,
+                          recipient,
+                          (details) {
+                            _paymentDetails = details;
+                          }),
                     ],
                     
                     const SizedBox(height: 16),
@@ -339,24 +363,40 @@ class ServiceCard extends ConsumerWidget {
             ),
             ElevatedButton(
               onPressed: _isProcessing ? null : () async {
-                if (formKey.currentState!.validate() && _selectedPaymentMethod != null && _paymentDetails != null) {  
+                final isGift = recipient.isGift;
+                final phoneNumber = isGift
+                    ? recipient.payerPhone.trim()
+                    : (_paymentDetails?.details['phoneNumber'] ?? '');
+
+                if (isGift && !recipient.isReady) {
+                  SnackbarService.showError(
+                      'Vérifiez le numéro du bénéficiaire avant de payer.');
+                  return;
+                }
+
+                if (formKey.currentState!.validate() &&
+                    _selectedPaymentMethod != null &&
+                    (isGift || _paymentDetails != null) &&
+                    phoneNumber.isNotEmpty) {
                   setState(() {
                     _isProcessing = true;
                   });
-                  
+
                   try {
                     final apiService = ApiService();
-                    
-                    // Log des données envoyées
+
+                    // Log des données envoyées (sans exposer les numéros complets)
                     final paymentData = {
                       'service_id': service.id,
-                      'phone_number': _paymentDetails!.details['phoneNumber'] ?? '',
+                      'phone_number': phoneNumber,
                       'payment_method': _selectedPaymentMethod!.typeString,
+                      if (isGift)
+                        'beneficiary_phone': recipient.beneficiaryPhone.trim(),
                     };
-                    
+
                     print('🚀 [FRONTEND] Initiation paiement abonnement');
                     print('📦 Données envoyées: $paymentData');
-                    print('📱 Numéro téléphone: ${_paymentDetails!.details['phoneNumber']}');
+                    print('📱 Payeur: $phoneNumber · bénéficiaire: ${isGift ? 'oui' : 'non'}');
                     print('💳 Méthode paiement: ${_selectedPaymentMethod!.typeString}');
                     print('🏷️ Service: ${service.nom} (ID: ${service.id})');
                     
@@ -379,7 +419,9 @@ class ServiceCard extends ConsumerWidget {
                         Navigator.of(context).pop(); // fermer le dialog
 
                         if (isSimulated) {
-                          SnackbarService.showSuccess('Abonnement activé (simulation) !');
+                          SnackbarService.showSuccess(isGift
+                              ? 'Abonnement offert au bénéficiaire (simulation).'
+                              : 'Abonnement activé (simulation) !');
                           ref.invalidate(subscriptionsProvider);
                         } else if (reference.isNotEmpty) {
                           final subscribed = await Navigator.of(context).push<bool>(
@@ -391,12 +433,17 @@ class ServiceCard extends ConsumerWidget {
                                 currency: currency,
                                 successMessage: 'Abonnement activé !',
                                 successSubtitle: 'Votre abonnement au service\nest maintenant actif.',
-                                onPaymentConfirmed: () async {
-                                  await apiService.createSubscriptionAfterPayment(
-                                    reference,
-                                    service.id,
-                                  );
-                                },
+                                isGift: isGift,
+                                beneficiaryName: recipient.verifiedName,
+                                onPaymentConfirmed: isGift
+                                    ? null
+                                    : () async {
+                                        await apiService
+                                            .createSubscriptionAfterPayment(
+                                          reference,
+                                          service.id,
+                                        );
+                                      },
                               ),
                             ),
                           );
@@ -468,25 +515,36 @@ class ServiceCard extends ConsumerWidget {
     PaymentMethod paymentMethod,
     TextEditingController phoneNumberController,
     TextEditingController providerController,
+    PaymentRecipientController recipient,
     Function(PaymentDetails) onUpdateDetails,
   ) {
     // Uniquement Mobile Money
     return Column(
       children: [
-        TextField(
-          controller: phoneNumberController,
-          decoration: const InputDecoration(
-            labelText: 'Numéro de téléphone',
-            hintText: '+243 900 000 000',
-            prefixIcon: Icon(Icons.phone),
-            border: OutlineInputBorder(),
-          ),
-          keyboardType: TextInputType.phone,
-          onChanged: (value) => onUpdateDetails(PaymentDetails(
-            type: PaymentMethodType.mobileMoney,
-            details: {'phoneNumber': value, 'provider': providerController.text},
-          )),
+        PaymentRecipientSelector(
+          controller: recipient,
+          apiService: ApiService(),
+          onModeChanged: (_) => setState(() {}),
         ),
+        if (recipient.isGift) const SizedBox(height: 12),
+        if (!recipient.isGift)
+          TextField(
+            controller: phoneNumberController,
+            decoration: const InputDecoration(
+              labelText: 'Numéro de téléphone',
+              hintText: '+243 900 000 000',
+              prefixIcon: Icon(Icons.phone),
+              border: OutlineInputBorder(),
+            ),
+            keyboardType: TextInputType.phone,
+            onChanged: (value) => onUpdateDetails(PaymentDetails(
+              type: PaymentMethodType.mobileMoney,
+              details: {
+                'phoneNumber': value,
+                'provider': providerController.text
+              },
+            )),
+          ),
         const SizedBox(height: 12),
         DropdownButtonFormField<String>(
           value: providerController.text.isEmpty ? null : providerController.text,

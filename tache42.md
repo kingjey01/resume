@@ -1,0 +1,5 @@
+Prompt 3 — Gestion des échecs et suppression des audios dans la file d’attente
+Corrige la gestion des audios dans la file d’attente Flutter.
+1. Expiration des transcriptions : lorsqu’une transcription échoue ou reste bloquée sans résultat, notamment à cause du réseau, l’élément ne doit pas rester indéfiniment en attente. Définir un délai maximal de 10 minutes sans progression, après lequel l’élément passe à l’état Échec, avec la possibilité de relancer manuellement la transcription.
+2. Suppression des audios : ajouter une action permettant de supprimer un audio dont le statut est En attente ou Échec, directement depuis la file d’attente. La suppression doit nettoyer correctement le fichier local et les données associées, sans affecter les autres enregistrements ni les traitements en cours.
+Contraintes : examiner le mécanisme actuel de synchronisation et de transcription avant modification. Distinguer une transcription réellement bloquée d’un traitement toujours actif, éviter les changements d’état prématurés et préserver les fonctionnalités existantes.

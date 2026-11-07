@@ -53,19 +53,52 @@ class ExercisesScreen extends ConsumerStatefulWidget {
 
 class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTickerProviderStateMixin {
   final ApiService _apiService = ApiService();
+  final ScrollController _scrollController = ScrollController();
+
+  static const int _pageSize = 20;
+
   List<_UnifiedAttempt> _attempts = [];
+  List<_UnifiedAttempt> _classicalAttempts = [];
+  List<_UnifiedAttempt> _personalizedAttempts = [];
+
   bool _isLoading = true;
+  bool _isLoadingMore = false;
   bool _hasSubscription = false;
   bool _isExpired = false;
   String? _error;
   Map<String, dynamic>? _quotaInfo;
   late TabController _tabController;
 
+  // Pagination des deux sources d'historique.
+  int _classicalPage = 1;
+  int _personalizedPage = 1;
+  bool _hasMoreClassical = false;
+  bool _hasMorePersonalized = false;
+
+  // Statistiques GLOBALES fournies par le serveur (tout l'historique, pas la
+  // page chargée). Repli sur les éléments chargés si le serveur ne les renvoie
+  // pas (ancienne version du backend).
+  int _classicalTotal = 0;
+  int _personalizedTotal = 0;
+  int _classicalPassed = 0;
+  int _personalizedPassed = 0;
+  double _classicalScoreSum = 0;
+  double _personalizedScoreSum = 0;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: 3, vsync: this);
+    _scrollController.addListener(_onScroll);
     _loadData();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 300) {
+      _loadMoreAttempts();
+    }
   }
 
   Future<void> _loadData() async {
@@ -98,23 +131,27 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
       _quotaInfo = null;
     }
 
-    final List<_UnifiedAttempt> merged = [];
+    // Repartir de la première page pour les deux sources.
+    if (!mounted) return;
+    setState(() {
+      _classicalAttempts = [];
+      _personalizedAttempts = [];
+      _attempts = [];
+      _classicalPage = 1;
+      _personalizedPage = 1;
+      _hasMoreClassical = false;
+      _hasMorePersonalized = false;
+      _isLoadingMore = false;
+    });
 
     // 1. Anciennes tentatives (système d'exercices classique)
     try {
-      final attemptsData = await _apiService.getExerciseAttempts();
+      final data = await _apiService.getExerciseAttempts(
+        page: 1,
+        pageSize: _pageSize,
+      );
       if (!mounted) return;
-      for (final a in attemptsData) {
-        final att = ExerciseAttempt.fromJson(a as Map<String, dynamic>);
-        merged.add(_UnifiedAttempt(
-          id: att.id,
-          title: att.exerciseTitle,
-          summaryTitle: att.summaryTitle,
-          score: att.score,
-          completedAt: att.completedAt,
-          isPersonalized: false,
-        ));
-      }
+      _ingestClassical(data, replace: true);
       attemptsLoaded = true;
     } catch (e) {
       debugPrint('⚠️ Erreur chargement tentatives classiques: $e');
@@ -122,33 +159,19 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
 
     // 2. Tentatives du quiz QCM personnalisé
     try {
-      final data = await _apiService.getPersonalizedExerciseAttempts();
+      final data = await _apiService.getPersonalizedExerciseAttempts(
+        page: 1,
+        pageSize: _pageSize,
+      );
       if (!mounted) return;
-      final list = data['attempts'] as List<dynamic>? ?? [];
-      for (final a in list) {
-        final att = pe.ExerciseAttempt.fromJson(a as Map<String, dynamic>);
-        merged.add(_UnifiedAttempt(
-          id: att.id,
-          title: 'Exercice QCM • ${att.difficultyLabel}',
-          summaryTitle: att.summaryTitle,
-          score: att.score,
-          completedAt: att.completedAt ?? att.startedAt,
-          isPersonalized: true,
-          summaryId: att.summaryId,
-          // `formattedTime` du modèle : on réutilise sa mise en forme pour que
-          // l'historique et l'écran de résultat annoncent la même durée.
-          durationLabel: att.timeSpentSeconds > 0 ? att.formattedTime : null,
-        ));
-      }
+      _ingestPersonalized(data, replace: true);
       attemptsLoaded = true;
     } catch (e) {
       debugPrint('⚠️ Erreur chargement tentatives personnalisées: $e');
     }
 
-    // Trier par date décroissante (plus récentes en premier)
-    merged.sort((a, b) => b.completedAt.compareTo(a.completedAt));
-    _attempts = merged;
-    debugPrint('✅ ${_attempts.length} tentatives chargées (toutes sources)');
+    _rebuildMerged();
+    debugPrint('✅ ${_attempts.length} tentatives chargées (première page)');
 
     if (!mounted) return;
     setState(() {
@@ -159,9 +182,139 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
     });
   }
 
+  /// Ajoute (ou remplace) les tentatives classiques et met à jour les
+  /// statistiques globales fournies par le serveur.
+  void _ingestClassical(Map<String, dynamic> data, {required bool replace}) {
+    final list = data['attempts'] as List<dynamic>? ?? [];
+    final items = <_UnifiedAttempt>[];
+    for (final a in list) {
+      final att = ExerciseAttempt.fromJson(a as Map<String, dynamic>);
+      items.add(_UnifiedAttempt(
+        id: att.id,
+        title: att.exerciseTitle,
+        summaryTitle: att.summaryTitle,
+        score: att.score,
+        completedAt: att.completedAt,
+        isPersonalized: false,
+      ));
+    }
+    if (replace) {
+      _classicalAttempts = items;
+    } else {
+      _classicalAttempts.addAll(items);
+    }
+    _classicalPage = (data['page'] as num?)?.toInt() ?? _classicalPage;
+    _hasMoreClassical = data['has_more'] == true;
+
+    final stats = data['stats'];
+    if (stats is Map) {
+      _classicalTotal =
+          (stats['total'] as num?)?.toInt() ?? _classicalAttempts.length;
+      _classicalPassed = (stats['passed'] as num?)?.toInt() ?? 0;
+      _classicalScoreSum = (stats['score_sum'] as num?)?.toDouble() ?? 0;
+    } else {
+      _classicalTotal = _classicalAttempts.length;
+      _classicalPassed = _classicalAttempts.where((a) => a.isPassed).length;
+      _classicalScoreSum =
+          _classicalAttempts.fold(0.0, (sum, a) => sum + a.score);
+    }
+  }
+
+  /// Idem pour les tentatives personnalisées.
+  void _ingestPersonalized(Map<String, dynamic> data, {required bool replace}) {
+    final list = data['attempts'] as List<dynamic>? ?? [];
+    final items = <_UnifiedAttempt>[];
+    for (final a in list) {
+      final att = pe.ExerciseAttempt.fromJson(a as Map<String, dynamic>);
+      items.add(_UnifiedAttempt(
+        id: att.id,
+        title: 'Exercice QCM • ${att.difficultyLabel}',
+        summaryTitle: att.summaryTitle,
+        score: att.score,
+        completedAt: att.completedAt ?? att.startedAt,
+        isPersonalized: true,
+        summaryId: att.summaryId,
+        // `formattedTime` du modèle : on réutilise sa mise en forme pour que
+        // l'historique et l'écran de résultat annoncent la même durée.
+        durationLabel: att.timeSpentSeconds > 0 ? att.formattedTime : null,
+      ));
+    }
+    if (replace) {
+      _personalizedAttempts = items;
+    } else {
+      _personalizedAttempts.addAll(items);
+    }
+    _personalizedPage =
+        (data['page'] as num?)?.toInt() ?? _personalizedPage;
+    _hasMorePersonalized = data['has_more'] == true;
+
+    final stats = data['stats'];
+    if (stats is Map) {
+      _personalizedTotal =
+          (stats['total'] as num?)?.toInt() ?? _personalizedAttempts.length;
+      _personalizedPassed = (stats['passed'] as num?)?.toInt() ?? 0;
+      _personalizedScoreSum = (stats['score_sum'] as num?)?.toDouble() ?? 0;
+    } else {
+      _personalizedTotal = _personalizedAttempts.length;
+      _personalizedPassed =
+          _personalizedAttempts.where((a) => a.isPassed).length;
+      _personalizedScoreSum =
+          _personalizedAttempts.fold(0.0, (sum, a) => sum + a.score);
+    }
+  }
+
+  void _rebuildMerged() {
+    _attempts = [..._classicalAttempts, ..._personalizedAttempts]
+      ..sort((a, b) => b.completedAt.compareTo(a.completedAt));
+  }
+
+  bool get _hasMoreAttempts =>
+      _hasMoreClassical || _hasMorePersonalized;
+
+  /// Charge la page suivante de chaque source qui en a encore, puis refusionne.
+  Future<void> _loadMoreAttempts() async {
+    if (_isLoadingMore || !_hasMoreAttempts) return;
+    setState(() => _isLoadingMore = true);
+
+    // Les deux sources sont indépendantes : un échec de l'une ne doit pas
+    // empêcher l'autre de progresser.
+    if (_hasMoreClassical) {
+      try {
+        final data = await _apiService.getExerciseAttempts(
+          page: _classicalPage + 1,
+          pageSize: _pageSize,
+        );
+        if (!mounted) return;
+        _ingestClassical(data, replace: false);
+      } catch (e) {
+        debugPrint('⚠️ Erreur chargement tentatives classiques (suite): $e');
+      }
+    }
+    if (_hasMorePersonalized) {
+      try {
+        final data = await _apiService.getPersonalizedExerciseAttempts(
+          page: _personalizedPage + 1,
+          pageSize: _pageSize,
+        );
+        if (!mounted) return;
+        _ingestPersonalized(data, replace: false);
+      } catch (e) {
+        debugPrint(
+            '⚠️ Erreur chargement tentatives personnalisées (suite): $e');
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _rebuildMerged();
+      _isLoadingMore = false;
+    });
+  }
+
   @override
   void dispose() {
     _tabController.dispose();
+    _scrollController.dispose();
     super.dispose();
   }
 
@@ -355,11 +508,26 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
     return RefreshIndicator(
       onRefresh: _loadData,
       child: ListView.builder(
+        controller: _scrollController,
         padding: const EdgeInsets.all(20),
-        itemCount: _attempts.length,
+        itemCount: _attempts.length + (_isLoadingMore ? 1 : 0),
         itemBuilder: (context, index) {
-          final attempt = _attempts[index];
-          return _buildAttemptCard(attempt);
+          if (index >= _attempts.length) {
+            return const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 22,
+                  height: 22,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: AppTheme.primaryBlue,
+                  ),
+                ),
+              ),
+            );
+          }
+          return _buildAttemptCard(_attempts[index]);
         },
       ),
     );
@@ -529,11 +697,11 @@ class _ExercisesScreenState extends ConsumerState<ExercisesScreen> with SingleTi
   }
 
   Widget _buildStats() {
-    final totalAttempts = _attempts.length;
-    final passed = _attempts.where((a) => a.isPassed).length;
-    final avgScore = totalAttempts > 0
-        ? _attempts.map((a) => a.score).reduce((a, b) => a + b) / totalAttempts
-        : 0.0;
+    // Statistiques globales (tout l'historique), pas seulement la page chargée.
+    final totalAttempts = _classicalTotal + _personalizedTotal;
+    final passed = _classicalPassed + _personalizedPassed;
+    final scoreSum = _classicalScoreSum + _personalizedScoreSum;
+    final avgScore = totalAttempts > 0 ? scoreSum / totalAttempts : 0.0;
 
     return SingleChildScrollView(
       padding: const EdgeInsets.all(20),

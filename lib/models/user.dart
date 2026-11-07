@@ -5,6 +5,7 @@ class User {
   final String? firstName;
   final String? lastName;
   final String? avatar;
+  final String? phone;
   final String groupe;
   final int? universiteId;
   final int? promotionId;
@@ -20,6 +21,7 @@ class User {
     this.firstName,
     this.lastName,
     this.avatar,
+    this.phone,
     required this.groupe,
     this.universiteId,
     this.promotionId,
@@ -39,6 +41,7 @@ class User {
       firstName: json['first_name'] as String?,
       lastName: json['last_name'] as String?,
       avatar: json['avatar'] as String?,
+      phone: profile?['phone'] as String?,
       groupe: profile?['groupe'] as String? ?? 'ETUDIANT',
       universiteId: profile?['universite'] as int?,
       promotionId: profile?['promotion'] as int?,
@@ -59,6 +62,7 @@ class User {
       'first_name': firstName,
       'last_name': lastName,
       'avatar': avatar,
+      'phone': phone,
       'groupe': groupe,
       'universite_id': universiteId,
       'promotion_id': promotionId,

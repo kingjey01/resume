@@ -1,10 +1,14 @@
 import 'dart:io';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart' show Color;
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/notification_service.dart';
+// Configuration Firebase Web (lue depuis web/firebase-config.js).
+import 'fcm_web_settings_stub.dart'
+    if (dart.library.js_interop) 'fcm_web_settings_web.dart';
 
 // ─── Background handler (top-level, hors classe) ─────────────────────────────
 // Appelé dans un isolate séparé quand app est en background ou terminée.
@@ -24,10 +28,14 @@ class FcmService {
   factory FcmService() => _instance;
   FcmService._internal();
 
-  final FirebaseMessaging _messaging = FirebaseMessaging.instance;
+  // Accès paresseux : sur Web, `FirebaseMessaging.instance` exige que Firebase
+  // soit déjà initialisé. Le service Web initialise Firebase avant le premier
+  // usage du jeton.
+  FirebaseMessaging get _messaging => FirebaseMessaging.instance;
   final ApiService _api = ApiService();
 
   String? _currentToken;
+  String? _webVapidKey;
 
   // Canal de notifications locales pour foreground
   static const AndroidNotificationChannel _channel = AndroidNotificationChannel(
@@ -39,8 +47,12 @@ class FcmService {
     playSound: true,
   );
 
-  final FlutterLocalNotificationsPlugin _localNotifications =
-      FlutterLocalNotificationsPlugin();
+  // Création paresseuse : ce greffon n'a pas d'implémentation Web et son
+  // constructeur peut lever dans le navigateur. Il n'est utilisé que par le
+  // chemin mobile.
+  FlutterLocalNotificationsPlugin? _localNotificationsInstance;
+  FlutterLocalNotificationsPlugin get _localNotifications =>
+      _localNotificationsInstance ??= FlutterLocalNotificationsPlugin();
 
   // ─── Init ─────────────────────────────────────────────────────────────────
 
@@ -48,6 +60,16 @@ class FcmService {
   /// NE récupère PAS le token et NE l'envoie PAS au backend
   /// (l'utilisateur n'est pas encore authentifié)
   Future<void> initialize() async {
+    // ── Web / PWA ─────────────────────────────────────────────────────────
+    // Le Web n'a ni handler de fond Flutter ni notifications locales : le
+    // service worker `firebase-messaging-sw.js` affiche les notifications en
+    // arrière-plan. On initialise Firebase avec la configuration Web lue dans
+    // `web/firebase-config.js`, puis on enregistre le jeton.
+    if (kIsWeb) {
+      await _initializeWeb();
+      return;
+    }
+
     // 1. Enregistrer le handler background
     FirebaseMessaging.onBackgroundMessage(_firebaseBackgroundHandler);
 
@@ -97,11 +119,73 @@ class FcmService {
     debugPrint('✅ [FCM] Service initialisé (pré-auth)');
   }
 
+  Future<void> _initializeWeb() async {
+    final settings = FirebaseWebSettings.read();
+    if (!settings.configured) {
+      debugPrint(
+          'ℹ️ [FCM Web] Configuration absente (web/firebase-config.js) — push désactivé.');
+      return;
+    }
+
+    _webVapidKey = settings.vapidKey;
+
+    // `main.dart` a déjà tenté Firebase.initializeApp() sans options : sur Web,
+    // cet appel échoue proprement (try/catch) et aucun app n'est créé. On
+    // initialise donc ici avec les options Web.
+    if (Firebase.apps.isEmpty) {
+      await Firebase.initializeApp(options: settings.options);
+    }
+
+    // La permission est demandée au moment de l'enregistrement du jeton
+    // (après connexion), pas au démarrage : le navigateur associe plus
+    // facilement la demande à l'action de l'utilisateur, et l'utilisateur
+    // comprend pourquoi on la lui demande.
+
+    // Message reçu application ouverte : rafraîchir le badge / la liste.
+    FirebaseMessaging.onMessage.listen((message) {
+      final badgeCount = int.tryParse(message.data['badge_count'] ?? '');
+      if (badgeCount != null) {
+        NotificationService().setUnreadCount(badgeCount);
+      } else {
+        NotificationService().refresh();
+      }
+    });
+
+    FirebaseMessaging.onMessageOpenedApp.listen((message) {
+      debugPrint('🖱️ [FCM Web] Notification ouverte: ${message.data}');
+      NotificationService().refresh();
+    });
+
+    _messaging.onTokenRefresh.listen((newToken) async {
+      _currentToken = newToken;
+      await _api.registerFcmToken(newToken, deviceType: 'web');
+    });
+
+    debugPrint('✅ [FCM Web] Push initialisé.');
+  }
+
+  /// Récupère le jeton, avec la clé VAPID sur Web.
+  Future<String?> _getToken() async {
+    if (kIsWeb) {
+      final vapidKey = _webVapidKey;
+      if (vapidKey == null) return null;
+      return _messaging.getToken(vapidKey: vapidKey);
+    }
+    return _messaging.getToken();
+  }
+
   /// À APPELER APRÈS LE LOGIN
   /// Récupère le token actuel et l'envoie au backend avec le user authentifié
   Future<bool> registerCurrentUserToken() async {
     try {
-      final token = await _messaging.getToken();
+      if (kIsWeb && _webVapidKey != null) {
+        final granted = await _requestPermissions();
+        if (!granted) {
+          debugPrint('⚠️ [FCM Web] Permission notifications refusée.');
+          return false;
+        }
+      }
+      final token = await _getToken();
       if (token == null) {
         debugPrint('⚠️ [FCM] Aucun token disponible (permissions refusées?)');
         return false;
@@ -154,7 +238,7 @@ class FcmService {
   /// Conservé pour compatibilité — force toujours l'envoi au backend
   Future<String?> refreshToken() async {
     try {
-      final token = await _messaging.getToken();
+      final token = await _getToken();
       if (token != null) {
         _currentToken = token;
         // FORCE l'envoi (pas de check d'égalité avec _currentToken)
@@ -170,9 +254,10 @@ class FcmService {
 
   /// À APPELER AVANT LE LOGOUT (pendant que le JWT est encore valide)
   Future<void> deleteToken() async {
+    if (kIsWeb && _webVapidKey == null) return;
     try {
       // 1. D'abord récupérer le token actuel s'il n'est pas en cache
-      final token = _currentToken ?? await _messaging.getToken();
+      final token = _currentToken ?? await _getToken();
       
       // 2. Désactiver côté backend (pendant que le JWT est encore valide)
       if (token != null) {

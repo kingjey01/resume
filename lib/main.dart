@@ -37,16 +37,24 @@ void main() async {
   // avant tout démarrage de service : c'est ce que le paquet attend, et sans lui
   // le service ne peut pas dialoguer avec l'application. Sans effet tant qu'un
   // service n'est pas démarré — donc inoffensif sur iOS et sur le web.
-  FlutterForegroundTask.initCommunicationPort();
+  // Web/PWA : le service de premier plan Android n'existe pas dans le
+  // navigateur. Sans cette garde, l'appel lèverait sur le Web ; Android et iOS
+  // conservent exactement le même comportement qu'avant.
+  if (!kIsWeb) {
+    FlutterForegroundTask.initCommunicationPort();
+  }
 
   Intl.defaultLocale = 'fr_FR';
   await initializeDateFormatting('fr_FR', null);
 
   // 🔥 Initialiser Firebase
   try {
-    await Firebase.initializeApp();
-    // Initialiser FCM uniquement sur mobile (pas web)
-    if (!kIsWeb) {
+    if (kIsWeb) {
+      // Le service Web initialise Firebase lui-même, avec les options lues
+      // dans web/firebase-config.js (Firebase sans options échoue sur Web).
+      await FcmService().initialize();
+    } else {
+      await Firebase.initializeApp();
       await FcmService().initialize();
       // 🔴 Initialiser le badge d'icône (compteur de notifications)
       await BadgeService().initialize();

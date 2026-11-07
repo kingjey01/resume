@@ -98,6 +98,12 @@ class UserNotification(models.Model):
         verbose_name_plural = 'Notifications Utilisateurs'
         unique_together = ('user', 'notification')
         ordering = ['-created_at']
+        indexes = [
+            # Tâche 59 — badge « non lues » et filtre unread_only.
+            models.Index(fields=['user', 'is_read'], name='notif_user_is_read_idx'),
+            # Liste paginée triée par date pour un utilisateur donné.
+            models.Index(fields=['user', '-created_at'], name='notif_user_created_idx'),
+        ]
 
     def __str__(self):
         status = 'lue' if self.is_read else 'non lue'

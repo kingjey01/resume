@@ -22,6 +22,8 @@ import 'package:resume_plus_clean/features/exercises/screens/personalized_quiz_s
 import 'package:resume_plus_clean/features/exercises/widgets/difficulty_selector_modal.dart';
 import 'package:resume_plus_clean/features/exercises/widgets/exercise_generation_progress.dart';
 import 'package:resume_plus_clean/features/purchases/screens/payment_status_screen.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/payment_recipient_selector.dart';
+import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:resume_plus_clean/widgets/ai_content_view.dart';
 import 'package:resume_plus_clean/widgets/api_error_view.dart';
 import 'package:resume_plus_clean/mixins/error_handler_mixin.dart';
@@ -654,7 +656,12 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
   }
 
   Future<void> _initiatePurchase() async {
-    final TextEditingController phoneController = TextEditingController();
+    final registeredPhone = ref.read(currentUserProvider)?.phone ??
+        await StorageService().getRegisteredPhone() ??
+        '';
+    final TextEditingController phoneController =
+        TextEditingController(text: registeredPhone);
+    final recipient = PaymentRecipientController(payerPhone: registeredPhone);
     bool isLoading = false;
 
     await showDialog(
@@ -676,34 +683,43 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
                     ),
                   ),
                   const SizedBox(height: 16),
-                  TextField(
-                    controller: phoneController,
-                    decoration: const InputDecoration(
-                      labelText: 'Numéro de téléphone',
-                      hintText: 'Ex: 0973123456',
-                      border: OutlineInputBorder(),
-                      prefixText: '+243 ',
+                  PaymentRecipientSelector(
+                    controller: recipient,
+                    apiService: _apiService,
+                    onModeChanged: (_) => setState(() {}),
+                  ),
+                  if (!recipient.isGift) ...[
+                    const SizedBox(height: 16),
+                    TextField(
+                      controller: phoneController,
+                      decoration: const InputDecoration(
+                        labelText: 'Numéro de téléphone',
+                        hintText: 'Ex: 0973123456',
+                        border: OutlineInputBorder(),
+                        prefixText: '+243 ',
+                      ),
+                      keyboardType: TextInputType.phone,
+                      maxLength: 10,
+                      onChanged: (value) {
+                        // Nettoyer le numéro
+                        if (value.startsWith('+243')) {
+                          phoneController.text = value.substring(4);
+                        } else if (value.startsWith('243')) {
+                          phoneController.text = value.substring(3);
+                        }
+                        phoneController.selection =
+                            TextSelection.fromPosition(
+                          TextPosition(offset: phoneController.text.length),
+                        );
+                      },
                     ),
-                    keyboardType: TextInputType.phone,
-                    maxLength: 10,
-                    onChanged: (value) {
-                      // Nettoyer le numéro
-                      if (value.startsWith('+243')) {
-                        phoneController.text = value.substring(4);
-                      } else if (value.startsWith('243')) {
-                        phoneController.text = value.substring(3);
-                      }
-                      phoneController.selection = TextSelection.fromPosition(
-                        TextPosition(offset: phoneController.text.length),
-                      );
-                    },
-                  ),
-                  const SizedBox(height: 16),
-                  const Text(
-                    'Vous recevrez une demande de paiement sur votre téléphone.',
-                    style: TextStyle(fontSize: 12, color: Colors.grey),
-                    textAlign: TextAlign.center,
-                  ),
+                    const SizedBox(height: 16),
+                    const Text(
+                      'Vous recevrez une demande de paiement sur votre téléphone.',
+                      style: TextStyle(fontSize: 12, color: Colors.grey),
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
                 ],
               ),
               actions: [
@@ -713,11 +729,28 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
                 ),
                 ElevatedButton(
                   onPressed: isLoading ? null : () async {
-                    final phoneNumber = phoneController.text.trim();
+                    final isGift = recipient.isGift;
+                    final phoneNumber = isGift
+                        ? recipient.payerPhone.trim()
+                        : phoneController.text.trim();
+
                     if (phoneNumber.isEmpty || phoneNumber.length < 9) {
                       ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(isGift
+                              ? 'Veuillez saisir le numéro du payeur'
+                              : 'Veuillez saisir un numéro de téléphone valide'),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return;
+                    }
+
+                    if (isGift && !recipient.isReady) {
+                      ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text('Veuillez saisir un numéro de téléphone valide'),
+                          content: Text(
+                              'Vérifiez le numéro du bénéficiaire avant de payer'),
                           backgroundColor: Colors.red,
                         ),
                       );
@@ -730,11 +763,17 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
                       final result = await _apiService.initiateSummaryPurchase(
                         summaryId: widget.summary.id,
                         phoneNumber: phoneNumber,
+                        beneficiaryPhone:
+                            isGift ? recipient.beneficiaryPhone.trim() : null,
                       );
 
                       if (result['success'] == true) {
                         Navigator.of(dialogContext).pop();
-                        await _navigateToPaymentStatus(result);
+                        await _navigateToPaymentStatus(
+                          result,
+                          isGift: isGift,
+                          beneficiaryName: recipient.verifiedName,
+                        );
                       } else {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -770,7 +809,11 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
     );
   }
 
-  Future<void> _navigateToPaymentStatus(Map<String, dynamic> paymentData) async {
+  Future<void> _navigateToPaymentStatus(
+    Map<String, dynamic> paymentData, {
+    bool isGift = false,
+    String? beneficiaryName,
+  }) async {
     final reference = paymentData['reference']?.toString() ?? '';
     final summaryTitle = paymentData['summary_title']?.toString() ?? widget.summary.title;
     final amount = paymentData['amount']?.toString() ?? widget.summary.price.toStringAsFixed(0);
@@ -781,8 +824,10 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
       // Mode simulation → succès direct, rafraîchir l'état
       _checkPurchaseStatus();
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Paiement réussi !'),
+        SnackBar(
+          content: Text(isGift
+              ? 'Paiement réussi ! L\'achat a été attribué au bénéficiaire.'
+              : 'Paiement réussi !'),
           backgroundColor: Colors.green,
         ),
       );
@@ -800,6 +845,8 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
             summaryTitle: summaryTitle,
             amount: amount,
             currency: currency,
+            isGift: isGift,
+            beneficiaryName: beneficiaryName,
           ),
         ),
       );

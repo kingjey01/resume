@@ -787,11 +787,27 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> getSummariesForValidation({String? search}) async {
+  /// Liste de validation paginée (opt-in côté backend).
+  ///
+  /// `page`/`pageSize` déclenchent la pagination serveur ; sans eux, le backend
+  /// renvoie toujours la liste complète. `isValidated` applique le filtre
+  /// d'onglet côté serveur tout en gardant des compteurs globaux.
+  Future<Map<String, dynamic>> getSummariesForValidation({
+    String? search,
+    int? page,
+    int? pageSize,
+    bool? isValidated,
+  }) async {
     try {
+      final params = <String, dynamic>{};
+      if (search != null && search.isNotEmpty) params['search'] = search;
+      if (page != null) params['page'] = page;
+      if (pageSize != null) params['page_size'] = pageSize;
+      if (isValidated != null) params['is_validated'] = isValidated;
+
       final response = await _dio.get(
         '/summaries/validation/',
-        queryParameters: search != null && search.isNotEmpty ? {'search': search} : null,
+        queryParameters: params.isEmpty ? null : params,
       );
       if (response.statusCode == 200) {
         return response.data as Map<String, dynamic>;
@@ -1525,14 +1541,37 @@ class ApiService {
     }
   }
 
+  /// Vérifie le compte bénéficiaire d'un paiement « pour un autre ».
+  ///
+  /// Tâche 70. Le backend résout le numéro en base et renvoie uniquement
+  /// l'identité nécessaire à la confirmation.
+  Future<Map<String, dynamic>> verifyBeneficiary(String phone) async {
+    try {
+      final response = await _dio.post('/beneficiary/verify/', data: {
+        'phone': phone,
+      });
+      if (response.statusCode == 200) {
+        return response.data as Map<String, dynamic>;
+      }
+      throw ApiException('Bénéficiaire introuvable.',
+          type: ApiExceptionType.server);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
+    }
+  }
+
   Future<Map<String, dynamic>> initiateSummaryPurchase({
     required int summaryId,
     required String phoneNumber,
+    String? beneficiaryPhone,
   }) async {
     try {
       final response = await _dio.post('/purchases/initiate/', data: {
         'summary_id': summaryId,
         'phone_number': phoneNumber,
+        if (beneficiaryPhone != null && beneficiaryPhone.isNotEmpty)
+          'beneficiary_phone': beneficiaryPhone,
       });
       if (response.statusCode == 200 || response.statusCode == 201) {
         return response.data as Map<String, dynamic>;
@@ -1559,11 +1598,17 @@ class ApiService {
     }
   }
 
-  Future<Map<String, dynamic>> initiateSubscriptionPayment(int serviceId, String phoneNumber) async {
+  Future<Map<String, dynamic>> initiateSubscriptionPayment(
+    int serviceId,
+    String phoneNumber, {
+    String? beneficiaryPhone,
+  }) async {
     try {
       final response = await _dio.post('/initiate-subscription-payment/', data: {
         'service_id': serviceId,
         'phone_number': phoneNumber,
+        if (beneficiaryPhone != null && beneficiaryPhone.isNotEmpty)
+          'beneficiary_phone': beneficiaryPhone,
       });
       if (response.statusCode == 200 || response.statusCode == 201) {
         return response.data as Map<String, dynamic>;
@@ -1651,12 +1696,26 @@ class ApiService {
     }
   }
 
-  Future<List<dynamic>> getExerciseAttempts() async {
+  /// Historique des tentatives classiques.
+  ///
+  /// Retourne la réponse complète (`attempts`, `total_attempts`, et — en mode
+  /// paginé — `page`, `total_pages`, `has_more`, `stats`) pour permettre le
+  /// chargement progressif et des statistiques exactes.
+  Future<Map<String, dynamic>> getExerciseAttempts({
+    int? page,
+    int? pageSize,
+  }) async {
     try {
-      final response = await _dio.get('/exercises/attempts/');
+      final params = <String, dynamic>{};
+      if (page != null) params['page'] = page;
+      if (pageSize != null) params['page_size'] = pageSize;
+
+      final response = await _dio.get(
+        '/exercises/attempts/',
+        queryParameters: params.isEmpty ? null : params,
+      );
       if (response.statusCode == 200) {
-        final data = response.data as Map<String, dynamic>;
-        return data['attempts'] as List<dynamic>? ?? [];
+        return response.data as Map<String, dynamic>;
       }
       throw ApiException('Impossible de charger les tentatives.',
           type: ApiExceptionType.server);
@@ -1961,6 +2020,36 @@ class ApiService {
     }
   }
 
+  /// Liste paginée des dispenses (associations professeur → cours).
+  ///
+  /// Sans `page`/`pageSize`, le backend renvoie la liste complète. Avec eux,
+  /// la réponse contient `results`, `total`, `total_pages` et `has_more`.
+  Future<Map<String, dynamic>> listDispensesPage({
+    int? page,
+    int? pageSize,
+  }) async {
+    try {
+      final params = <String, dynamic>{};
+      if (page != null) params['page'] = page;
+      if (pageSize != null) params['page_size'] = pageSize;
+
+      final response = await _dio.get(
+        '/courses/dispenses/',
+        queryParameters: params.isEmpty ? null : params,
+      );
+      if (response.statusCode == 200) {
+        return response.data as Map<String, dynamic>;
+      }
+      throw ApiException('Impossible de charger les associations.',
+          type: ApiExceptionType.server);
+    } catch (e) {
+      AppLogger.error('listDispensesPage error', e);
+      if (e is ApiException) rethrow;
+      throw ApiException(getErrorMessage(e),
+          type: ApiExceptionType.unknown, originalError: e);
+    }
+  }
+
   Future<void> deleteDispense(int dispenseId) async {
     try {
       await _dio.delete('/courses/dispenses/$dispenseId/delete/');
@@ -2051,9 +2140,14 @@ class ApiService {
   /// Récupère l'historique des tentatives
   Future<Map<String, dynamic>> getPersonalizedExerciseAttempts({
     int? summaryId,
+    int? page,
+    int? pageSize,
   }) async {
     try {
-      final params = summaryId != null ? {'summary_id': summaryId} : null;
+      final params = <String, dynamic>{};
+      if (summaryId != null) params['summary_id'] = summaryId;
+      if (page != null) params['page'] = page;
+      if (pageSize != null) params['page_size'] = pageSize;
       final response = await _dio.get(
         '/courses/personalized-exercises/attempts/',
         queryParameters: params,

@@ -7,7 +7,7 @@ from rest_framework.filters import SearchFilter, OrderingFilter
 from django.http import HttpResponse, Http404, FileResponse
 from django.shortcuts import get_object_or_404
 from django.conf import settings
-from django.db.models import Exists, OuterRef, Q
+from django.db.models import Count, Exists, OuterRef, Q, Q
 from django.utils.encoding import smart_str
 import os
 import logging
@@ -68,6 +68,42 @@ def _summaries_optimises(queryset=None):
         'session__professeur_fk__user',
         'transcription',
     ).prefetch_related('course__filieres')
+
+
+def _sessions_optimisees(queryset):
+    """Session + relations lues par SessionSerializer, sans N+1."""
+    return queryset.select_related(
+        'course',
+        'professeur_fk__user',
+        'professeur_fk__universite',
+    ).prefetch_related('summaries')
+
+
+def _sessions_audio_visibles(user):
+    """Sessions audio accessibles à l'utilisateur (même règle que la queue).
+
+    Avant, `get_audio_sessions` renvoyait TOUTES les sessions à tout utilisateur
+    authentifié : les audios et leurs URLs n'étaient pas isolés par cohorte.
+    """
+    queryset = Session.objects.filter(
+        audio_file__isnull=False
+    ).exclude(audio_file='')
+
+    if not user.is_authenticated or not hasattr(user, 'profile'):
+        return Session.objects.none()
+
+    profile = user.profile
+    if profile.is_admin:
+        return _sessions_optimisees(queryset)
+
+    if not profile.universite or not profile.promotion or not profile.filiere:
+        return Session.objects.none()
+
+    return _sessions_optimisees(queryset.filter(
+        course__universites=profile.universite,
+        course__promotions=profile.promotion,
+        course__filieres=profile.filiere,
+    ).distinct())
 
 
 class SummaryPurchasedIdsMixin:
@@ -378,16 +414,16 @@ class SessionListCreateView(generics.ListCreateAPIView):
         profile = self.request.user.profile
         
         if profile.is_admin:
-            return Session.objects.all()
+            return _sessions_optimisees(Session.objects.all())
         
         if not profile.universite or not profile.promotion or not profile.filiere:
             return Session.objects.none()
         
-        return Session.objects.filter(
+        return _sessions_optimisees(Session.objects.filter(
             course__universites=profile.universite,
             course__promotions=profile.promotion,
             course__filieres=profile.filiere
-        ).distinct()
+        )).distinct()
 
 
 class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
@@ -404,16 +440,16 @@ class SessionDetailView(generics.RetrieveUpdateDestroyAPIView):
         profile = self.request.user.profile
         
         if profile.is_admin:
-            return Session.objects.all()
+            return _sessions_optimisees(Session.objects.all())
         
         if not profile.universite or not profile.promotion or not profile.filiere:
             return Session.objects.none()
         
-        return Session.objects.filter(
+        return _sessions_optimisees(Session.objects.filter(
             course__universites=profile.universite,
             course__promotions=profile.promotion,
             course__filieres=profile.filiere
-        ).distinct()
+        )).distinct()
 
 
 class SummaryFilter(django_filters.FilterSet):
@@ -1183,10 +1219,8 @@ def get_audio_sessions(request):
     🔥 AMÉLIORÉ: Récupère les sessions audio avec informations détaillées
     """
     try:
-        # Récupérer les sessions avec fichiers audio
-        sessions = Session.objects.filter(
-            audio_file__isnull=False
-        ).select_related('course').prefetch_related('summaries').order_by('-created_at')
+        # Sessions accessibles à l'utilisateur, avec les relations préchargées.
+        sessions = _sessions_audio_visibles(request.user).order_by('-created_at')
         
         # Enrichir les données avec les informations audio
         from .audio_processing import audio_processor
@@ -1198,7 +1232,7 @@ def get_audio_sessions(request):
             session_data = session_serializer.data
             
             # Ajouter les informations audio détaillées
-            audio_info = audio_processor.get_audio_info(session.id)
+            audio_info = audio_processor.get_audio_info_for_session(session)
             session_data['audio_info'] = audio_info
             
             # Ajouter les résumés liés à cette session
@@ -1517,19 +1551,9 @@ def get_sessions_queue(request):
     Filtré par université/promotion/filière de l'utilisateur
     """
     try:
-        profile = request.user.profile
-        
-        # Filtrage strict par université/promotion/filière via le cours
-        base_queryset = Session.objects.filter(
-            audio_file__isnull=False,
-            course__universites=profile.universite,
-            course__promotions=profile.promotion,
-            course__filieres=profile.filiere
-        ).exclude(audio_file='').distinct()
-        
-        # Admin peut voir toutes les sessions
-        if profile.is_admin:
-            base_queryset = Session.objects.filter(audio_file__isnull=False).exclude(audio_file='')
+        # Filtrage par cohorte + relations préchargées (même règle que
+        # l'audio détaillé). L'admin voit toutes les sessions.
+        base_queryset = _sessions_audio_visibles(request.user)
 
         # EXPIRATION DES TRANSCRIPTIONS BLOQUÉES (tâche 42, §1). Faite AVANT les
         # statistiques : l'échec doit déjà être compté quand la file s'affiche.
@@ -1553,15 +1577,15 @@ def get_sessions_queue(request):
         from .serializers import SessionSerializer
         serializer = SessionSerializer(queryset, many=True)
         
-        # Statistiques (filtrées aussi)
-        stats = {
-            'total': base_queryset.count(),
-            'pending': base_queryset.filter(processing_status='pending').count(),
-            'processing': base_queryset.filter(processing_status='processing').count(),
-            'transcribed': base_queryset.filter(processing_status='transcribed').count(),
-            'summarized': base_queryset.filter(processing_status='summarized').count(),
-            'failed': base_queryset.filter(processing_status='failed').count(),
-        }
+        # Statistiques en UNE requête (au lieu de 6 COUNT).
+        stats = base_queryset.aggregate(
+            total=Count('id', distinct=True),
+            pending=Count('id', filter=Q(processing_status='pending'), distinct=True),
+            processing=Count('id', filter=Q(processing_status='processing'), distinct=True),
+            transcribed=Count('id', filter=Q(processing_status='transcribed'), distinct=True),
+            summarized=Count('id', filter=Q(processing_status='summarized'), distinct=True),
+            failed=Count('id', filter=Q(processing_status='failed'), distinct=True),
+        )
         
         return Response({
             'success': True,
@@ -2157,6 +2181,11 @@ def delete_summary_view(request, summary_id):
 def get_summaries_for_validation_view(request):
     """
     Récupère la liste des résumés à valider (pour les CP et Admin)
+
+    Query params optionnels :
+      - search (str)
+      - is_validated (true/false) : filtre serveur pour les onglets
+      - page / page_size : pagination opt-in (sans eux, liste complète)
     """
     try:
         # Vérifier les permissions
@@ -2195,15 +2224,53 @@ def get_summaries_for_validation_view(request):
                 Q(professeur__user__last_name__icontains=search_query) |
                 Q(professeur__specialite__icontains=search_query)
             ).distinct()
-        
+
+        # Filtre serveur des onglets (all / validated / pending). Sans ce
+        # paramètre, le comportement historique est conservé : tout est renvoyé.
+        # Les compteurs des onglets restent calculés sur l'ensemble accessible
+        # (et filtré par la recherche), pas sur l'onglet courant.
+        summaries_base = summaries
+        is_validated_param = request.query_params.get('is_validated', '').strip().lower()
+        if is_validated_param in ('true', '1'):
+            summaries = summaries.filter(is_validated=True)
+        elif is_validated_param in ('false', '0'):
+            summaries = summaries.filter(is_validated=False)
+
+        # Pagination opt-in : les compteurs (total/validés/en attente) portent
+        # toujours sur l'ensemble filtré, pas seulement sur la page renvoyée.
+        total_count = validated_count = pending_count = None
+        page = page_size = None
+        if 'page' in request.query_params or 'page_size' in request.query_params:
+            try:
+                page = max(1, int(request.query_params.get('page', 1)))
+                page_size = min(100, max(1, int(request.query_params.get('page_size', 50))))
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'Paramètres de pagination invalides'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+            # Un seul aggregate : évite deux COUNT supplémentaires. Calculé
+            # sur `summaries_base` pour que les onglets gardent leurs
+            # compteurs globaux même quand un onglet est sélectionné.
+            counts = summaries_base.aggregate(
+                total_count=Count('id', distinct=True),
+                validated_count=Count('id', filter=Q(is_validated=True), distinct=True),
+            )
+            total_count = counts['total_count']
+            validated_count = counts['validated_count']
+            pending_count = total_count - validated_count
+            start = (page - 1) * page_size
+            summaries = list(summaries[start:start + page_size])
+        else:
+            summaries = list(summaries)
+
         # Résumés déjà achetés : le CP ne pouvait pas le savoir, alors que le
         # backend refuse (à raison) de les invalider ou de les supprimer. On le
         # lui expose pour que les boutons concernés soient bloqués dans l'UI au
         # lieu d'échouer après coup.
         #
         # Champ AJOUTÉ à la réponse : aucun champ existant n'est modifié ni
-        # retiré. Une seule requête pour toute la liste (pas de N+1).
-        summaries = list(summaries)
+        # retiré. Une seule requête pour la page renvoyée (pas de N+1).
         ids_achetes = set(
             Purchase.objects.filter(summary_id__in=[s.id for s in summaries])
             .values_list('summary_id', flat=True)
@@ -2228,12 +2295,34 @@ def get_summaries_for_validation_view(request):
                 'has_purchases': summary.id in ids_achetes
             })
         
-        return Response({
+        if total_count is None:
+            if is_validated_param in ('true', '1', 'false', '0'):
+                # Un onglet est filtré : les compteurs restent globaux.
+                counts = summaries_base.aggregate(
+                    total_count=Count('id', distinct=True),
+                    validated_count=Count('id', filter=Q(is_validated=True), distinct=True),
+                )
+                total_count = counts['total_count']
+                validated_count = counts['validated_count']
+            else:
+                total_count = len(summaries_data)
+                validated_count = sum(1 for s in summaries_data if s['is_validated'])
+            pending_count = total_count - validated_count
+
+        payload = {
             'summaries': summaries_data,
-            'total_count': len(summaries_data),
-            'validated_count': sum(1 for s in summaries_data if s['is_validated']),
-            'pending_count': sum(1 for s in summaries_data if not s['is_validated'])
-        }, status=status.HTTP_200_OK)
+            'total_count': total_count,
+            'validated_count': validated_count,
+            'pending_count': pending_count,
+        }
+        if page is not None:
+            payload.update({
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total_count + page_size - 1) // page_size,
+                'has_more': page * page_size < total_count,
+            })
+        return Response(payload, status=status.HTTP_200_OK)
         
     except Exception as e:
         logger.error(f"Erreur récupération résumés validation: {str(e)}")
@@ -2635,16 +2724,45 @@ def delete_professeur_view(request, professeur_id):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def list_dispenses_view(request):
-    """Liste les dispenses du contexte académique de l'utilisateur connecté."""
+    """Liste les dispenses du contexte académique de l'utilisateur connecté.
+
+    Query params optionnels : `page` / `page_size` (pagination opt-in).
+    Sans eux, la réponse reste la liste complète (rétrocompatible).
+    """
     try:
+        paginated = 'page' in request.query_params or 'page_size' in request.query_params
+        page = page_size = None
+        if paginated:
+            try:
+                page = max(1, int(request.query_params.get('page', 1)))
+                page_size = min(100, max(1, int(request.query_params.get('page_size', 50))))
+            except (TypeError, ValueError):
+                return Response(
+                    {'error': 'Paramètres de pagination invalides'},
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
         profile = request.user.profile
         if not profile.universite or not profile.filiere or not profile.promotion:
+            if paginated:
+                return Response({
+                    'results': [], 'total': 0, 'page': page,
+                    'page_size': page_size, 'total_pages': 0, 'has_more': False,
+                }, status=200)
             return Response([], status=200)
+
         dispenses = Dispense.objects.filter(
             universite=profile.universite,
             filiere=profile.filiere,
             promotion=profile.promotion,
         ).select_related('professeur__user', 'cours').order_by('-created_at')
+
+        total = None
+        if paginated:
+            total = dispenses.count()
+            start = (page - 1) * page_size
+            dispenses = dispenses[start:start + page_size]
+
         data = [
             {
                 'id': d.id,
@@ -2657,6 +2775,17 @@ def list_dispenses_view(request):
             }
             for d in dispenses
         ]
+
+        if total is not None:
+            return Response({
+                'results': data,
+                'total': total,
+                'page': page,
+                'page_size': page_size,
+                'total_pages': (total + page_size - 1) // page_size,
+                'has_more': page * page_size < total,
+            }, status=200)
+
         return Response(data, status=200)
     except Exception as e:
         logger.error(f"Erreur liste dispenses: {e}")

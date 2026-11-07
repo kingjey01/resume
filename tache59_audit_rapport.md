@@ -1,6 +1,8 @@
 # Audit SQL / N+1 / cache — avant le chantier 2
 
-> **Aucun code de production n’a été modifié.**
+> **Mise à jour du 29/10/2026** : après validation, les **corrections P0 audio**, les **corrections P1/P2**, l'**adaptation Flutter** et la **P3 (dispenses)** ont été appliquées. Résultats : file audio **73 → 6**, audio détaillé **73 → 4**, sessions ViewSet **66 → 7** ; tentatives personnalisées **7 → 2** ; notifications **4 → 3**. La validation, les deux historiques de tentatives et les dispenses utilisent désormais la pagination serveur côté application. Voir les sections de corrections en fin de document.
+>
+> Le reste du document est l’**audit initial**, réalisé avant toute modification.
 > Mesures réalisées le 29/10/2026 sur la base locale (SQLite), avec `CaptureQueriesContext`, Silk désactivé, et des volumes de test :
 > 10 résumés, 4 professeurs, 5 dispenses, 5 tentatives classiques, 5 tentatives personnalisées, 20 notifications, 10 sessions audio.
 >
@@ -233,13 +235,184 @@ C’est le point le plus problématique de l’audit.
 
 ---
 
+## Corrections P0 appliquées — audio
+
+| Endpoint | Avant | Après P0 |
+|---|---:|---:|
+| `/api/courses/sessions/audio/queue/` (10 sessions) | 73 | **6** |
+| `/api/courses/sessions/audio/` (10 sessions) | 73 | **4** |
+| `/api/courses/sessions/` (10 sessions) | 66 | **7** |
+
+Ce qui a été corrigé :
+
+- `SessionSerializer` : `has_ai_summary` / `ai_summary_id` lisent le prefetch
+  `summaries` au lieu d’un `.filter().exists()` / `.first()` par session.
+- `_sessions_optimisees()` : `select_related('course',
+  'professeur_fk__user', 'professeur_fk__universite')` +
+  `prefetch_related('summaries')` sur la queue, l’audio détaillé, le ViewSet
+  et le détail.
+- `get_audio_info_for_session(session)` : plus de `Session.objects.get` ni de
+  `ffprobe` par ligne ; la durée vient de `audio_duration`. L’ancien
+  `get_audio_info(session_id)` conserve le `ffprobe` pour les appels unitaires.
+- `get_sessions_queue` : les 6 COUNT sont remplacés par **un seul `aggregate`**
+  conditionnel.
+- `get_audio_sessions` : applique la **même isolation par cohorte** que la
+  queue (admin = tout, CP/étudiant = son université/promotion/filière).
+- Flutter `audio_sessions_screen.dart` : polling **10 s** au lieu de 5 s, et
+  timer arrêté quand l’application passe en arrière-plan (reprise au retour).
+
+Tests ajoutés : `AudioSessionsNoNPlusOneTest` — 3 tests (queue, détail,
+isolation par cohorte). Les tests P0 passent.
+
+**Reste à corriger (P1/P2) :** `questions_count` des tentatives personnalisées,
+pagination de la validation et des tentatives, index `UserNotification`,
+réduction des COUNT des notifications.
+
+## Corrections P1/P2 appliquées — tentatives, validation, notifications
+
+### Mesures après correction
+
+| Endpoint | Volume de test | Avant | Après |
+|---|---:|---:|---:|
+| `/api/personalized-exercises/attempts/` | 5 tentatives | 7 | **2** |
+| `/api/exercises/attempts/` sans pagination | 5 tentatives | 2 | **2** |
+| `/api/exercises/attempts/?page=1&page_size=2` | 5 tentatives | — | **3** (1 COUNT pour `total`) |
+| `/api/summaries/validation/` sans pagination | 5 résumés | 4 | **4** |
+| `/api/summaries/validation/?page=1&page_size=2` | 5 résumés | — | **5** (aggregate + page + achats) |
+| `/api/notifications/` | 4 notifications | 4 | **3** |
+
+Les requêtes applicatives sont mesurées avec `CaptureQueriesContext`, sans les
+`SAVEPOINT` du client de test.
+
+### Ce qui a été corrigé
+
+1. **Tentatives personnalisées** (`personalized_exercise_views.py`)
+   - Le queryset est annoté avec `Count('personalized_exercise__questions')` ;
+     la boucle lit `questions_count_annot` au lieu de la propriété
+     `questions_count`, qui déclenchait un `SELECT COUNT(*)` par tentative.
+   - Pagination **opt-in** (`page` / `page_size`, max 100) : sans paramètre, la
+     réponse reste la liste complète (rétrocompatible avec l'app actuelle).
+2. **Tentatives classiques** (`exercise_views.py`)
+   - Même pagination opt-in ; le N+1 n'existait déjà pas.
+3. **Validation CP** (`views.py`)
+   - Filtre serveur `is_validated=true/false` pour les onglets.
+   - Pagination opt-in ; `total_count`, `validated_count` et `pending_count`
+     sont calculés en **un seul `aggregate`** sur l'ensemble filtré (recherche
+     comprise), et non sur la page renvoyée : les compteurs des onglets restent
+     globaux quand un onglet est sélectionné.
+   - `has_purchases` ne fait plus qu'une requête sur les IDs de la page.
+4. **Notifications** (`notifications/models.py`, `views.py`)
+   - Index `(user, is_read)` et `(user, -created_at)` sur `UserNotification`
+     (migration `notifications/0003_...`).
+   - Sans filtre texte/type, `total` et `unread_count` sont calculés en **un
+     seul `aggregate`** au lieu de deux COUNT ; avec filtres, le comportement
+     reste le même.
+
+### Tests ajoutés
+
+`AttemptsAndValidationPaginationTest` (5 tests) : absence de N+1 sur les
+tentatives personnalisées, pagination des deux historiques, compteurs et
+filtre de validation, agrégation des notifications. La suite complète
+`courses.tests` passe (32 tests).
+
+## Adaptation Flutter (29/10/2026)
+
+### Validation CP — [validation_screen.dart](resume/lib/features/validation/screens/validation_screen.dart)
+
+- Chargement par pages de **20** avec `ScrollController` : la page suivante
+  se charge quand on approche du bas (liste virtuelle, pas de blocage).
+- **Filtre d'onglet côté serveur** : `is_validated=true/false` accompagne
+  chaque requête ; les compteurs « Tous / Validés / En attente » viennent du
+  serveur et restent globaux même sous un onglet filtré.
+- La recherche est envoyée au serveur (débounce de 500 ms conservé) ; le
+  filtrage local a été retiré pour éviter de raisonner sur une seule page.
+- Validation, invalidation et suppression mettent à jour les compteurs et la
+  liste immédiatement, puis la liste est resynchronisée.
+- `getSummariesForValidation` accepte désormais `page`, `pageSize` et
+  `isValidated`.
+
+### Mes tentatives — [exercises_screen.dart](resume/lib/features/exercises/screens/exercises_screen.dart)
+
+- Les deux historiques (classique + QCM personnalisé) sont chargés par pages
+  de **20**, puis fusionnés et triés par date. Le scroll charge la page
+  suivante de chaque source qui en a encore.
+- Le backend renvoie désormais, en mode paginé, un bloc `stats`
+  (`total`, `passed`, `score_sum`) calculé sur **tout l'historique**. L'onglet
+  « Statistiques » (Total / Réussis / Moyenne / Échoués) reste donc exact même
+  si seules deux pages sont en mémoire. Un repli calcule les stats sur les
+  éléments chargés si un ancien backend ne renvoie pas ce bloc.
+- `getExerciseAttempts` retourne la réponse complète (au lieu du seul tableau)
+  et accepte `page`/`pageSize` ; `getPersonalizedExerciseAttempts` accepte
+  aussi `page`/`pageSize`. Les appels sans pagination conservent le
+  comportement historique.
+- Coût SQL en mode paginé : une requête d'agrégat supplémentaire par source
+  pour les statistiques (3 requêtes par page au lieu de 2 pour la liste
+  complète), mais un volume transféré divisé par le nombre de pages. Le coût
+  reste **constant** quel que soit l'historique.
+
+### Vérifications Flutter
+
+- `flutter analyze` sur les fichiers modifiés : **aucune erreur** ; seuls des
+  avertissements préexistants subsistent (méthode `_loadSummaryById` non
+  utilisée, `withOpacity` déprécié).
+- Tests backend concernés : 5 tests OK (dont les stats serveur).
+
+## Corrections P3 appliquées — dispenses
+
+- **[list_dispenses_view](resume/backend/courses/views.py)** : pagination
+  **opt-in** (`page` / `page_size`, max 100). Sans paramètre, la réponse reste
+  la liste complète (rétrocompatible). En mode paginé, la réponse contient
+  `results`, `total`, `page`, `page_size`, `total_pages`, `has_more`.
+- **[associate_prof_cours_screen.dart](resume/lib/features/upload/screens/associate_prof_cours_screen.dart)** :
+  chargement par pages de **20** au défilement ; le badge « Associations
+  existantes » affiche le **total serveur**, plus le nombre d'éléments chargés.
+  Création et suppression d'une association resynchronisent la liste.
+- **`listDispensesPage`** ajouté dans [api_service.dart](resume/lib/services/api_service.dart) ;
+  l'ancien `listDispenses()` (liste complète) reste disponible pour les appels
+  sans pagination.
+- Tests : `DispensesPaginationTest` — 3 tests (pages successives, liste
+  complète sans paramètre, paramètres invalides). Les 11 tests d'audit passent.
+
+### Reste à faire
+
+- Le badge de notifications interroge toujours `/unread-count/` séparément ;
+  c'est le comportement attendu d'un badge, la liste expose déjà son
+  `unread_count`.
+- Vérifier sur un appareil avec un volume réaliste (plus de 20 résumés /
+  tentatives / associations) le chargement progressif et le retour visuel.
+
+### Fichiers à déployer
+
+Backend :
+
+```
+backend/courses/personalized_exercise_views.py
+backend/courses/exercise_views.py
+backend/courses/views.py
+backend/notifications/views.py
+backend/notifications/models.py
+backend/notifications/migrations/0003_usernotification_notif_user_is_read_idx_and_more.py
+```
+
+Puis `python manage.py migrate`.
+
+Flutter (nouvelle build) :
+
+```
+lib/services/api_service.dart
+lib/features/validation/screens/validation_screen.dart
+lib/features/exercises/screens/exercises_screen.dart
+lib/features/upload/screens/associate_prof_cours_screen.dart
+```
+
+Ne pas oublier les fichiers P0 audio de la session précédente s'ils ne sont pas
+encore déployés : `backend/courses/audio_processing.py`,
+`backend/courses/serializers.py`, `backend/courses/views.py` et
+`lib/features/upload/screens/audio_sessions_screen.dart`.
+
 ## Décision demandée
 
-Aucun code n’a été modifié. Après validation, je propose de corriger dans cet ordre :
-
-1. **P0 audio** : querysets + serializer + `get_audio_info` + isolation + polling.
-2. **P1 tentatives** : annotation `Count` + pagination.
-3. **P1 validation** : pagination + filtre serveur.
-4. **P2 notifications** : index + réduction des COUNT.
-
-Dis-moi si tu valides cet ordre, ou si tu veux commencer par une interface précise.
+L'audit et toutes ses corrections sont terminés : P0 audio, P1/P2 backend,
+adaptation Flutter et P3 dispenses. Prochaine étape : **déployer** le backend
+(fichiers listés ci-dessus + `migrate`), reconstruire l'application, puis
+passer au **chantier 2** (IA / Celery).

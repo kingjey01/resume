@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/features/purchases/screens/payment_status_screen.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/payment_recipient_selector.dart';
+import 'package:resume_plus_clean/services/storage_service.dart';
 
 class ExerciseSubscriptionScreen extends StatefulWidget {
   const ExerciseSubscriptionScreen({super.key});
@@ -13,6 +15,7 @@ class ExerciseSubscriptionScreen extends StatefulWidget {
 class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen> {
   final ApiService _apiService = ApiService();
   final TextEditingController _phoneController = TextEditingController();
+  final PaymentRecipientController _recipient = PaymentRecipientController();
 
   bool _isLoadingServices = true;
   bool _isProcessingPayment = false;
@@ -22,12 +25,22 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
   @override
   void initState() {
     super.initState();
+    _phoneController.text = '';
     _loadServices();
+    _prefillAccountPhone();
+  }
+
+  Future<void> _prefillAccountPhone() async {
+    final phone = await StorageService().getRegisteredPhone();
+    if (!mounted || phone == null || phone.isEmpty) return;
+    setState(() => _phoneController.text = phone);
+    _recipient.setPayerPhone(phone);
   }
 
   @override
   void dispose() {
     _phoneController.dispose();
+    _recipient.dispose();
     super.dispose();
   }
 
@@ -63,10 +76,24 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
       return;
     }
 
-    final phone = _phoneController.text.trim();
+    final isGift = _recipient.isGift;
+    final phone = isGift
+        ? _recipient.payerPhone.trim()
+        : _phoneController.text.trim();
     if (phone.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez entrer votre numéro de téléphone')),
+        SnackBar(
+          content: Text(isGift
+              ? 'Veuillez entrer le numéro du payeur'
+              : 'Veuillez entrer votre numéro de téléphone'),
+        ),
+      );
+      return;
+    }
+    if (isGift && !_recipient.isReady) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+            content: Text('Vérifiez le numéro du bénéficiaire avant de payer')),
       );
       return;
     }
@@ -75,7 +102,12 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
 
     try {
       final serviceId = _selectedService!['id'] as int;
-      final result = await _apiService.initiateSubscriptionPayment(serviceId, phone);
+      final result = await _apiService.initiateSubscriptionPayment(
+        serviceId,
+        phone,
+        beneficiaryPhone:
+            isGift ? _recipient.beneficiaryPhone.trim() : null,
+      );
 
       if (!mounted) return;
 
@@ -88,7 +120,10 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
         setState(() => _isProcessingPayment = false);
 
         if (isSimulated) {
-          _showSuccessDialog();
+          _showSuccessDialog(
+            isGift: isGift,
+            beneficiaryName: _recipient.verifiedName,
+          );
         } else if (reference.isNotEmpty) {
           if (!mounted) return;
           final subscribed = await Navigator.of(context).push<bool>(
@@ -100,12 +135,16 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                 currency: currency,
                 successMessage: 'Abonnement activé !',
                 successSubtitle: 'Votre abonnement au service d\'exercices\nest maintenant actif.',
-                onPaymentConfirmed: () async {
-                  await _apiService.createSubscriptionAfterPayment(
-                    reference,
-                    serviceId,
-                  );
-                },
+                isGift: isGift,
+                beneficiaryName: _recipient.verifiedName,
+                onPaymentConfirmed: isGift
+                    ? null
+                    : () async {
+                        await _apiService.createSubscriptionAfterPayment(
+                          reference,
+                          serviceId,
+                        );
+                      },
               ),
             ),
           );
@@ -128,22 +167,32 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
     }
   }
 
-  void _showSuccessDialog() {
+  void _showSuccessDialog({bool isGift = false, String? beneficiaryName}) {
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-        title: const Row(
+        title: Row(
           children: [
-            Icon(Icons.check_circle_rounded, color: AppTheme.success, size: 28),
-            SizedBox(width: 10),
-            Expanded(child: Text('Abonnement activé !', style: TextStyle(fontSize: 18))),
+            const Icon(Icons.check_circle_rounded,
+                color: AppTheme.success, size: 28),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                isGift ? 'Abonnement offert !' : 'Abonnement activé !',
+                style: const TextStyle(fontSize: 18),
+              ),
+            ),
           ],
         ),
-        content: const Text(
-          'Votre abonnement au service d\'exercices est maintenant actif. '
-          'Vous pouvez générer des QCM sur tous les résumés validés.',
+        content: Text(
+          isGift
+              ? 'L\'abonnement QCM a été attribué à '
+                  '${beneficiaryName ?? 'l\'étudiant bénéficiaire'}.\n'
+                  'Vous êtes enregistré comme payeur.'
+              : 'Votre abonnement au service d\'exercices est maintenant actif. '
+                  'Vous pouvez générer des QCM sur tous les résumés validés.',
         ),
         actions: [
           ElevatedButton(
@@ -215,8 +264,17 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
 
                   const SizedBox(height: 24),
 
-                  // Phone number input
+                  // Paiement pour soi ou pour un autre étudiant (Android).
                   if (_selectedService != null) ...[
+                    PaymentRecipientSelector(
+                      controller: _recipient,
+                      apiService: _apiService,
+                      onModeChanged: (_) => setState(() {}),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
+                  // Phone number input
+                  if (_selectedService != null && !_recipient.isGift) ...[
                     Text(
                       'Numéro Mobile Money',
                       style: theme.textTheme.titleMedium?.copyWith(
@@ -245,6 +303,8 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                         ),
                       ),
                     ),
+                  ],
+                  if (_selectedService != null) ...[
                     const SizedBox(height: 20),
 
                     // Pay button

@@ -13,14 +13,22 @@ class AssociateProfCoursScreen extends StatefulWidget {
 
 class _AssociateProfCoursScreenState extends State<AssociateProfCoursScreen> {
   final ApiService _apiService = ApiService();
+  final ScrollController _scrollController = ScrollController();
+
+  static const int _pageSize = 20;
 
   bool _isLoadingData = true;
   bool _isAssociating = false;
   bool _isLoadingDispenses = false;
+  bool _isLoadingMoreDispenses = false;
 
   List<Map<String, dynamic>> _professeurs = [];
   List<Map<String, dynamic>> _cours = [];
   List<Map<String, dynamic>> _dispenses = [];
+
+  int _dispensesTotal = 0;
+  int _dispensesPage = 1;
+  bool _hasMoreDispenses = false;
 
   Map<String, dynamic>? _selectedProf;
   Map<String, dynamic>? _selectedCours;
@@ -28,21 +36,43 @@ class _AssociateProfCoursScreenState extends State<AssociateProfCoursScreen> {
   @override
   void initState() {
     super.initState();
+    _scrollController.addListener(_onScroll);
     _loadAll();
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients) return;
+    final position = _scrollController.position;
+    if (position.pixels >= position.maxScrollExtent - 300) {
+      _loadDispenses(reset: false);
+    }
   }
 
   Future<void> _loadAll() async {
     setState(() => _isLoadingData = true);
     try {
-      final results = await Future.wait([
+      final results = await Future.wait<dynamic>([
         _apiService.getProfesseurs(),
         _apiService.getCourses(),
-        _apiService.listDispenses(),
+        _apiService.listDispensesPage(page: 1, pageSize: _pageSize),
       ]);
+      final dispensePage = results[2] as Map<String, dynamic>;
       setState(() {
         _professeurs = results[0].cast<Map<String, dynamic>>();
         _cours = results[1].cast<Map<String, dynamic>>();
-        _dispenses = results[2].cast<Map<String, dynamic>>();
+        _dispenses = (dispensePage['results'] as List<dynamic>? ?? [])
+            .map((d) => Map<String, dynamic>.from(d as Map))
+            .toList();
+        _dispensesTotal =
+            (dispensePage['total'] as num?)?.toInt() ?? _dispenses.length;
+        _dispensesPage = (dispensePage['page'] as num?)?.toInt() ?? 1;
+        _hasMoreDispenses = dispensePage['has_more'] == true;
         _isLoadingData = false;
       });
     } catch (_) {
@@ -50,16 +80,48 @@ class _AssociateProfCoursScreenState extends State<AssociateProfCoursScreen> {
     }
   }
 
-  Future<void> _loadDispenses() async {
-    setState(() => _isLoadingDispenses = true);
+  /// Charge les associations. `reset: true` repart de la page 1 ;
+  /// `reset: false` ajoute la page suivante au défilement.
+  Future<void> _loadDispenses({bool reset = true}) async {
+    if (!reset &&
+        (_isLoadingMoreDispenses || !_hasMoreDispenses || _isLoadingData)) {
+      return;
+    }
+    if (reset) {
+      setState(() => _isLoadingDispenses = true);
+    } else {
+      setState(() => _isLoadingMoreDispenses = true);
+    }
+
+    final requestedPage = reset ? 1 : _dispensesPage + 1;
     try {
-      final data = await _apiService.listDispenses();
+      final data = await _apiService.listDispensesPage(
+        page: requestedPage,
+        pageSize: _pageSize,
+      );
+      if (!mounted) return;
+      final items = (data['results'] as List<dynamic>? ?? [])
+          .map((d) => Map<String, dynamic>.from(d as Map))
+          .toList();
       setState(() {
-        _dispenses = data.cast<Map<String, dynamic>>();
+        if (reset) {
+          _dispenses = items;
+        } else {
+          _dispenses.addAll(items);
+        }
+        _dispensesPage = (data['page'] as num?)?.toInt() ?? requestedPage;
+        _dispensesTotal =
+            (data['total'] as num?)?.toInt() ?? _dispenses.length;
+        _hasMoreDispenses = data['has_more'] == true;
         _isLoadingDispenses = false;
+        _isLoadingMoreDispenses = false;
       });
     } catch (_) {
-      setState(() => _isLoadingDispenses = false);
+      if (!mounted) return;
+      setState(() {
+        _isLoadingDispenses = false;
+        _isLoadingMoreDispenses = false;
+      });
     }
   }
 
@@ -206,6 +268,7 @@ class _AssociateProfCoursScreenState extends State<AssociateProfCoursScreen> {
               child: _isLoadingData
                   ? const Center(child: CircularProgressIndicator())
                   : SingleChildScrollView(
+                      controller: _scrollController,
                       padding: const EdgeInsets.fromLTRB(20, 24, 20, 32),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -314,7 +377,7 @@ class _AssociateProfCoursScreenState extends State<AssociateProfCoursScreen> {
                                     borderRadius: BorderRadius.circular(20),
                                   ),
                                   child: Text(
-                                    '${_dispenses.length}',
+                                    '$_dispensesTotal',
                                     style: const TextStyle(
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
@@ -348,6 +411,18 @@ class _AssociateProfCoursScreenState extends State<AssociateProfCoursScreen> {
                             ),
 
                           ...(_dispenses.map((d) => _buildDispenseCard(d))),
+                          if (_isLoadingMoreDispenses)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 16),
+                              child: Center(
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2),
+                                ),
+                              ),
+                            ),
                         ],
                       ),
                     ),
