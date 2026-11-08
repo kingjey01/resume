@@ -1,5 +1,5 @@
 from django.urls import path
-from . import views
+from . import apple_views, views
 from .flexpay_integration import (
     initiate_subscription_payment,
     initiate_summary_purchase,
@@ -10,6 +10,11 @@ from .flexpay_integration import (
 urlpatterns = [
     # Tâche 70 — vérification du bénéficiaire « Payer pour un autre ».
     path('beneficiary/verify/', views.verify_beneficiary, name='verify-beneficiary'),
+
+    # Tâche 71 — Apple In-App Purchase.
+    path('apple/products/', apple_views.apple_products_view, name='apple-products'),
+    path('apple/verify/', apple_views.apple_verify_view, name='apple-verify'),
+    path('apple/notifications/', apple_views.apple_notifications_view, name='apple-notifications'),
 
     path('purchases/', views.PurchaseListCreateView.as_view(), name='purchase-list-create'),
     path('purchases/<int:pk>/', views.PurchaseDetailView.as_view(), name='purchase-detail'),

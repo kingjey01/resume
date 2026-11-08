@@ -2384,8 +2384,10 @@ class _RecordAudioScreenState extends State<RecordAudioScreen>
                 ],
                 const SizedBox(height: 2),
                 Text(
-                  'Vous pouvez quitter l\'application, l\'envoi continuera '
-                  'en arrière-plan.',
+                  'Vous pouvez mettre l\'application en arrière-plan pendant '
+                  'le sauvegarde. Toutefois, ne verrouillez pas votre téléphone '
+                  'avant la fin du transfert, afin d\'éviter toute interruption '
+                  'de l\'envoi.',
                   textAlign: TextAlign.center,
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppTheme.textLight,

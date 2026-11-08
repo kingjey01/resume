@@ -1,4 +1,8 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/apple_purchase_button.dart';
 import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'package:resume_plus_clean/features/purchases/screens/payment_status_screen.dart';
@@ -19,6 +23,8 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
 
   bool _isLoadingServices = true;
   bool _isProcessingPayment = false;
+
+  bool get _isApplePlatform => !kIsWeb && Platform.isIOS;
   List<dynamic> _services = [];
   Map<String, dynamic>? _selectedService;
 
@@ -265,7 +271,7 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                   const SizedBox(height: 24),
 
                   // Paiement pour soi ou pour un autre étudiant (Android).
-                  if (_selectedService != null) ...[
+                  if (_selectedService != null && !_isApplePlatform) ...[
                     PaymentRecipientSelector(
                       controller: _recipient,
                       apiService: _apiService,
@@ -273,8 +279,10 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                     ),
                     const SizedBox(height: 16),
                   ],
-                  // Phone number input
-                  if (_selectedService != null && !_recipient.isGift) ...[
+                  // Phone number input (FlexPay — Android/Web uniquement)
+                  if (_selectedService != null &&
+                      !_recipient.isGift &&
+                      !_isApplePlatform) ...[
                     Text(
                       'Numéro Mobile Money',
                       style: theme.textTheme.titleMedium?.copyWith(
@@ -307,6 +315,23 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                   if (_selectedService != null) ...[
                     const SizedBox(height: 20),
 
+                    if (_isApplePlatform) ...[
+                      ApplePurchaseButton(
+                        serviceId:
+                            (_selectedService!['id'] as num).toInt(),
+                        title: _selectedService!['name']?.toString() ??
+                            'Exercices QCM',
+                        onSuccess: () {
+                          if (mounted) Navigator.of(context).pop(true);
+                        },
+                      ),
+                      const SizedBox(height: 8),
+                      AppleRestoreButton(
+                        onRestored: () {
+                          if (mounted) Navigator.of(context).pop(true);
+                        },
+                      ),
+                    ] else ...[
                     // Pay button
                     SizedBox(
                       width: double.infinity,
@@ -335,6 +360,7 @@ class _ExerciseSubscriptionScreenState extends State<ExerciseSubscriptionScreen>
                               ),
                       ),
                     ),
+                    ],
                     const SizedBox(height: 40),
                   ],
                 ],

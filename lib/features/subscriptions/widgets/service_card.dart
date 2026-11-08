@@ -1,5 +1,9 @@
+import 'dart:io' show Platform;
+
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/apple_purchase_button.dart';
 import 'package:resume_plus_clean/models/service.dart';
 import 'package:resume_plus_clean/models/abonnement.dart';
 import 'package:resume_plus_clean/features/subscriptions/providers/subscription_provider.dart';
@@ -160,7 +164,52 @@ class ServiceCard extends ConsumerWidget {
     return '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
   }
 
+  void _showAppleSubscriptionDialog(BuildContext context, WidgetRef ref) {
+    showDialog(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('S\'abonner à ${service.nom}'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Montant : ${service.prix.toStringAsFixed(0)} FC',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            ApplePurchaseButton(
+              serviceId: service.id,
+              title: service.nom,
+              onSuccess: () {
+                if (dialogContext.mounted) {
+                  Navigator.of(dialogContext).pop();
+                }
+                ref.invalidate(subscriptionsProvider);
+                SnackbarService.showSuccess(
+                    'Abonnement activé via l\'App Store !');
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Annuler'),
+          ),
+        ],
+      ),
+    );
+  }
+
   void _openPaymentDialog(BuildContext context, WidgetRef ref) {
+    // Tâche 71 : sur iOS, abonnement exclusivement via Apple IAP.
+    if (!kIsWeb && Platform.isIOS) {
+      _showAppleSubscriptionDialog(context, ref);
+      return;
+    }
+
     final descriptionController = TextEditingController();
     final formKey = GlobalKey<FormState>();
     

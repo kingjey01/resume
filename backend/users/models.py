@@ -24,6 +24,12 @@ class UserProfile(models.Model):
         help_text="Source de vérité : le CP a-t-il terminé son onboarding ?"
     )
     phone = models.CharField(max_length=20, blank=True, null=True)
+    # Tâche 71 — jeton stable transmis à StoreKit (`appAccountToken`) pour
+    # rattacher une notification Apple au compte avant toute validation client.
+    apple_app_account_token = models.UUIDField(
+        null=True, blank=True, unique=True, db_index=True,
+        help_text="UUID stable dérivé du compte, utilisé par Apple IAP",
+    )
     profile_picture = models.ImageField(upload_to='profile_pictures/', blank=True, null=True)
     
     # Relations vers les nouvelles tables

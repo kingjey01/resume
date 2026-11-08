@@ -5,6 +5,13 @@ from django.utils import timezone
 from datetime import timedelta
 
 
+PAYMENT_SOURCE_CHOICES = [
+    ('flexpay', 'FlexPay'),
+    ('apple', 'Apple In-App Purchase'),
+    ('other', 'Autre'),
+]
+
+
 class Service(models.Model):
     SERVICE_TYPES = [
         ('premium', 'Premium'),
@@ -47,7 +54,14 @@ class Service(models.Model):
             "0 = plafond dérivé du quota mensuel (quota / 30, minimum 1)."
         ),
     )
-    
+
+    # Tâche 71 — identifiant du produit d'abonnement auto-renouvelable Apple.
+    # Vide tant que le produit n'a pas été créé dans App Store Connect.
+    apple_product_id = models.CharField(
+        max_length=200, blank=True, default='',
+        help_text="Identifiant du produit d'abonnement Apple (App Store Connect)",
+    )
+
     def get_date_fin(self, date_debut=None):
         """
         Calcule la date de fin d'un abonnement à ce service.
@@ -84,6 +98,15 @@ class Abonnement(models.Model):
         related_name='abonnements_offerts',
         help_text="Compte payeur ; NULL pour les abonnements antérieurs à la tâche 70",
     )
+    # Tâche 71 — source de l'abonnement (FlexPay, Apple IAP).
+    source = models.CharField(
+        max_length=20, choices=PAYMENT_SOURCE_CHOICES, default='flexpay',
+    )
+    apple_original_transaction_id = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+        help_text="Identifiant de transaction d'origine Apple",
+    )
+    apple_environment = models.CharField(max_length=20, blank=True, null=True)
     service = models.ForeignKey(Service, on_delete=models.CASCADE, related_name='abonnements')
     date_debut = models.DateTimeField(default=timezone.now)
     date_fin = models.DateTimeField()
@@ -162,6 +185,7 @@ class Abonnement(models.Model):
 class Purchase(models.Model):
     PAYMENT_METHODS = [
         ('mobile_money', 'Mobile Money'),
+        ('apple', 'Apple In-App Purchase'),
         #('card', 'Carte Bancaire'),
         #('points', 'Points'),
     ]
@@ -189,6 +213,18 @@ class Purchase(models.Model):
         max_length=20, blank=True, null=True,
         help_text="Numéro du compte bénéficiaire",
     )
+    # Tâche 71 — source du paiement et traçabilité Apple.
+    source = models.CharField(
+        max_length=20, choices=PAYMENT_SOURCE_CHOICES, default='flexpay',
+    )
+    apple_transaction_id = models.CharField(
+        max_length=100, unique=True, null=True, blank=True,
+        help_text="Identifiant de transaction Apple (unique)",
+    )
+    apple_original_transaction_id = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+    )
+    apple_environment = models.CharField(max_length=20, blank=True, null=True)
     summary = models.ForeignKey(Summary, on_delete=models.CASCADE, related_name='purchases', null=True, blank=True)
     service = models.ForeignKey(Service, on_delete=models.SET_NULL, null=True, blank=True, related_name='purchases')
     amount = models.DecimalField(max_digits=10, decimal_places=2)
@@ -220,3 +256,83 @@ class Purchase(models.Model):
         verbose_name = "Achat"
         verbose_name_plural = "Achats"
         ordering = ['-created_at']
+
+
+class AppleTransaction(models.Model):
+    """Journal des transactions Apple validées (tâche 71).
+
+    Sert de source d'idempotence : un `transaction_id` Apple ne peut être
+    traité qu'une seule fois. Aucune donnée de paiement sensible (carte,
+    Apple ID, reçu brut) n'est stockée ici.
+    """
+
+    KIND_CHOICES = [
+        ('consumable', 'Achat consommable'),
+        ('subscription', 'Abonnement'),
+    ]
+    STATUS_CHOICES = [
+        ('granted', 'Droit accordé'),
+        ('refunded', 'Remboursé'),
+        ('revoked', 'Révoqué'),
+        ('ignored', 'Ignoré'),
+    ]
+
+    user = models.ForeignKey(
+        User, on_delete=models.CASCADE, related_name='apple_transactions',
+    )
+    product_id = models.CharField(max_length=200, db_index=True)
+    transaction_id = models.CharField(max_length=100, unique=True)
+    original_transaction_id = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+    )
+    purchase_date = models.DateTimeField(null=True, blank=True)
+    expires_date = models.DateTimeField(null=True, blank=True)
+    environment = models.CharField(max_length=20)
+    status = models.CharField(
+        max_length=20, choices=STATUS_CHOICES, default='granted',
+    )
+    kind = models.CharField(max_length=20, choices=KIND_CHOICES)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = "Transaction Apple"
+        verbose_name_plural = "Transactions Apple"
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['user', 'product_id']),
+            models.Index(fields=['original_transaction_id', '-created_at']),
+        ]
+
+    def __str__(self):
+        return f"{self.user.username} - {self.product_id} - {self.status}"
+
+
+class AppleNotification(models.Model):
+    """Journal idempotent des App Store Server Notifications V2."""
+
+    notification_uuid = models.CharField(max_length=100, unique=True)
+    notification_type = models.CharField(max_length=50)
+    subtype = models.CharField(max_length=50, blank=True, null=True)
+    transaction_id = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+    )
+    original_transaction_id = models.CharField(
+        max_length=100, blank=True, null=True, db_index=True,
+    )
+    environment = models.CharField(max_length=20, blank=True, null=True)
+    processing_status = models.CharField(
+        max_length=20, default='received',
+        help_text="received / processed / ignored / error",
+    )
+    error_message = models.CharField(max_length=255, blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    processed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = "Notification Apple"
+        verbose_name_plural = "Notifications Apple"
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f"{self.notification_type} - {self.notification_uuid}"

@@ -353,6 +353,19 @@ FLEXPAY_API_URL = config(
 )
 FLEXPAY_API_TOKEN = config('FLEXPAY_API_TOKEN', default='')
 
+# ========================================
+# APPLE IN-APP PURCHASE (tâche 71)
+# ========================================
+APPLE_BUNDLE_ID = config(
+    'APPLE_BUNDLE_ID', default='com.kingjey01.resumeplus',
+)
+APPLE_ISSUER_ID = config('APPLE_ISSUER_ID', default='')
+APPLE_KEY_ID = config('APPLE_KEY_ID', default='')
+APPLE_PRIVATE_KEY_PATH = config('APPLE_PRIVATE_KEY_PATH', default='')
+APPLE_ENVIRONMENT = config('APPLE_ENVIRONMENT', default='Production')
+APPLE_APP_APPLE_ID = config('APPLE_APP_APPLE_ID', default='')
+APPLE_SUMMARY_PRODUCTS = config('APPLE_SUMMARY_PRODUCTS', default='{}')
+
 CELERY_BROKER_URL = config('CELERY_BROKER_URL', default='redis://127.0.0.1:6379/0')
 CELERY_RESULT_BACKEND = config('CELERY_RESULT_BACKEND', default='redis://127.0.0.1:6379/0')
 CELERY_ACCEPT_CONTENT = ['json']

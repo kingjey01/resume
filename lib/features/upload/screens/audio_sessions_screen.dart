@@ -773,10 +773,8 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen>
   }
 
   Widget _buildSessionCard(Map<String, dynamic> session) {
-    final audioUrl = session['audio_file'] as String?;
     final sessionId = session['id'] as int?;
     final status = session['processing_status'] as String? ?? 'pending';
-    final isCurrentlyPlaying = _currentPlayingUrl == audioUrl && _isPlaying;
     final isProcessing = sessionId != null && _processingSessionIds.contains(sessionId);
     final hasTranscription = session['has_ai_summary'] == true;
     final duration = session['audio_duration_formatted'] as String? ?? '00:00';
@@ -956,22 +954,6 @@ class _AudioSessionsScreenState extends State<AudioSessionsScreen>
             
             Row(
               children: [
-                if (audioUrl != null)
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: () => _playAudio(audioUrl),
-                      icon: Icon(isCurrentlyPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded, size: 18),
-                      label: Text(isCurrentlyPlaying ? 'Pause' : 'Écouter'),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: AppTheme.primaryBlue,
-                        side: const BorderSide(color: AppTheme.primaryBlue, width: 1.2),
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                      ),
-                    ),
-                  ),
-                const SizedBox(width: 8),
-
                 // SUPPRIMER (tâche 42, §2) — seulement « En attente » ou
                 // « En échec » : les deux états où le serveur l'autorise. Une
                 // transcription en cours ou un enregistrement déjà traité ne se

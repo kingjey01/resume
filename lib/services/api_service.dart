@@ -1561,6 +1561,45 @@ class ApiService {
     }
   }
 
+  /// Configuration des produits Apple IAP (tâche 71).
+  Future<Map<String, dynamic>> getAppleProducts() async {
+    try {
+      final response = await _dio.get('/apple/products/');
+      if (response.statusCode == 200) {
+        return response.data as Map<String, dynamic>;
+      }
+      throw ApiException('Impossible de charger les produits Apple.',
+          type: ApiExceptionType.server);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
+    }
+  }
+
+  /// Valide une transaction Apple signée auprès du backend.
+  ///
+  /// La transaction JWS est vérifiée côté serveur ; l'application ne doit
+  /// jamais accorder de droit sur le seul retour StoreKit.
+  Future<Map<String, dynamic>> verifyApplePurchase({
+    required String signedTransaction,
+    int? summaryId,
+  }) async {
+    try {
+      final response = await _dio.post('/apple/verify/', data: {
+        'signed_transaction': signedTransaction,
+        if (summaryId != null) 'summary_id': summaryId,
+      });
+      if (response.statusCode == 200) {
+        return response.data as Map<String, dynamic>;
+      }
+      throw ApiException('Transaction Apple refusée.',
+          type: ApiExceptionType.server);
+    } catch (e) {
+      if (e is ApiException) rethrow;
+      throw ApiException(getErrorMessage(e), type: ApiExceptionType.unknown, originalError: e);
+    }
+  }
+
   Future<Map<String, dynamic>> initiateSummaryPurchase({
     required int summaryId,
     required String phoneNumber,

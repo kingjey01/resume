@@ -7,6 +7,9 @@ import 'package:resume_plus_clean/services/otp_service.dart';
 import 'package:resume_plus_clean/services/storage_service.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
+import 'package:resume_plus_clean/services/apple_iap/apple_iap_service_stub.dart'
+    if (dart.library.io)
+        'package:resume_plus_clean/services/apple_iap/apple_iap_service_io.dart';
 import 'package:resume_plus_clean/features/onboarding/cp_onboarding_flow.dart';
 import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
@@ -188,6 +191,13 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
             print('🔴 [OTP] Badge d\'icône synchronisé');
           } catch (e) {
             print('⚠️ [OTP] Badge sync error: $e');
+          }
+
+          // Tâche 71 : transactions Apple en attente (iOS uniquement).
+          try {
+            await AppleIapService.instance.initialize();
+          } catch (e) {
+            print('⚠️ [OTP] Apple IAP init (non bloquant): $e');
           }
         }
         

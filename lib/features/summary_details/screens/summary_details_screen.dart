@@ -23,6 +23,7 @@ import 'package:resume_plus_clean/features/exercises/widgets/difficulty_selector
 import 'package:resume_plus_clean/features/exercises/widgets/exercise_generation_progress.dart';
 import 'package:resume_plus_clean/features/purchases/screens/payment_status_screen.dart';
 import 'package:resume_plus_clean/features/purchases/widgets/payment_recipient_selector.dart';
+import 'package:resume_plus_clean/features/purchases/widgets/apple_purchase_button.dart';
 import 'package:resume_plus_clean/features/auth/providers/auth_provider.dart';
 import 'package:resume_plus_clean/widgets/ai_content_view.dart';
 import 'package:resume_plus_clean/widgets/api_error_view.dart';
@@ -656,6 +657,13 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
   }
 
   Future<void> _initiatePurchase() async {
+    // Tâche 71 : sur iOS, aucun paiement externe. Le résumé s'achète
+    // exclusivement via Apple In-App Purchase ; Android et Web gardent FlexPay.
+    if (!kIsWeb && Platform.isIOS) {
+      await _showApplePurchaseDialog();
+      return;
+    }
+
     final registeredPhone = ref.read(currentUserProvider)?.phone ??
         await StorageService().getRegisteredPhone() ??
         '';
@@ -806,6 +814,52 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
           },
         );
       },
+    );
+  }
+
+  Future<void> _showApplePurchaseDialog() async {
+    await showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Acheter le résumé'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              'Prix : ${widget.summary.price.toStringAsFixed(0)} FC',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
+                    color: Colors.green,
+                  ),
+            ),
+            const SizedBox(height: 16),
+            ApplePurchaseButton(
+              summaryId: widget.summary.id,
+              summaryPrice: widget.summary.price,
+              title: widget.summary.title,
+              onSuccess: () {
+                if (!mounted) return;
+                Navigator.of(dialogContext).pop();
+                _checkPurchaseStatus();
+                _fetchFullSummary();
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                    content: Text('Achat Apple confirmé !'),
+                    backgroundColor: Colors.green,
+                  ),
+                );
+              },
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Annuler'),
+          ),
+        ],
+      ),
     );
   }
 

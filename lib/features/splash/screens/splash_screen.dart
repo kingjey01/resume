@@ -8,6 +8,9 @@ import 'package:resume_plus_clean/services/api_service.dart';
 import 'package:resume_plus_clean/services/version_service.dart';
 import 'package:resume_plus_clean/services/badge_service.dart';
 import 'package:resume_plus_clean/services/fcm_service.dart';
+import 'package:resume_plus_clean/services/apple_iap/apple_iap_service_stub.dart'
+    if (dart.library.io)
+        'package:resume_plus_clean/services/apple_iap/apple_iap_service_io.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:resume_plus_clean/theme/app_theme.dart';
 import 'force_update_screen.dart';
@@ -111,6 +114,14 @@ class _SplashScreenState extends State<SplashScreen> with SingleTickerProviderSt
             print('🔔 [Splash] Ré-enregistrement token FCM: ${registered ? "✅ OK" : "⚠️ sans token/ignoré"}');
           } catch (e) {
             print('⚠️ [Splash] Ré-enregistrement token FCM (non bloquant): $e');
+          }
+
+          // Tâche 71 : écouter les transactions Apple en attente dès que la
+          // session est active (iOS uniquement, sans effet ailleurs).
+          try {
+            await AppleIapService.instance.initialize();
+          } catch (e) {
+            print('⚠️ [Splash] Apple IAP init (non bloquant): $e');
           }
         }
 

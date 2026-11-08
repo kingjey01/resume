@@ -501,6 +501,22 @@ FLEXPAY_API_URL = config(
 )
 FLEXPAY_API_TOKEN = config('FLEXPAY_API_TOKEN', default='')
 
+# ========================================
+# APPLE IN-APP PURCHASE (tâche 71)
+# ========================================
+# Aucune valeur secrète n'est stockée ici. La clé privée Apple est lue depuis
+# le chemin indiqué par APPLE_PRIVATE_KEY_PATH, jamais commitée.
+APPLE_BUNDLE_ID = config(
+    'APPLE_BUNDLE_ID', default='com.kingjey01.resumeplus',
+)
+APPLE_ISSUER_ID = config('APPLE_ISSUER_ID', default='')
+APPLE_KEY_ID = config('APPLE_KEY_ID', default='')
+APPLE_PRIVATE_KEY_PATH = config('APPLE_PRIVATE_KEY_PATH', default='')
+APPLE_ENVIRONMENT = config('APPLE_ENVIRONMENT', default='Sandbox')
+APPLE_APP_APPLE_ID = config('APPLE_APP_APPLE_ID', default='')
+# JSON {product_id: prix_cdf} pour les achats de résumé.
+APPLE_SUMMARY_PRODUCTS = config('APPLE_SUMMARY_PRODUCTS', default='{}')
+
 # =============================================
 # CELERY CONFIGURATION
 # =============================================

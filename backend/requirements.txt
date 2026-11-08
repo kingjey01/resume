@@ -15,3 +15,5 @@ mutagen==1.47.0
 firebase-admin==6.4.0
 django-filter==23.5
 openpyxl==3.0.10
+# Tâche 71 — validation Apple In-App Purchase (bibliothèque officielle Apple).
+app-store-server-library==3.1.2

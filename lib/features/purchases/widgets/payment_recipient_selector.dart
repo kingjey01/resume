@@ -147,6 +147,73 @@ class _PaymentRecipientSelectorState extends State<PaymentRecipientSelector> {
     super.dispose();
   }
 
+  Widget _buildModeTile(
+    BuildContext context, {
+    required String label,
+    required String subtitle,
+    required IconData icon,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final primary = theme.colorScheme.primary;
+
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          color: selected
+              ? primary.withValues(alpha: 0.08)
+              : theme.colorScheme.surface,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(
+            color: selected
+                ? primary
+                : theme.dividerColor.withValues(alpha: 0.5),
+            width: selected ? 1.5 : 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              icon,
+              size: 20,
+              color: selected ? primary : theme.colorScheme.onSurfaceVariant,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    label,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            if (selected)
+              Icon(Icons.check_circle_rounded, size: 20, color: primary),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!payForSomeoneEnabled) return const SizedBox.shrink();
@@ -160,29 +227,30 @@ class _PaymentRecipientSelectorState extends State<PaymentRecipientSelector> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                ChoiceChip(
-                  label: const Text('Payer pour moi'),
-                  avatar: const Icon(Icons.person_rounded, size: 18),
-                  selected: !controller.isGift,
-                  onSelected: (_) {
-                    controller.setMode(false);
-                    widget.onModeChanged?.call(false);
-                  },
-                ),
-                ChoiceChip(
-                  label: const Text('Payer pour un autre'),
-                  avatar: const Icon(Icons.card_giftcard_rounded, size: 18),
-                  selected: controller.isGift,
-                  onSelected: (_) {
-                    controller.setMode(true);
-                    widget.onModeChanged?.call(true);
-                  },
-                ),
-              ],
+            // Deux tuiles empilées : aucun chevauchement possible dans une
+            // fenêtre de paiement étroite (téléphone ou AlertDialog).
+            _buildModeTile(
+              context,
+              label: 'Payer pour moi',
+              subtitle: 'L\'achat sera ajouté à mon compte',
+              icon: Icons.person_rounded,
+              selected: !controller.isGift,
+              onTap: () {
+                controller.setMode(false);
+                widget.onModeChanged?.call(false);
+              },
+            ),
+            const SizedBox(height: 8),
+            _buildModeTile(
+              context,
+              label: 'Payer pour un autre',
+              subtitle: 'Offrir l\'achat à un autre étudiant',
+              icon: Icons.card_giftcard_rounded,
+              selected: controller.isGift,
+              onTap: () {
+                controller.setMode(true);
+                widget.onModeChanged?.call(true);
+              },
             ),
             if (controller.isGift) ...[
               const SizedBox(height: 16),
