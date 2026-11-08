@@ -164,8 +164,19 @@ FlexPay sur iOS.
    `https://<domaine>/api/apple/notifications/`.
 4. Appliquer les migrations :
    `python manage.py migrate`.
-5. Redémarrer Gunicorn/Celery.
-6. Vérifier `/api/apple/products/` avec un compte authentifié.
+5. Préremplir les données de déploiement (sans utilisateur ni donnée de test) :
+   ```bash
+   python manage.py seed_deployment \
+     --qcm-product-id <produit Apple QCM> \
+     --summary-product <produit résumé 300>=300 \
+     --summary-product <produit résumé 500>=500
+   ```
+   La commande est idempotente, ne supprime rien et n'invente aucun identifiant
+   Apple. Elle affiche la ligne `APPLE_SUMMARY_PRODUCTS` à ajouter au `.env`.
+   Options utiles : `--with-legacy-plans`, `--update-existing`, `--dry-run`,
+   `--skip-reference`.
+6. Redémarrer Gunicorn/Celery.
+7. Vérifier `/api/apple/products/` avec un compte authentifié.
 
 ## 11. Retour arrière
 
