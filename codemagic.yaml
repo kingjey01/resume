@@ -241,7 +241,7 @@ workflows:
           if [ -n "$ipa" ]; then
             echo "=== Info.plist embarque dans $(basename "$ipa") ==="
             unzip -p "$ipa" "Payload/Runner.app/Info.plist" | plutil -p - \
-              | grep -E "UsageDescription|ITSAppUsesNonExemptEncryption|UIRequiresFullScreen" || true
+              | grep -E "CFBundleVersion|CFBundleShortVersionString|UsageDescription|ITSAppUsesNonExemptEncryption|UIRequiresFullScreen" || true
             echo "=== fichiers embarques (extrait) ==="
             unzip -l "$ipa" | grep -E "GoogleService|Runner.app/Info.plist" || true
           else
