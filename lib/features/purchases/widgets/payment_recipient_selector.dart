@@ -19,7 +19,8 @@ bool get payForSomeoneEnabled =>
     !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
 
 class PaymentRecipientController extends ChangeNotifier {
-  PaymentRecipientController({String? payerPhone}) : payerPhone = payerPhone ?? '';
+  PaymentRecipientController({String? payerPhone})
+      : payerPhone = payerPhone ?? '';
 
   bool isGift = false;
   String payerPhone;
@@ -169,9 +170,8 @@ class _PaymentRecipientSelectorState extends State<PaymentRecipientSelector> {
               : theme.colorScheme.surface,
           borderRadius: BorderRadius.circular(10),
           border: Border.all(
-            color: selected
-                ? primary
-                : theme.dividerColor.withValues(alpha: 0.5),
+            color:
+                selected ? primary : theme.dividerColor.withValues(alpha: 0.5),
             width: selected ? 1.5 : 1,
           ),
         ),
@@ -224,131 +224,136 @@ class _PaymentRecipientSelectorState extends State<PaymentRecipientSelector> {
     return ListenableBuilder(
       listenable: controller,
       builder: (context, _) {
-        return Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Deux tuiles empilées : aucun chevauchement possible dans une
-            // fenêtre de paiement étroite (téléphone ou AlertDialog).
-            _buildModeTile(
-              context,
-              label: 'Payer pour moi',
-              subtitle: 'L\'achat sera ajouté à mon compte',
-              icon: Icons.person_rounded,
-              selected: !controller.isGift,
-              onTap: () {
-                controller.setMode(false);
-                widget.onModeChanged?.call(false);
-              },
-            ),
-            const SizedBox(height: 8),
-            _buildModeTile(
-              context,
-              label: 'Payer pour un autre',
-              subtitle: 'Offrir l\'achat à un autre étudiant',
-              icon: Icons.card_giftcard_rounded,
-              selected: controller.isGift,
-              onTap: () {
-                controller.setMode(true);
-                widget.onModeChanged?.call(true);
-              },
-            ),
-            if (controller.isGift) ...[
-              const SizedBox(height: 16),
-              TextField(
-                controller: _payerController,
-                keyboardType: TextInputType.phone,
-                decoration: const InputDecoration(
-                  labelText: 'Numéro du payeur (Mobile Money)',
-                  hintText: 'Ex: 0973123456',
-                  prefixIcon: Icon(Icons.payments_outlined),
-                  border: OutlineInputBorder(),
-                ),
-                onChanged: controller.setPayerPhone,
+        // Marge extérieure basse : évite tout chevauchement avec le champ
+        // suivant (notamment dans « Paramètres → Gérer votre abonnement »).
+        return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              // Deux tuiles empilées : aucun chevauchement possible dans une
+              // fenêtre de paiement étroite (téléphone ou AlertDialog).
+              _buildModeTile(
+                context,
+                label: 'Payer pour moi',
+                subtitle: 'L\'achat sera ajouté à mon compte',
+                icon: Icons.person_rounded,
+                selected: !controller.isGift,
+                onTap: () {
+                  controller.setMode(false);
+                  widget.onModeChanged?.call(false);
+                },
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: _beneficiaryController,
-                keyboardType: TextInputType.phone,
-                decoration: InputDecoration(
-                  labelText: 'Numéro du bénéficiaire',
-                  hintText: 'Compte étudiant qui reçoit l\'achat',
-                  prefixIcon: const Icon(Icons.school_outlined),
-                  border: const OutlineInputBorder(),
-                  suffixIcon: TextButton(
-                    onPressed: controller.isVerifying
-                        ? null
-                        : () => controller.verify(widget.apiService),
-                    child: controller.isVerifying
-                        ? const SizedBox(
-                            width: 16,
-                            height: 16,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('Vérifier'),
-                  ),
-                ),
-                onChanged: controller.setBeneficiaryPhone,
+              const SizedBox(height: 8),
+              _buildModeTile(
+                context,
+                label: 'Payer pour un autre',
+                subtitle: 'Offrir l\'achat à un autre étudiant',
+                icon: Icons.card_giftcard_rounded,
+                selected: controller.isGift,
+                onTap: () {
+                  controller.setMode(true);
+                  widget.onModeChanged?.call(true);
+                },
               ),
-              if (controller.error != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  controller.error!,
-                  style: const TextStyle(color: AppTheme.error, fontSize: 12),
-                ),
-              ],
-              if (controller.verifiedName != null) ...[
-                const SizedBox(height: 10),
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: AppTheme.success.withValues(alpha: 0.08),
-                    borderRadius: BorderRadius.circular(10),
-                    border: Border.all(
-                        color: AppTheme.success.withValues(alpha: 0.3)),
+              if (controller.isGift) ...[
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _payerController,
+                  keyboardType: TextInputType.phone,
+                  decoration: const InputDecoration(
+                    labelText: 'Numéro du payeur (Mobile Money)',
+                    hintText: 'Ex: 0973123456',
+                    prefixIcon: Icon(Icons.payments_outlined),
+                    border: OutlineInputBorder(),
                   ),
-                  child: Row(
-                    children: [
-                      const Icon(Icons.verified_user_rounded,
-                          color: AppTheme.success, size: 20),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              controller.verifiedName!,
-                              style: const TextStyle(
-                                fontWeight: FontWeight.w600,
-                                fontSize: 13,
+                  onChanged: controller.setPayerPhone,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _beneficiaryController,
+                  keyboardType: TextInputType.phone,
+                  decoration: InputDecoration(
+                    labelText: 'Numéro du bénéficiaire',
+                    hintText: 'Compte étudiant qui reçoit l\'achat',
+                    prefixIcon: const Icon(Icons.school_outlined),
+                    border: const OutlineInputBorder(),
+                    suffixIcon: TextButton(
+                      onPressed: controller.isVerifying
+                          ? null
+                          : () => controller.verify(widget.apiService),
+                      child: controller.isVerifying
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Text('Vérifier'),
+                    ),
+                  ),
+                  onChanged: controller.setBeneficiaryPhone,
+                ),
+                if (controller.error != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    controller.error!,
+                    style: const TextStyle(color: AppTheme.error, fontSize: 12),
+                  ),
+                ],
+                if (controller.verifiedName != null) ...[
+                  const SizedBox(height: 10),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: AppTheme.success.withValues(alpha: 0.08),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                          color: AppTheme.success.withValues(alpha: 0.3)),
+                    ),
+                    child: Row(
+                      children: [
+                        const Icon(Icons.verified_user_rounded,
+                            color: AppTheme.success, size: 20),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                controller.verifiedName!,
+                                style: const TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 13,
+                                ),
                               ),
-                            ),
-                            Text(
-                              [
-                                if (controller.verifiedMaskedPhone != null)
-                                  controller.verifiedMaskedPhone!,
-                                if (controller.verifiedPromotion != null)
-                                  controller.verifiedPromotion!,
-                              ].join(' • '),
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: theme.colorScheme.onSurfaceVariant,
+                              Text(
+                                [
+                                  if (controller.verifiedMaskedPhone != null)
+                                    controller.verifiedMaskedPhone!,
+                                  if (controller.verifiedPromotion != null)
+                                    controller.verifiedPromotion!,
+                                ].join(' • '),
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
                               ),
-                            ),
-                          ],
+                            ],
+                          ),
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'L\'achat sera attribué à ce compte. Vous resterez enregistré '
-                  'comme payeur.',
-                  style: TextStyle(fontSize: 11, color: AppTheme.textLight),
-                ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'L\'achat sera attribué à ce compte. Vous resterez enregistré '
+                    'comme payeur.',
+                    style: TextStyle(fontSize: 11, color: AppTheme.textLight),
+                  ),
+                ],
               ],
             ],
-          ],
+          ),
         );
       },
     );
