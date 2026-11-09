@@ -817,41 +817,95 @@ class _SummaryDetailsScreenState extends ConsumerState<SummaryDetailsScreen> wit
     );
   }
 
+  /// Aperçu affiché au réviseur Apple avant l'achat (contenu réel, tronqué).
+  String get _applePreviewContent {
+    final text = _summaryContent.trim().replaceAll(RegExp(r'\s+'), ' ');
+    if (text.isEmpty || text == '__FETCH_REQUIRED__') {
+      return 'Aperçu du résumé indisponible.';
+    }
+    return text.length > 240 ? '${text.substring(0, 240)}…' : text;
+  }
+
   Future<void> _showApplePurchaseDialog() async {
+    final theme = Theme.of(context);
+
     await showDialog(
       context: context,
       barrierDismissible: true,
       builder: (dialogContext) => AlertDialog(
         title: const Text('Acheter le résumé'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'Prix : ${widget.summary.price.toStringAsFixed(0)} FC',
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                    color: Colors.green,
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Le réviseur doit voir le contenu concerné avant le paiement.
+                Text(
+                  widget.summary.title,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
                   ),
-            ),
-            const SizedBox(height: 16),
-            ApplePurchaseButton(
-              summaryId: widget.summary.id,
-              summaryPrice: widget.summary.price,
-              title: widget.summary.title,
-              onSuccess: () {
-                if (!mounted) return;
-                Navigator.of(dialogContext).pop();
-                _checkPurchaseStatus();
-                _fetchFullSummary();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content: Text('Achat Apple confirmé !'),
-                    backgroundColor: Colors.green,
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  '${widget.summary.subject} · Par ${widget.summary.authorName}',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: theme.colorScheme.onSurfaceVariant,
                   ),
-                );
-              },
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.surfaceVariant.withValues(alpha: 0.35),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
+                  child: Text(
+                    _applePreviewContent,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      height: 1.4,
+                      color: theme.colorScheme.onSurface,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'Prix du résumé : ${widget.summary.price.toStringAsFixed(0)} FC',
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                const Text(
+                  'Le prix final est celui affiché par l\'App Store ci-dessous.',
+                  style: TextStyle(fontSize: 11.5, color: AppTheme.textLight),
+                ),
+                const SizedBox(height: 12),
+                ApplePurchaseButton(
+                  summaryId: widget.summary.id,
+                  summaryPrice: widget.summary.price,
+                  title: widget.summary.title,
+                  onSuccess: () {
+                    if (!mounted) return;
+                    Navigator.of(dialogContext).pop();
+                    _checkPurchaseStatus();
+                    _fetchFullSummary();
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(
+                        content: Text('Achat Apple confirmé !'),
+                        backgroundColor: Colors.green,
+                      ),
+                    );
+                  },
+                ),
+              ],
             ),
-          ],
+          ),
         ),
         actions: [
           TextButton(
