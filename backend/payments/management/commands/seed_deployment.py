@@ -99,6 +99,16 @@ class Command(BaseCommand):
             help='Générations complètes par jour (0 = dérivé du quota).',
         )
         parser.add_argument(
+            '--qcm-apple-price',
+            default='',
+            help='Prix Apple déclaré du produit QCM (ex. 0.99), sans conversion automatique.',
+        )
+        parser.add_argument(
+            '--qcm-apple-currency',
+            default='',
+            help='Devise du prix Apple (ex. USD).',
+        )
+        parser.add_argument(
             '--with-legacy-plans',
             action='store_true',
             help='Créer aussi les anciens plans Basic / Premium / VIP.',
@@ -234,6 +244,21 @@ class Command(BaseCommand):
         }
         if options['qcm_product_id']:
             qcm_defaults['apple_product_id'] = options['qcm_product_id']
+
+        if options['qcm_apple_price']:
+            if not options['qcm_apple_currency']:
+                raise CommandError(
+                    '--qcm-apple-currency est requis avec --qcm-apple-price.'
+                )
+            try:
+                qcm_defaults['apple_price'] = Decimal(
+                    str(options['qcm_apple_price'])
+                )
+            except (InvalidOperation, TypeError):
+                raise CommandError('--qcm-apple-price invalide.')
+            qcm_defaults['apple_currency'] = (
+                options['qcm_apple_currency'].strip().upper()
+            )
 
         self._ensure_service(options['qcm_nom'], qcm_defaults)
 

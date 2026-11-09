@@ -87,6 +87,7 @@ class _ApplePurchaseButtonState extends State<ApplePurchaseButton> {
 
   bool _loading = true;
   bool _successHandled = false;
+  bool _pendingFinalizationHandled = false;
   String? _priceLabel;
 
   @override
@@ -121,6 +122,21 @@ class _ApplePurchaseButtonState extends State<ApplePurchaseButton> {
     if (state.status == AppleIapStatus.success && !_successHandled) {
       _successHandled = true;
       widget.onSuccess?.call();
+    } else if (state.status ==
+            AppleIapStatus.validatedPendingFinalization &&
+        !_pendingFinalizationHandled) {
+      // Le droit est acquis côté Django, mais StoreKit n'a pas encore
+      // terminé la transaction : rafraîchir l'accès et l'indiquer clairement.
+      _pendingFinalizationHandled = true;
+      SnackbarService.show(
+        state.message ??
+            'Achat validé. Finalisation Apple en attente — '
+                'elle reprendra automatiquement.',
+        isError: false,
+      );
+      widget.onSuccess?.call();
+      if (!mounted) return;
+      setState(() {});
     } else if (state.status == AppleIapStatus.error &&
         state.message != null) {
       SnackbarService.show(state.message!, isError: true);
@@ -190,7 +206,10 @@ class _ApplePurchaseButtonState extends State<ApplePurchaseButton> {
     return ValueListenableBuilder<AppleIapState>(
       valueListenable: _service.state,
       builder: (context, state, _) {
-        final busy = state.status == AppleIapStatus.purchasing ||
+        final pendingFinalization =
+            state.status == AppleIapStatus.validatedPendingFinalization;
+        final busy = pendingFinalization ||
+            state.status == AppleIapStatus.purchasing ||
             state.status == AppleIapStatus.verifying ||
             state.status == AppleIapStatus.pending;
 
@@ -202,20 +221,24 @@ class _ApplePurchaseButtonState extends State<ApplePurchaseButton> {
               height: 50,
               child: ElevatedButton.icon(
                 onPressed: busy ? null : _buy,
-                icon: busy
-                    ? const SizedBox(
-                        width: 18,
-                        height: 18,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          color: Colors.white,
-                        ),
-                      )
-                    : const Icon(Icons.apple, size: 22),
+                icon: pendingFinalization
+                    ? const Icon(Icons.hourglass_top_rounded, size: 20)
+                    : busy
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: Colors.white,
+                            ),
+                          )
+                        : const Icon(Icons.apple, size: 22),
                 label: Text(
-                  busy
-                      ? 'Paiement en cours…'
-                      : 'Payer $_priceLabel avec Apple',
+                  pendingFinalization
+                      ? 'Finalisation Apple en attente…'
+                      : busy
+                          ? 'Paiement en cours…'
+                          : 'Payer $_priceLabel avec Apple',
                   style: const TextStyle(
                     fontSize: 15,
                     fontWeight: FontWeight.w700,

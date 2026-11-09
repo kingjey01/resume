@@ -363,6 +363,10 @@ APPLE_ISSUER_ID = config('APPLE_ISSUER_ID', default='')
 APPLE_KEY_ID = config('APPLE_KEY_ID', default='')
 APPLE_PRIVATE_KEY_PATH = config('APPLE_PRIVATE_KEY_PATH', default='')
 APPLE_ENVIRONMENT = config('APPLE_ENVIRONMENT', default='Production')
+# Liste optionnelle : "Sandbox,Production" pendant une revue Apple.
+APPLE_ALLOWED_ENVIRONMENTS = config(
+    'APPLE_ALLOWED_ENVIRONMENTS', default='',
+)
 APPLE_APP_APPLE_ID = config('APPLE_APP_APPLE_ID', default='')
 APPLE_SUMMARY_PRODUCTS = config('APPLE_SUMMARY_PRODUCTS', default='{}')
 

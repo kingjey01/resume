@@ -513,6 +513,11 @@ APPLE_ISSUER_ID = config('APPLE_ISSUER_ID', default='')
 APPLE_KEY_ID = config('APPLE_KEY_ID', default='')
 APPLE_PRIVATE_KEY_PATH = config('APPLE_PRIVATE_KEY_PATH', default='')
 APPLE_ENVIRONMENT = config('APPLE_ENVIRONMENT', default='Sandbox')
+# Liste optionnelle : "Sandbox,Production" pour accepter les deux pendant
+# une revue Apple. Vide = uniquement APPLE_ENVIRONMENT.
+APPLE_ALLOWED_ENVIRONMENTS = config(
+    'APPLE_ALLOWED_ENVIRONMENTS', default='',
+)
 APPLE_APP_APPLE_ID = config('APPLE_APP_APPLE_ID', default='')
 # JSON {product_id: prix_cdf} pour les achats de résumé.
 APPLE_SUMMARY_PRODUCTS = config('APPLE_SUMMARY_PRODUCTS', default='{}')

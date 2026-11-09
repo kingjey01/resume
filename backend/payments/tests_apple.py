@@ -7,11 +7,14 @@ Aucun appel Apple réel : le vérificateur est remplacé par un faux objet.
 """
 
 import json
+from datetime import timedelta
+from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
+from django.utils import timezone
 from rest_framework.test import APIClient
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -24,11 +27,15 @@ BUNDLE_ID = 'com.kingjey01.resumeplus'
 SUMMARY_PRODUCT = 'com.kingjey01.resumeplus.summary.1000'
 SUB_PRODUCT = 'com.kingjey01.resumeplus.qcm.monthly'
 
+USER_APP_TOKEN = '11111111-1111-4111-8111-111111111111'
+OTHER_APP_TOKEN = '22222222-2222-4222-8222-222222222222'
+
 
 def _payload(
     *, product_id=SUMMARY_PRODUCT, transaction_id='tx-1',
     original_id='orig-1', expires_ms=None, purchase_ms=1_700_000_000_000,
-    revocation_ms=None, app_account_token=None,
+    revocation_ms=None, app_account_token=USER_APP_TOKEN,
+    price=990, currency='USD',
 ):
     return SimpleNamespace(
         bundleId=BUNDLE_ID,
@@ -41,6 +48,8 @@ def _payload(
         revocationDate=revocation_ms,
         revocationReason=None,
         appAccountToken=app_account_token,
+        price=price,
+        currency=currency,
     )
 
 
@@ -64,7 +73,14 @@ class FakeVerifier:
 @override_settings(
     APPLE_BUNDLE_ID=BUNDLE_ID,
     APPLE_ENVIRONMENT='Sandbox',
-    APPLE_SUMMARY_PRODUCTS=json.dumps({SUMMARY_PRODUCT: 1000}),
+    APPLE_ALLOWED_ENVIRONMENTS='Sandbox',
+    APPLE_SUMMARY_PRODUCTS=json.dumps({
+        SUMMARY_PRODUCT: {
+            'summary_price_cdf': 1000,
+            'apple_price': '0.99',
+            'currency': 'USD',
+        }
+    }),
     DEBUG=True,
     ENABLE_CATALOG_CACHE=False,
 )
@@ -83,11 +99,15 @@ class AppleIapTest(TestCase):
             user=cls.user, groupe='ETUDIANT',
             universite=cls.universite, filiere=cls.filiere,
             promotion=cls.promotion,
+            apple_app_account_token=USER_APP_TOKEN,
         )
         cls.other = User.objects.create_user(
             username='iap_other', password='testpass123',
         )
-        UserProfile.objects.create(user=cls.other, groupe='ETUDIANT')
+        UserProfile.objects.create(
+            user=cls.other, groupe='ETUDIANT',
+            apple_app_account_token=OTHER_APP_TOKEN,
+        )
 
         cls.course = Course.objects.create(
             nom='Cours IAP', filiere='Filière IAP', university='Université IAP',
@@ -101,10 +121,21 @@ class AppleIapTest(TestCase):
             course=cls.course, author_type='cp',
             is_validated=True, prix=1000,
         )
+        cls.summary_flexpay = Summary.objects.create(
+            titre='Résumé FlexPay', texte_resume='Contenu FlexPay',
+            course=cls.course, author_type='cp',
+            is_validated=True, prix=500,
+        )
         cls.service = Service.objects.create(
             nom='QCM IAP', description='QCM', type='basic',
             price=5000, currency='CDF', duree_mois=1,
             apple_product_id=SUB_PRODUCT,
+            apple_price=Decimal('0.99'),
+            apple_currency='USD',
+        )
+        cls.service_flexpay = Service.objects.create(
+            nom='QCM FlexPay', description='QCM FlexPay', type='basic',
+            price=3000, currency='CDF', duree_mois=1,
         )
 
     def _client(self, user=None):
@@ -132,12 +163,40 @@ class AppleIapTest(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertEqual(data['summary_products'][0]['product_id'], SUMMARY_PRODUCT)
+        self.assertEqual(data['summary_products'][0]['business_price'], '1000')
+        self.assertEqual(data['summary_products'][0]['business_currency'], 'CDF')
+        self.assertEqual(data['summary_products'][0]['apple_price'], '0.99')
+        self.assertEqual(data['summary_products'][0]['apple_currency'], 'USD')
         self.assertEqual(data['subscriptions'][0]['product_id'], SUB_PRODUCT)
+        self.assertEqual(data['subscriptions'][0]['business_price'], '5000.00')
+        self.assertEqual(data['subscriptions'][0]['business_currency'], 'CDF')
+        self.assertEqual(data['subscriptions'][0]['apple_price'], '0.99')
+        self.assertEqual(data['subscriptions'][0]['apple_currency'], 'USD')
         self.assertNotIn('apiKey', data)
 
-    def test_endpoint_verification_authentifie(self):
+    def test_produits_apple_publics_sans_token(self):
+        response = APIClient().get('/api/apple/products/')
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIsNone(data.get('app_account_token'))
+        for interdit in ('user', 'user_id', 'email', 'phone', 'profile'):
+            self.assertNotIn(interdit, data)
+        self.assertTrue(data['summary_products'])
+
+    def test_endpoint_verification_refuse_sans_token(self):
         response = APIClient().post('/api/apple/verify/', {'signed_transaction': 'x'})
         self.assertEqual(response.status_code, 401)
+        self.assertIn(response.status_code, (401, 403))
+
+    def test_notifications_apple_non_soumise_a_authentification(self):
+        response = self.client.post(
+            '/api/apple/notifications/',
+            data='{}',
+            content_type='application/json',
+        )
+        # Pas de 401/403 : Apple doit pouvoir appeler l'endpoint sans JWT.
+        self.assertNotIn(response.status_code, (401, 403))
+        self.assertEqual(response.status_code, 400)
 
     # ── Achat de résumé ───────────────────────────────────────────────────
 
@@ -180,6 +239,39 @@ class AppleIapTest(TestCase):
         self.summary.save(update_fields=['prix'])
         response = self._verify_summary()
         self.assertEqual(response.status_code, 400)
+        self.assertFalse(Purchase.objects.exists())
+
+    def test_prix_apple_incoherent_refuse(self):
+        # Le produit configuré vaut 0,99 USD (990 milliunités), pas 0,50.
+        payload = _payload(price=500, currency='USD')
+        response = self._verify_summary(payload=payload)
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Purchase.objects.exists())
+
+    def test_devise_apple_incoherente_refusee(self):
+        payload = _payload(price=990, currency='EUR')
+        response = self._verify_summary(payload=payload)
+        self.assertEqual(response.status_code, 400)
+
+    def test_transaction_sans_app_account_token_refusee(self):
+        payload = _payload(app_account_token=None)
+        response = self._verify_summary(payload=payload)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Purchase.objects.exists())
+
+    def test_transaction_avec_token_different_refusee(self):
+        payload = _payload(app_account_token=OTHER_APP_TOKEN)
+        response = self._verify_summary(payload=payload)
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Purchase.objects.exists())
+
+    def test_profil_sans_app_account_token_refuse(self):
+        profile = self.user.profile
+        profile.apple_app_account_token = None
+        profile.save(update_fields=['apple_app_account_token'])
+
+        response = self._verify_summary()
+        self.assertEqual(response.status_code, 403)
         self.assertFalse(Purchase.objects.exists())
 
     def test_produit_inconnu_refuse(self):
@@ -231,6 +323,20 @@ class AppleIapTest(TestCase):
         )
         self.assertTrue(abonnement.auto_renew)
         self.assertEqual(Purchase.objects.get(service=self.service).source, 'apple')
+
+    def test_abonnement_prix_apple_incoherent_refuse(self):
+        payload = _payload(
+            product_id=SUB_PRODUCT, transaction_id='tx-sub-bad',
+            original_id='orig-sub-bad', expires_ms=1_900_000_000_000,
+            price=5000, currency='USD',
+        )
+        with patch('payments.apple_iap.get_verifier',
+                   return_value=FakeVerifier(payload=payload)):
+            response = self._client().post(
+                '/api/apple/verify/', {'signed_transaction': 'signed'},
+            )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Abonnement.objects.exists())
 
     # ── Notifications ─────────────────────────────────────────────────────
 
@@ -295,6 +401,31 @@ class AppleIapTest(TestCase):
         self.assertEqual(Abonnement.objects.filter(service=self.service).count(), 1)
         self.assertEqual(AppleNotification.objects.count(), 1)
 
+    def test_notification_avec_token_different_ignoree(self):
+        expires = 1_900_000_000_000
+        initial = _payload(
+            product_id=SUB_PRODUCT, transaction_id='tx-token-mismatch',
+            original_id='orig-token-mismatch', expires_ms=expires,
+        )
+        self.assertEqual(self._verify_subscription(initial).status_code, 200)
+        abonnement = Abonnement.objects.get(service=self.service)
+        date_fin_initiale = abonnement.date_fin
+
+        renewal = _payload(
+            product_id=SUB_PRODUCT, transaction_id='tx-token-mismatch-2',
+            original_id='orig-token-mismatch',
+            expires_ms=expires + 30 * 24 * 3600 * 1000,
+            app_account_token=OTHER_APP_TOKEN,
+        )
+        with self._notification('DID_RENEW', payload=renewal, uuid='n-mismatch'):
+            response = self._post_notification()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'ignored')
+        abonnement.refresh_from_db()
+        self.assertEqual(abonnement.date_fin, date_fin_initiale)
+        self.assertEqual(AppleTransaction.objects.count(), 1)
+
     def test_notification_initiale_avec_app_account_token(self):
         from .apple_iap import app_account_token_for_user
 
@@ -353,15 +484,38 @@ class AppleIapTest(TestCase):
         )
         self.assertEqual(self._verify_subscription(payload).status_code, 200)
 
+        # Abonnement FlexPay indépendant : il doit rester actif.
+        abonnement_flexpay = Abonnement.objects.create(
+            user=self.user,
+            service=self.service_flexpay,
+            source='flexpay',
+            status='active',
+            date_fin=timezone.now() + timedelta(days=30),
+        )
+
         with self._notification('EXPIRED', payload=payload, uuid='n-exp'):
             response = self._post_notification()
         self.assertEqual(response.status_code, 200)
         abonnement = Abonnement.objects.get(service=self.service)
         self.assertEqual(abonnement.status, 'expired')
 
+        abonnement_flexpay.refresh_from_db()
+        self.assertEqual(abonnement_flexpay.status, 'active')
+        self.assertEqual(abonnement_flexpay.source, 'flexpay')
+
     def test_notification_remboursement_resume(self):
         self.assertEqual(self._verify_summary().status_code, 200)
         purchase = Purchase.objects.get(summary=self.summary)
+
+        # Achat FlexPay indépendant : il ne doit jamais être touché.
+        achat_flexpay = Purchase.objects.create(
+            user=self.user,
+            summary=self.summary_flexpay,
+            amount=500,
+            payment_method='mobile_money',
+            status='completed',
+            transaction_id='flexpay-summary-1',
+        )
 
         payload = _payload(transaction_id='tx-summary')
         with self._notification('REFUND', payload=payload, uuid='n-refund'):
@@ -370,3 +524,7 @@ class AppleIapTest(TestCase):
 
         purchase.refresh_from_db()
         self.assertEqual(purchase.status, 'refunded')
+
+        achat_flexpay.refresh_from_db()
+        self.assertEqual(achat_flexpay.status, 'completed')
+        self.assertEqual(achat_flexpay.source, 'flexpay')

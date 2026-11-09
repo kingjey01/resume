@@ -61,6 +61,16 @@ class Service(models.Model):
         max_length=200, blank=True, default='',
         help_text="Identifiant du produit d'abonnement Apple (App Store Connect)",
     )
+    # Prix réellement configuré côté App Store, déclaré explicitement : aucune
+    # conversion automatique entre le prix CDF du service et le prix Apple.
+    apple_price = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        help_text="Prix Apple déclaré (ex. 0.99), sans conversion automatique",
+    )
+    apple_currency = models.CharField(
+        max_length=3, blank=True, default='',
+        help_text="Devise du prix Apple (ex. USD)",
+    )
 
     def get_date_fin(self, date_debut=None):
         """

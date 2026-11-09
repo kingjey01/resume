@@ -23,23 +23,45 @@ logger = logging.getLogger(__name__)
 
 
 @api_view(['GET'])
-@permission_classes([permissions.IsAuthenticated])
+@permission_classes([permissions.AllowAny])
 def apple_products_view(request):
     """Configuration produits Apple pour le client iOS.
 
-    Aucun secret : uniquement les identifiants publics et les prix.
+    Endpoint PUBLIC : uniquement les identifiants produits et les prix
+    (informations App Store publiques). Aucun secret, aucun identifiant
+    d'utilisateur ni donnée personnelle.
+
+    `app_account_token` n'est renseigné que pour un appelant authentifié
+    (c'est son propre jeton opaque StoreKit) ; il vaut `null` pour un appel
+    anonyme.
     """
     summary_products = [
-        {'product_id': product_id, 'price': str(price)}
-        for product_id, price in sorted(
-            _summary_products().items(), key=lambda item: item[1]
+        {
+            'product_id': offre.product_id,
+            # Noms explicites : le prix métier du résumé est en CDF, le prix
+            # Apple et sa devise sont distincts (aucune conversion supposée).
+            'business_price': str(offre.summary_price),
+            'business_currency': 'CDF',
+            'apple_price': (
+                str(offre.apple_price) if offre.apple_price is not None else None
+            ),
+            'apple_currency': offre.currency or None,
+            # Compatibilité avec les clients précédents.
+            'price': str(offre.summary_price),
+            'currency': offre.currency or None,
+        }
+        for offre in sorted(
+            _summary_products().values(), key=lambda item: item.summary_price
         )
     ]
 
     subscriptions = list(
         Service.objects.filter(is_active=True)
         .exclude(apple_product_id='')
-        .values('id', 'nom', 'price', 'currency', 'apple_product_id')
+        .values(
+            'id', 'nom', 'price', 'currency', 'apple_product_id',
+            'apple_price', 'apple_currency',
+        )
     )
 
     profile = getattr(request.user, 'profile', None)
@@ -55,6 +77,14 @@ def apple_products_view(request):
                 'service_id': service['id'],
                 'service_name': service['nom'],
                 'product_id': service['apple_product_id'],
+                'business_price': str(service['price']),
+                'business_currency': service['currency'],
+                'apple_price': (
+                    str(service['apple_price'])
+                    if service['apple_price'] is not None else None
+                ),
+                'apple_currency': service['apple_currency'] or None,
+                # Compatibilité avec les clients précédents.
                 'price': str(service['price']),
                 'currency': service['currency'],
             }

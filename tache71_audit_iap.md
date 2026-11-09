@@ -101,14 +101,21 @@ Les résumés ont des **prix dynamiques**. Apple impose un prix fixe par produit
 IAP. La seule solution scalable est un **produit consommable par palier de
 prix** :
 
-```
-APPLE_SUMMARY_PRODUCTS={"com.kingjey01.resumeplus.summary.300": 300,
-                        "com.kingjey01.resumeplus.summary.500": 500, ...}
+```json
+{
+  "com.kingjey01.resumeplus.summary.300": {
+    "summary_price_cdf": 300,
+    "apple_price": "0.99",
+    "currency": "USD"
+  }
+}
 ```
 
 - Flutter choisit le produit correspondant au prix du résumé.
-- Le backend vérifie que le prix du produit correspond exactement au prix du
-  résumé avant d'attribuer le droit.
+- Le backend vérifie que le prix du résumé correspond à `summary_price_cdf`
+  **et** que le montant/devise de la transaction signée Apple correspond à
+  `apple_price`/`currency`. Aucune conversion automatique 300 CDF ↔ 0,99 USD
+  n'est supposée : l'équivalence est déclarée explicitement.
 - L'achat est **consommable** (pas d'abonnement) ; la restauration StoreKit ne
   s'applique pas aux consommables, mais le droit reste attaché au compte Django
   et est retrouvé à la connexion sur iOS. C'est le comportement attendu pour un
