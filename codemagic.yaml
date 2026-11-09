@@ -192,6 +192,35 @@ workflows:
           echo "Pods intégrés :"
           grep -n "Firebase" ios/Podfile.lock | head -20
 
+      - name: Validate build version
+        script: |
+          set -e
+
+          echo "Branche : $(git rev-parse --abbrev-ref HEAD)"
+          echo "Commit : $(git rev-parse HEAD)"
+
+          VERSION_LINE=$(grep -E '^version:' pubspec.yaml | head -1)
+          echo "pubspec : $VERSION_LINE"
+
+          BUILD_NUMBER=$(echo "$VERSION_LINE" | sed -E 's/.*\+([0-9]+).*/\1/')
+          BUILD_NAME=$(echo "$VERSION_LINE" | sed -E 's/version:[[:space:]]*([0-9.]+)\+.*/\1/')
+
+          echo "versionName=$BUILD_NAME buildNumber=$BUILD_NUMBER"
+
+          # App Store Connect refuse un build déjà utilisé (68 au dernier
+          # upload). Échouer AVANT l'archive plutôt qu'après l'upload.
+          if [ -z "$BUILD_NUMBER" ] || [ "$BUILD_NUMBER" -le 68 ]; then
+            echo "ERROR: build number '$BUILD_NUMBER' invalide (doit être > 68)."
+            echo "Vérifier la branche/le commit sélectionné dans Codemagic :"
+            echo "  attendu : feat/tache60-catalogue-perf (1.1.22+70)."
+            exit 1
+          fi
+
+          # Graver la version dans l'xcconfig utilisé par l'archive.
+          echo "FLUTTER_BUILD_NAME=$BUILD_NAME" >> ios/Flutter/Generated.xcconfig
+          echo "FLUTTER_BUILD_NUMBER=$BUILD_NUMBER" >> ios/Flutter/Generated.xcconfig
+          grep -E "FLUTTER_BUILD_NAME|FLUTTER_BUILD_NUMBER" ios/Flutter/Generated.xcconfig
+
       - name: Set up code signing settings on Xcode project
         script: |
           set -e
